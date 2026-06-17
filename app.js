@@ -411,6 +411,14 @@
     return state.supabaseSession?.user?.email || state.settings?.currentUserEmail || "";
   }
 
+  function displayUserName() {
+    const email = signedInEmail();
+    if (!email) return `${state.profile?.name || "Sawyer"} team`;
+    const localPart = email.split("@")[0] || "";
+    const first = localPart.split(/[._-]/).filter(Boolean)[0] || localPart;
+    return capitalize(first);
+  }
+
   function authErrorMessage(error) {
     const message = String(error?.message || "").trim();
     const status = error?.status || error?.statusCode;
@@ -473,14 +481,6 @@
 
     app.innerHTML = `
       <div class="screen">
-        <header class="topbar">
-          <div class="brand-block">
-            <p class="eyebrow">${escapeHtml(formatDateShort(new Date()))}</p>
-            <h1>${escapeHtml(state.profile?.name || "Sawyer")} Tracker</h1>
-          </div>
-          <button class="btn secondary small" data-action="quick-note">Note</button>
-        </header>
-
         <main class="content">
           <section class="view ${state.activeTab === "today" ? "active" : ""}" data-view="today">
             ${renderToday(summary, todayEntries)}
@@ -504,11 +504,11 @@
         </main>
 
         <nav class="bottom-nav" aria-label="Main navigation">
-          ${navButton("today", "Today", "●")}
+          ${navButton("today", "Today", "⌂")}
           ${navButton("log", "Log", "+")}
           ${navButton("timeline", "History", "≡")}
-          ${navButton("insights", "Insights", "↗")}
-          ${navButton("backup", "Backup", "⇧")}
+          ${navButton("insights", "Stats", "▥")}
+          ${navButton("backup", "More", "○")}
         </nav>
         <div id="toast" class="toast" role="status"></div>
       </div>
@@ -529,39 +529,50 @@
   function renderToday(summary, entries) {
     const nextDue = getNextDueEntry(entries);
     const installClass = state.installPrompt ? "panel install-banner ready" : "panel install-banner";
+    const pendingEntries = entries.filter((entry) => entry.status !== "given");
 
     return `
-      <div class="stack">
-        <section class="panel hero-status">
-          <div>
-            <p class="eyebrow">Seizure gap</p>
-            <div class="hero-number">
-              <strong>${summary.daysSinceLast ?? "--"}</strong>
-              <span>${summary.daysSinceLast === 1 ? "day" : "days"}</span>
+      <div class="home-stack">
+        <section class="home-hero glass-panel">
+          <div class="home-topline">
+            <div class="avatar" aria-hidden="true">${escapeHtml((state.profile?.name || "S").charAt(0))}</div>
+            <div class="welcome-copy">
+              <p class="eyebrow">${escapeHtml(formatWelcomeDate(new Date()))}</p>
+              <h1>Hello, ${escapeHtml(displayUserName())}</h1>
             </div>
-            <p class="subtle">${escapeHtml(summary.lastSeizureText)}</p>
+            <button class="icon-button" data-action="quick-note" type="button" aria-label="Add care note">+</button>
           </div>
-          <div class="metric-row">
-            <div class="metric">
+
+          <div class="stat-glass-grid" aria-label="Tracking statistics">
+            <article class="stat-card featured">
+              <span>Seizure-free</span>
+              <strong>${summary.daysSinceLast ?? "--"}</strong>
+              <small>${summary.daysSinceLast === 1 ? "day" : "days"}</small>
+            </article>
+            <article class="stat-card">
               <span>Total</span>
               <strong>${summary.totalSeizures}</strong>
-            </div>
-            <div class="metric">
-              <span>Avg gap</span>
+              <small>seizures</small>
+            </article>
+            <article class="stat-card">
+              <span>Average gap</span>
               <strong>${summary.averageGapText}</strong>
-            </div>
-            <div class="metric">
-              <span>Next due</span>
+              <small>between logs</small>
+            </article>
+            <article class="stat-card">
+              <span>Next care</span>
               <strong>${nextDue ? escapeHtml(nextDue.shortLabel) : "Clear"}</strong>
-            </div>
+              <small>${pendingEntries.length ? `${pendingEntries.length} pending` : "all done"}</small>
+            </article>
           </div>
+
+          <button class="seizure-cta" data-tab="log" data-focus-seizure="true" type="button">
+            <span>Log Seizure</span>
+            <small>${escapeHtml(summary.lastSeizureText)}</small>
+          </button>
         </section>
 
-        <section class="quick-actions button-row">
-          <button class="btn primary" data-tab="log" data-focus-seizure="true">Log Seizure</button>
-          <button class="btn secondary" data-action="start-timer">Start Timer</button>
-          <button class="btn secondary" data-action="quick-note">Add Note</button>
-        </section>
+        ${renderWeekStrip()}
 
         <section class="${installClass}">
           <div class="panel-body">
@@ -575,21 +586,53 @@
           </div>
         </section>
 
-        <section class="panel">
-          <div class="panel-body">
-            <h2>Today</h2>
+        <section class="plan-grid">
+          <article class="plan-card care-card">
+            <div class="dose-main">
+              <div>
+                <p class="eyebrow">Today's plan</p>
+                <h2>Medication & supplements</h2>
+              </div>
+              <button class="btn secondary small" data-action="start-timer">Timer</button>
+            </div>
             <div class="dose-list">${entries.map(renderDoseRow).join("")}</div>
-          </div>
-        </section>
+          </article>
 
-        <section class="panel">
-          <div class="panel-body">
-            <h2>Recent</h2>
+          <article class="plan-card recent-card">
+            <div class="dose-main">
+              <div>
+                <p class="eyebrow">History</p>
+                <h2>Recent notes</h2>
+              </div>
+              <button class="btn ghost small" data-tab="timeline">View all</button>
+            </div>
             ${renderRecentList(4)}
-          </div>
+          </article>
         </section>
       </div>
     `;
+  }
+
+  function renderWeekStrip() {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(today.getDate() - 3);
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const isToday = date.toDateString() === today.toDateString();
+      const hasSeizure = state.events.some(
+        (event) => event.type === "seizure" && new Date(event.occurredAt).toDateString() === date.toDateString()
+      );
+      return `
+        <div class="day-pill ${isToday ? "active" : ""} ${hasSeizure ? "marked" : ""}">
+          <span>${escapeHtml(date.toLocaleDateString(undefined, { weekday: "short" }))}</span>
+          <strong>${date.getDate()}</strong>
+        </div>
+      `;
+    });
+
+    return `<section class="week-strip" aria-label="This week">${days.join("")}</section>`;
   }
 
   function renderDoseRow(entry) {
@@ -2082,6 +2125,14 @@
     return date.toLocaleDateString(undefined, {
       weekday: "short",
       month: "short",
+      day: "numeric"
+    });
+  }
+
+  function formatWelcomeDate(date) {
+    return date.toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "long",
       day: "numeric"
     });
   }
