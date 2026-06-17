@@ -2,6 +2,16 @@
 
 A local-first phone-friendly tracker for Sawyer's seizures, Epibrom, Phenomav, and MCT oil C8/C10.
 
+## Live App
+
+Open on iPhone in Safari:
+
+```text
+https://bliquecoin.github.io/sawyer-tracker/
+```
+
+Then use Share > Add to Home Screen.
+
 ## Run Locally
 
 ```sh
@@ -65,7 +75,13 @@ The publishable key is public. Access is protected by Supabase Auth plus Row Lev
 
 ### 3. Auth Settings
 
-In Supabase Auth URL settings, add the deployed app URL as an allowed redirect URL. Use the same URL you and your partner will open on your iPhones.
+The deployed app URL is:
+
+```text
+https://bliquecoin.github.io/sawyer-tracker/
+```
+
+Supabase accepted this redirect URL during setup.
 
 ### 4. Deploy for iPhone
 
