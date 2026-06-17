@@ -7,6 +7,7 @@
   const REMINDER_WINDOW_MINUTES = 15;
   const OVERDUE_MINUTES = 45;
   const SUPABASE_JS_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+  const FALLBACK_APP_URL = "https://bliquecoin.github.io/sawyer-tracker/";
   const SUPABASE_TABLES = {
     dogs: "sawyer_dogs",
     schedules: "sawyer_care_schedules",
@@ -384,6 +385,22 @@
         state.settings?.supabaseAnonKey &&
         state.settings?.supabaseHouseholdId
     );
+  }
+
+  function canonicalAppUrl() {
+    const configured = externalConfig.appUrl || externalConfig.siteUrl || "";
+    if (configured) return configured.endsWith("/") ? configured : `${configured}/`;
+
+    const url = new URL(window.location.href);
+    url.hash = "";
+    url.search = "";
+    if (url.pathname.endsWith("/index.html")) {
+      url.pathname = url.pathname.slice(0, -"index.html".length);
+    }
+    if (url.protocol === "http:" && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(url.hostname)) {
+      return FALLBACK_APP_URL;
+    }
+    return url.toString();
   }
 
   function isSignedIn() {
@@ -1264,7 +1281,7 @@
       const client = state.supabaseClient || (await initSupabase());
       if (!client) throw new Error("Add Supabase settings first.");
 
-      const redirectTo = window.location.href.split("#")[0].split("?")[0];
+      const redirectTo = canonicalAppUrl();
       const { error } = await client.auth.signInWithOtp({
         email,
         options: { emailRedirectTo: redirectTo }
