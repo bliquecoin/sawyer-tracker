@@ -133,6 +133,15 @@
     "Loud noise"
   ];
 
+  const TIMELINE_FILTERS = [
+    { id: "all", label: "All" },
+    { id: "seizure", label: "Seizures" },
+    { id: "dose", label: "Doses" },
+    { id: "note", label: "Notes" },
+    { id: "vet_visit", label: "Vet" },
+    { id: "blood_test", label: "Blood" }
+  ];
+
   init();
 
   async function init() {
@@ -584,6 +593,8 @@
 
         ${renderSeizureTrend(summary)}
 
+        ${renderHomeInsight(summary)}
+
         ${renderWeekStrip()}
 
         ${renderDayOverview(state.selectedDayKey)}
@@ -697,6 +708,21 @@
     `;
   }
 
+  function renderHomeInsight(summary) {
+    const insight = buildHomeInsight(summary);
+
+    return `
+      <section class="home-insight glass-panel">
+        <div>
+          <p class="eyebrow">Insight</p>
+          <h2>${escapeHtml(insight.title)}</h2>
+          <p class="subtle">${escapeHtml(insight.body)}</p>
+        </div>
+        <button class="btn ghost small" data-tab="insights" type="button">More</button>
+      </section>
+    `;
+  }
+
   function renderWeekStrip() {
     const today = new Date();
     const start = new Date(today);
@@ -726,14 +752,14 @@
     const events = eventsForDay(dayKey);
     const doses = getTodayDoseEntries(date);
     const seizures = events.filter((event) => event.type === "seizure");
-    const notes = events.filter((event) => event.type === "note");
+    const careRecords = events.filter((event) => ["note", "vet_visit", "blood_test"].includes(event.type));
     const exceptions = doses.filter((entry) => entry.status === "missed" || entry.status === "skipped");
     const headline = exceptions.length
       ? `${exceptions.length} dose exception${exceptions.length === 1 ? "" : "s"}`
       : "Medication assumed given";
     const eventList = events.length
       ? events.map((event) => `<li>${escapeHtml(eventTitle(event))}<span>${escapeHtml(formatTime(new Date(event.occurredAt)))}</span></li>`).join("")
-      : `<li>No seizure or note records<span>${doses.length} scheduled</span></li>`;
+      : `<li>No care records<span>${doses.length} scheduled</span></li>`;
 
     return `
       <section class="day-overview glass-panel">
@@ -747,7 +773,7 @@
         <div class="overview-metrics">
           <div><strong>${seizures.length}</strong><span>Seizures</span></div>
           <div><strong>${exceptions.length}</strong><span>Missed</span></div>
-          <div><strong>${notes.length}</strong><span>Notes</span></div>
+          <div><strong>${careRecords.length}</strong><span>Care</span></div>
         </div>
         <ul class="overview-list">${eventList}</ul>
       </section>
@@ -879,6 +905,78 @@
               </div>
               <button class="btn primary" type="submit">Save Note</button>
             </form>
+
+            <div class="form-divider"></div>
+
+            <h2>Vet Visit</h2>
+            <form id="vet-form" class="form-grid">
+              <div class="grid two">
+                <div class="field">
+                  <label for="vet-date">Date</label>
+                  <input id="vet-date" name="date" type="date" value="${localDate}" required />
+                </div>
+                <div class="field">
+                  <label for="vet-time">Time</label>
+                  <input id="vet-time" name="time" type="time" value="${localTime}" />
+                </div>
+              </div>
+              <div class="field">
+                <label for="vet-clinic">Clinic or vet</label>
+                <input id="vet-clinic" name="clinic" placeholder="Vet name or clinic" />
+              </div>
+              <div class="field">
+                <label for="vet-reason">Reason</label>
+                <input id="vet-reason" name="reason" placeholder="Checkup, seizure review, medication review" required />
+              </div>
+              <div class="field">
+                <label for="vet-weight">Weight</label>
+                <input id="vet-weight" name="weight" placeholder="Example: 24.8 kg" />
+              </div>
+              <div class="field">
+                <label for="vet-plan">Plan / medication changes</label>
+                <textarea id="vet-plan" name="plan" placeholder="Next steps, dosage changes, follow-up date"></textarea>
+              </div>
+              <button class="btn primary" type="submit">Save Vet Visit</button>
+            </form>
+
+            <div class="form-divider"></div>
+
+            <h2>Blood Test</h2>
+            <form id="blood-test-form" class="form-grid">
+              <div class="grid two">
+                <div class="field">
+                  <label for="blood-date">Date</label>
+                  <input id="blood-date" name="date" type="date" value="${localDate}" required />
+                </div>
+                <div class="field">
+                  <label for="blood-time">Time</label>
+                  <input id="blood-time" name="time" type="time" value="${localTime}" />
+                </div>
+              </div>
+              <div class="field">
+                <label for="blood-panel">Test / panel</label>
+                <input id="blood-panel" name="panel" placeholder="Phenobarbital level, bromide level, liver panel" required />
+              </div>
+              <div class="grid two">
+                <div class="field">
+                  <label for="blood-phenobarbital">Phenobarbital</label>
+                  <input id="blood-phenobarbital" name="phenobarbitalLevel" placeholder="Value and units" />
+                </div>
+                <div class="field">
+                  <label for="blood-bromide">Bromide</label>
+                  <input id="blood-bromide" name="bromideLevel" placeholder="Value and units" />
+                </div>
+              </div>
+              <div class="field">
+                <label for="blood-results">Results</label>
+                <textarea id="blood-results" name="results" placeholder="Paste key results or lab notes"></textarea>
+              </div>
+              <div class="field">
+                <label for="blood-notes">Notes</label>
+                <textarea id="blood-notes" name="notes" placeholder="Vet interpretation, recheck timing, changes"></textarea>
+              </div>
+              <button class="btn primary" type="submit">Save Blood Test</button>
+            </form>
           </div>
         </section>
       </div>
@@ -894,9 +992,9 @@
           <div class="panel-body">
             <h2>History</h2>
             <div class="filters">
-              ${["all", "seizure", "dose", "note"].map((filter) => `
-                <button class="btn small ${state.timelineFilter === filter ? "primary" : "secondary"}" data-filter="${filter}">
-                  ${capitalize(filter)}
+              ${TIMELINE_FILTERS.map((filter) => `
+                <button class="btn small ${state.timelineFilter === filter.id ? "primary" : "secondary"}" data-filter="${filter.id}">
+                  ${escapeHtml(filter.label)}
                 </button>
               `).join("")}
             </div>
@@ -1190,8 +1288,9 @@
 
     document.querySelectorAll("[data-day]").forEach((button) => {
       button.addEventListener("click", () => {
+        if (state.selectedDayKey === button.dataset.day) return;
         state.selectedDayKey = button.dataset.day;
-        render();
+        renderPreservingContentScroll();
       });
     });
 
@@ -1222,6 +1321,8 @@
 
     document.querySelector("#seizure-form")?.addEventListener("submit", saveSeizure);
     document.querySelector("#note-form")?.addEventListener("submit", saveNote);
+    document.querySelector("#vet-form")?.addEventListener("submit", saveVetVisit);
+    document.querySelector("#blood-test-form")?.addEventListener("submit", saveBloodTest);
     document.querySelector("#setup-form")?.addEventListener("submit", saveSetup);
     document.querySelector("#sync-config-form")?.addEventListener("submit", saveSyncConfig);
     document.querySelector("#login-form")?.addEventListener("submit", sendLoginLink);
@@ -1231,6 +1332,16 @@
     });
 
     bindPullRefresh();
+  }
+
+  function renderPreservingContentScroll() {
+    const content = document.querySelector(".content");
+    const scrollTop = content?.scrollTop || 0;
+    render();
+    requestAnimationFrame(() => {
+      const nextContent = document.querySelector(".content");
+      if (nextContent) nextContent.scrollTop = scrollTop;
+    });
   }
 
   function bindPullRefresh() {
@@ -1445,6 +1556,67 @@
     render();
     queueBackgroundSync();
     showToast("Note saved.");
+  }
+
+  async function saveVetVisit(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const date = String(form.get("date") || toDateInputValue(new Date()));
+    const time = String(form.get("time") || "12:00");
+    const occurredAt = new Date(`${date}T${time}`);
+    const timestamp = nowIso();
+
+    await dbPut("events", {
+      id: uid(),
+      dogId: DOG_ID,
+      type: "vet_visit",
+      dayKey: localDateKey(occurredAt),
+      occurredAt: occurredAt.toISOString(),
+      clinic: String(form.get("clinic") || "").trim(),
+      reason: String(form.get("reason") || "Vet visit").trim() || "Vet visit",
+      weight: String(form.get("weight") || "").trim(),
+      plan: String(form.get("plan") || "").trim(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      syncStatus: "local"
+    });
+
+    await hydrate();
+    state.activeTab = "today";
+    render();
+    queueBackgroundSync();
+    showToast("Vet visit saved.");
+  }
+
+  async function saveBloodTest(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const date = String(form.get("date") || toDateInputValue(new Date()));
+    const time = String(form.get("time") || "12:00");
+    const occurredAt = new Date(`${date}T${time}`);
+    const timestamp = nowIso();
+
+    await dbPut("events", {
+      id: uid(),
+      dogId: DOG_ID,
+      type: "blood_test",
+      dayKey: localDateKey(occurredAt),
+      occurredAt: occurredAt.toISOString(),
+      panel: String(form.get("panel") || "Blood test").trim() || "Blood test",
+      phenobarbitalLevel: String(form.get("phenobarbitalLevel") || "").trim(),
+      bromideLevel: String(form.get("bromideLevel") || "").trim(),
+      results: String(form.get("results") || "").trim(),
+      notes: String(form.get("notes") || "").trim(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      syncStatus: "local"
+    });
+
+    await hydrate();
+    state.activeTab = "today";
+    render();
+    queueBackgroundSync();
+    showToast("Blood test saved.");
   }
 
   async function saveSetup(event) {
@@ -2020,6 +2192,8 @@
   function buildInsights(summary) {
     const seizures = getSeizuresAsc();
     const gaps = getSeizureGaps(seizures);
+    const latestVet = latestEventOfType("vet_visit");
+    const latestBlood = latestEventOfType("blood_test");
     const insights = [];
 
     if (!seizures.length) {
@@ -2027,6 +2201,18 @@
         title: "Baseline",
         body: "Once seizures are logged, patterns will appear here as observations over time."
       });
+      if (latestVet) {
+        insights.push({
+          title: "Latest vet visit",
+          body: `${eventTitle(latestVet)} was logged on ${formatDateShort(new Date(latestVet.occurredAt))}.`
+        });
+      }
+      if (latestBlood) {
+        insights.push({
+          title: "Latest blood test",
+          body: `${eventTitle(latestBlood)} was logged on ${formatDateShort(new Date(latestBlood.occurredAt))}.`
+        });
+      }
       return insights;
     }
 
@@ -2067,12 +2253,72 @@
       });
     }
 
+    if (latestBlood) {
+      const levels = [
+        latestBlood.phenobarbitalLevel ? `phenobarbital ${latestBlood.phenobarbitalLevel}` : "",
+        latestBlood.bromideLevel ? `bromide ${latestBlood.bromideLevel}` : ""
+      ].filter(Boolean);
+      insights.push({
+        title: "Latest blood test",
+        body: `${latestBlood.panel || "Blood test"} was logged on ${formatDateShort(new Date(latestBlood.occurredAt))}${levels.length ? ` with ${levels.join(" and ")}.` : "."}`
+      });
+    }
+
+    if (latestVet) {
+      insights.push({
+        title: "Latest vet visit",
+        body: `${latestVet.reason || "Vet visit"} was logged on ${formatDateShort(new Date(latestVet.occurredAt))}${latestVet.plan ? ` with plan notes saved.` : "."}`
+      });
+    }
+
     insights.push({
       title: "Vet wording",
       body: "These are tracking observations only. Use them as notes for your vet, not as medical conclusions."
     });
 
     return insights;
+  }
+
+  function buildHomeInsight(summary) {
+    const insights = buildInsights(summary).filter((insight) => insight.title !== "Vet wording");
+    const latestBlood = latestEventOfType("blood_test");
+    const latestVet = latestEventOfType("vet_visit");
+
+    if (latestBlood?.phenobarbitalLevel || latestBlood?.bromideLevel) {
+      const levels = [
+        latestBlood.phenobarbitalLevel ? `phenobarbital ${latestBlood.phenobarbitalLevel}` : "",
+        latestBlood.bromideLevel ? `bromide ${latestBlood.bromideLevel}` : ""
+      ].filter(Boolean);
+      return {
+        title: "Blood result saved",
+        body: `${latestBlood.panel || "Latest blood test"} includes ${levels.join(" and ")}. Compare this with future seizure spacing in Stats.`
+      };
+    }
+
+    if (latestBlood) {
+      return {
+        title: "Blood test logged",
+        body: `${latestBlood.panel || "Latest blood test"} is saved from ${formatDateShort(new Date(latestBlood.occurredAt))}. Add future results to compare against seizure spacing.`
+      };
+    }
+
+    if (latestVet) {
+      return {
+        title: "Vet visit logged",
+        body: `${latestVet.reason || "Latest vet visit"} is saved from ${formatDateShort(new Date(latestVet.occurredAt))}${latestVet.plan ? " with plan notes attached." : "."}`
+      };
+    }
+
+    return insights[0] || {
+      title: "Start building a pattern",
+      body: `${state.profile?.name || "Sawyer"}'s medication plan is tracked automatically. Add seizure, vet, and blood-test records as they happen.`
+    };
+  }
+
+  function latestEventOfType(type) {
+    return state.events
+      .filter((event) => event.type === type)
+      .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0] || null;
   }
 
   function nextMilestone(days) {
@@ -2169,6 +2415,8 @@
     if (event.type === "seizure") return `Seizure · severity ${event.severity || "--"}`;
     if (event.type === "dose") return `${capitalize(event.status || "dose")} · ${event.medicationName || "Dose"}`;
     if (event.type === "note") return event.title || "Care note";
+    if (event.type === "vet_visit") return `Vet visit · ${event.reason || event.clinic || "Checkup"}`;
+    if (event.type === "blood_test") return `Blood test · ${event.panel || "Results"}`;
     return capitalize(event.type || "Record");
   }
 
@@ -2194,6 +2442,25 @@
 
     if (event.type === "note") {
       return `<p class="subtle">${escapeHtml(event.body || "")}</p>`;
+    }
+
+    if (event.type === "vet_visit") {
+      const parts = [
+        event.clinic ? `Clinic/vet: ${event.clinic}` : "",
+        event.weight ? `Weight: ${event.weight}` : "",
+        event.plan ? `Plan: ${event.plan}` : ""
+      ].filter(Boolean);
+      return parts.map((part) => `<p class="subtle">${escapeHtml(part)}</p>`).join("");
+    }
+
+    if (event.type === "blood_test") {
+      const parts = [
+        event.phenobarbitalLevel ? `Phenobarbital: ${event.phenobarbitalLevel}` : "",
+        event.bromideLevel ? `Bromide: ${event.bromideLevel}` : "",
+        event.results ? `Results: ${event.results}` : "",
+        event.notes ? `Notes: ${event.notes}` : ""
+      ].filter(Boolean);
+      return parts.map((part) => `<p class="subtle">${escapeHtml(part)}</p>`).join("");
     }
 
     return "";
@@ -2265,6 +2532,12 @@
       "duration_seconds",
       "trigger",
       "symptoms",
+      "clinic",
+      "weight",
+      "panel",
+      "phenobarbital_level",
+      "bromide_level",
+      "results",
       "notes"
     ];
 
@@ -2280,7 +2553,13 @@
         event.durationSeconds || "",
         event.trigger || "",
         (event.symptoms || []).join("; "),
-        event.notes || event.body || event.recovery || ""
+        event.clinic || "",
+        event.weight || "",
+        event.panel || "",
+        event.phenobarbitalLevel || "",
+        event.bromideLevel || "",
+        event.results || "",
+        event.notes || event.body || event.recovery || event.plan || ""
       ]);
 
     const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");

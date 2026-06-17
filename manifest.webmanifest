@@ -1,7 +1,7 @@
 {
   "name": "Sawyer Tracker",
   "short_name": "Sawyer",
-  "description": "Local-first seizure, medication, and supplement tracking for Sawyer.",
+  "description": "Local-first seizure, medication, supplement, vet visit, and blood test tracking for Sawyer.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

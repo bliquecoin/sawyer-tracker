@@ -428,6 +428,32 @@ p {
   text-anchor: middle;
 }
 
+.home-insight {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 16px;
+  background:
+    linear-gradient(135deg, rgba(220, 245, 241, 0.9), rgba(255, 241, 201, 0.72)),
+    var(--glass);
+}
+
+.home-insight > div {
+  min-width: min(100%, 220px);
+  flex: 1 1 220px;
+}
+
+.home-insight h2 {
+  margin-bottom: 5px;
+}
+
+.home-insight .btn {
+  flex: 0 0 auto;
+}
+
 .week-strip {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -601,7 +627,7 @@ p {
 
 .metric-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
   gap: 8px;
 }
 
@@ -726,6 +752,7 @@ p {
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -749,13 +776,16 @@ p {
 }
 
 .status-pill {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: 100%;
   padding: 5px 8px;
   border-radius: 999px;
   background: var(--panel-soft);
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 800;
+  overflow-wrap: anywhere;
+  text-align: center;
   text-transform: uppercase;
 }
 
@@ -817,6 +847,12 @@ p {
 .form-grid {
   display: grid;
   gap: 12px;
+}
+
+.form-divider {
+  height: 1px;
+  margin: 18px 0;
+  background: rgba(16, 17, 22, 0.08);
 }
 
 .field {
@@ -913,6 +949,14 @@ textarea {
 
 .timeline-item.note {
   border-left-color: var(--warn);
+}
+
+.timeline-item.vet_visit {
+  border-left-color: var(--teal);
+}
+
+.timeline-item.blood_test {
+  border-left-color: #285d8f;
 }
 
 .timeline-head {
