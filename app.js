@@ -32,6 +32,9 @@
     syncBusy: false,
     syncMessage: "",
     syncTimer: null,
+    selectedDayKey: localDateKey(new Date()),
+    pullDistance: 0,
+    pullRefreshing: false,
     severity: 3
   };
 
@@ -482,6 +485,7 @@
     app.innerHTML = `
       <div class="screen">
         <main class="content">
+          <div id="pull-refresh" class="pull-refresh" aria-live="polite">Pull to refresh</div>
           <section class="view ${state.activeTab === "today" ? "active" : ""}" data-view="today">
             ${renderToday(summary, todayEntries)}
           </section>
@@ -527,10 +531,10 @@
   }
 
   function renderToday(summary, entries) {
-    const nextDue = getNextDueEntry(entries);
     const installClass = state.installPrompt ? "panel install-banner ready" : "panel install-banner";
-    const pendingEntries = entries.filter((entry) => entry.status !== "given");
-    const quickInsight = homeInsight(summary, nextDue, pendingEntries);
+    const missedEntries = entries.filter((entry) => entry.status === "missed" || entry.status === "skipped");
+    const assumedEntries = entries.filter((entry) => entry.status !== "missed" && entry.status !== "skipped");
+    const quickInsight = homeInsight(summary, entries);
 
     return `
       <div class="home-stack">
@@ -561,9 +565,9 @@
               <small>between logs</small>
             </article>
             <article class="stat-card">
-              <span>Next care</span>
-              <strong>${nextDue ? escapeHtml(nextDue.shortLabel) : "Clear"}</strong>
-              <small>${pendingEntries.length ? `${pendingEntries.length} pending` : "all done"}</small>
+              <span>Today's meds</span>
+              <strong>${assumedEntries.length}/${entries.length || 0}</strong>
+              <small>${missedEntries.length ? `${missedEntries.length} exception${missedEntries.length === 1 ? "" : "s"}` : "assumed given"}</small>
             </article>
             <article class="stat-card insight-tile">
               <span>${escapeHtml(quickInsight.label)}</span>
@@ -581,6 +585,8 @@
         ${renderSeizureTrend(summary)}
 
         ${renderWeekStrip()}
+
+        ${renderDayOverview(state.selectedDayKey)}
 
         <section class="${installClass}">
           <div class="panel-body">
@@ -621,7 +627,15 @@
     `;
   }
 
-  function homeInsight(summary, nextDue, pendingEntries) {
+  function homeInsight(summary, entries) {
+    const exceptions = entries.filter((entry) => entry.status === "missed" || entry.status === "skipped");
+    if (exceptions.length) {
+      return {
+        label: "Exceptions",
+        value: `${exceptions.length} flagged`,
+        detail: "Missed or skipped today"
+      };
+    }
     if (summary.thisMonthSeizures > 0) {
       return {
         label: "This month",
@@ -629,25 +643,10 @@
         detail: `${summary.thisMonthSeizures === 1 ? "seizure" : "seizures"} logged`
       };
     }
-    if (summary.daysSinceLast !== null) {
-      const milestone = [7, 14, 30, 60, 90, 120, 180, 365].find((value) => summary.daysSinceLast < value) || 365;
-      return {
-        label: "Milestone",
-        value: `${milestone} days`,
-        detail: `${Math.max(0, milestone - summary.daysSinceLast)} days to go`
-      };
-    }
-    if (nextDue) {
-      return {
-        label: "Care focus",
-        value: nextDue.shortLabel,
-        detail: `${pendingEntries.length || 1} care item${pendingEntries.length === 1 ? "" : "s"} left today`
-      };
-    }
     return {
-      label: "Care focus",
-      value: "All clear",
-      detail: "No seizures logged yet"
+      label: "Dose log",
+      value: "Clean",
+      detail: "Only exceptions need taps"
     };
   }
 
@@ -709,21 +708,57 @@
       const hasSeizure = state.events.some(
         (event) => event.type === "seizure" && new Date(event.occurredAt).toDateString() === date.toDateString()
       );
+      const dayKey = localDateKey(date);
+      const isSelected = dayKey === state.selectedDayKey;
       return `
-        <div class="day-pill ${isToday ? "active" : ""} ${hasSeizure ? "marked" : ""}">
+        <button class="day-pill ${isSelected ? "active" : ""} ${isToday ? "today" : ""} ${hasSeizure ? "marked" : ""}" data-day="${escapeHtml(dayKey)}" type="button">
           <span>${escapeHtml(date.toLocaleDateString(undefined, { weekday: "short" }))}</span>
           <strong>${date.getDate()}</strong>
-        </div>
+        </button>
       `;
     });
 
     return `<section class="week-strip" aria-label="This week">${days.join("")}</section>`;
   }
 
+  function renderDayOverview(dayKey) {
+    const date = dayKeyToDate(dayKey);
+    const events = eventsForDay(dayKey);
+    const doses = getTodayDoseEntries(date);
+    const seizures = events.filter((event) => event.type === "seizure");
+    const notes = events.filter((event) => event.type === "note");
+    const exceptions = doses.filter((entry) => entry.status === "missed" || entry.status === "skipped");
+    const headline = exceptions.length
+      ? `${exceptions.length} dose exception${exceptions.length === 1 ? "" : "s"}`
+      : "Medication assumed given";
+    const eventList = events.length
+      ? events.map((event) => `<li>${escapeHtml(eventTitle(event))}<span>${escapeHtml(formatTime(new Date(event.occurredAt)))}</span></li>`).join("")
+      : `<li>No seizure or note records<span>${doses.length} scheduled</span></li>`;
+
+    return `
+      <section class="day-overview glass-panel">
+        <div class="dose-main">
+          <div>
+            <p class="eyebrow">Day overview</p>
+            <h2>${escapeHtml(formatDateShort(date))}</h2>
+          </div>
+          <span class="status-pill assumed">${escapeHtml(headline)}</span>
+        </div>
+        <div class="overview-metrics">
+          <div><strong>${seizures.length}</strong><span>Seizures</span></div>
+          <div><strong>${exceptions.length}</strong><span>Missed</span></div>
+          <div><strong>${notes.length}</strong><span>Notes</span></div>
+        </div>
+        <ul class="overview-list">${eventList}</ul>
+      </section>
+    `;
+  }
+
   function renderDoseRow(entry) {
     const classes = ["dose-row"];
-    if (entry.status === "given") classes.push("done");
+    if (entry.status === "given" || entry.status === "assumed") classes.push("done");
     if (entry.status === "missed") classes.push("missed");
+    const hasException = entry.status === "missed" || entry.status === "skipped";
 
     return `
       <article class="${classes.join(" ")}">
@@ -735,10 +770,12 @@
           <span class="status-pill ${entry.pillClass}">${escapeHtml(entry.statusText)}</span>
         </div>
         <div class="button-row">
-          <button class="btn primary small" data-dose="${entry.key}" data-status="given">Given</button>
-          <button class="btn secondary small" data-dose="${entry.key}" data-status="missed">Missed</button>
-          <button class="btn secondary small" data-dose="${entry.key}" data-status="skipped">Skip</button>
-          ${entry.log ? `<button class="btn ghost small" data-clear-dose="${entry.log.id}">Clear</button>` : ""}
+          ${
+            hasException
+              ? `<button class="btn secondary small" data-clear-dose="${entry.log.id}">Undo exception</button>`
+              : `<button class="btn secondary small" data-dose="${entry.key}" data-status="missed">Mark missed</button>`
+          }
+          ${entry.log && !hasException ? `<button class="btn ghost small" data-clear-dose="${entry.log.id}">Clear explicit log</button>` : ""}
         </div>
       </article>
     `;
@@ -1151,6 +1188,13 @@
       button.addEventListener("click", () => logDose(button.dataset.dose, button.dataset.status));
     });
 
+    document.querySelectorAll("[data-day]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.selectedDayKey = button.dataset.day;
+        render();
+      });
+    });
+
     document.querySelectorAll("[data-clear-dose]").forEach((button) => {
       button.addEventListener("click", () => removeEvent(button.dataset.clearDose, "Dose cleared."));
     });
@@ -1185,6 +1229,84 @@
     document.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", () => handleAction(button.dataset.action));
     });
+
+    bindPullRefresh();
+  }
+
+  function bindPullRefresh() {
+    const content = document.querySelector(".content");
+    const indicator = document.querySelector("#pull-refresh");
+    if (!content || !indicator || content.__pullRefreshBound) return;
+    content.__pullRefreshBound = true;
+
+    let startY = 0;
+    let pull = 0;
+    let pulling = false;
+
+    const resetPull = () => {
+      pull = 0;
+      indicator.style.setProperty("--pull-distance", "0px");
+      indicator.classList.remove("visible", "ready", "refreshing");
+      indicator.textContent = "Pull to refresh";
+    };
+
+    content.addEventListener(
+      "touchstart",
+      (event) => {
+        if (content.scrollTop > 0 || state.pullRefreshing) return;
+        startY = event.touches[0].clientY;
+        pulling = true;
+      },
+      { passive: true }
+    );
+
+    content.addEventListener(
+      "touchmove",
+      (event) => {
+        if (!pulling || state.pullRefreshing) return;
+        const distance = event.touches[0].clientY - startY;
+        if (distance <= 0 || content.scrollTop > 0) {
+          resetPull();
+          return;
+        }
+        pull = Math.min(110, distance * 0.45);
+        indicator.style.setProperty("--pull-distance", `${pull}px`);
+        indicator.textContent = pull > 72 ? "Release to refresh" : "Pull to refresh";
+        indicator.classList.toggle("ready", pull > 72);
+        indicator.classList.add("visible");
+      },
+      { passive: true }
+    );
+
+    content.addEventListener(
+      "touchend",
+      async () => {
+        if (!pulling) return;
+        pulling = false;
+        if (pull <= 72 || state.pullRefreshing) {
+          resetPull();
+          return;
+        }
+        state.pullRefreshing = true;
+        indicator.classList.add("refreshing");
+        indicator.textContent = "Refreshing...";
+        await refreshApp();
+        state.pullRefreshing = false;
+        resetPull();
+      },
+      { passive: true }
+    );
+  }
+
+  async function refreshApp() {
+    await hydrate();
+    if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
+      await syncWithSupabase({ silent: true });
+    } else {
+      render();
+    }
+    checkReminders();
+    showToast("Updated.");
   }
 
   async function handleAction(action) {
@@ -1791,10 +1913,7 @@
           const dueAt = localTimeToDate(dayKey, time.time);
           const key = `${dayKey}:${schedule.id}:${time.id}`;
           const log = state.events.find((event) => event.type === "dose" && event.doseKey === key);
-          const status = log?.status || "pending";
-          const now = new Date();
-          const isDue = now >= dueAt;
-          const isOverdue = now - dueAt > OVERDUE_MINUTES * 60000;
+          const status = log?.status || "assumed";
           const pillClass =
             status === "given"
               ? "given"
@@ -1802,11 +1921,7 @@
                 ? "missed"
                 : status === "skipped"
                   ? "skipped"
-                  : isOverdue
-                    ? "overdue"
-                    : isDue
-                      ? "due"
-                      : "";
+                  : "assumed";
           const statusText =
             status === "given"
               ? "Given"
@@ -1814,11 +1929,7 @@
                 ? "Missed"
                 : status === "skipped"
                   ? "Skipped"
-                  : isOverdue
-                    ? "Overdue"
-                    : isDue
-                      ? "Due"
-                      : "Upcoming";
+                  : "Assumed";
           const doseText = [schedule.dose, schedule.unit].filter(Boolean).join(" ");
 
           return {
@@ -1841,10 +1952,24 @@
   function getNextDueEntry(entries) {
     const now = new Date();
     return (
-      entries.find((entry) => !entry.log) ||
       entries.find((entry) => !entry.log && entry.dueAt >= now) ||
       null
     );
+  }
+
+  function dayKeyToDate(dayKey) {
+    return localTimeToDate(dayKey || localDateKey(new Date()), "00:00");
+  }
+
+  function eventsForDay(dayKey) {
+    return state.events
+      .filter((event) => eventDayKey(event) === dayKey)
+      .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
+  }
+
+  function eventDayKey(event) {
+    if (event.dayKey) return event.dayKey;
+    return localDateKey(new Date(event.occurredAt || nowIso()));
   }
 
   function getSeizuresAsc() {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "sawyer-tracker-v7";
+const CACHE_NAME = "sawyer-tracker-v8";
 const ASSETS = [
   "./",
   "./index.html",
