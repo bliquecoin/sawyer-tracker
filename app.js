@@ -411,6 +411,18 @@
     return state.supabaseSession?.user?.email || state.settings?.currentUserEmail || "";
   }
 
+  function authErrorMessage(error) {
+    const message = String(error?.message || "").trim();
+    const status = error?.status || error?.statusCode;
+    if (/email rate limit|over_email_send_rate_limit/i.test(message)) {
+      return "Supabase email limit hit. Wait about an hour before sending another login link, or configure custom SMTP for reliable sign-in.";
+    }
+    if (status === 429 && /rate limit|security purposes/i.test(message)) {
+      return "Please wait a minute before sending another login link.";
+    }
+    return message || "Login link could not be sent.";
+  }
+
   async function updateSettings(patch) {
     const updated = normalizeSettings({
       ...state.settings,
@@ -1295,7 +1307,7 @@
       render();
       showToast("Login link sent.");
     } catch (error) {
-      state.syncMessage = error.message || "Login link could not be sent.";
+      state.syncMessage = authErrorMessage(error);
       render();
       showToast(state.syncMessage);
     }
