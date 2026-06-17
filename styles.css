@@ -91,8 +91,9 @@ button {
   min-height: 100svh;
   flex-direction: column;
   background:
-    radial-gradient(circle at 15% 5%, rgba(255, 107, 87, 0.1), transparent 30%),
-    radial-gradient(circle at 86% 24%, rgba(31, 138, 131, 0.12), transparent 26%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(246, 249, 255, 0.9) 52%, rgba(255, 255, 255, 1)),
+    radial-gradient(ellipse at 20% 8%, rgba(255, 107, 87, 0.12), transparent 38%),
+    radial-gradient(ellipse at 84% 24%, rgba(145, 111, 255, 0.13), transparent 36%),
     #ffffff;
   overflow: hidden;
 }
@@ -201,8 +202,28 @@ p {
 }
 
 .home-stack {
+  position: relative;
   display: grid;
   gap: 16px;
+}
+
+.home-stack::before {
+  content: "";
+  position: absolute;
+  inset: 64px 0 auto;
+  z-index: 0;
+  height: min(760px, 78%);
+  border-radius: 46px;
+  background:
+    linear-gradient(135deg, rgba(255, 107, 87, 0.32), rgba(145, 111, 255, 0.28) 42%, rgba(31, 138, 131, 0.24) 78%),
+    linear-gradient(24deg, rgba(220, 238, 255, 0.4), rgba(255, 241, 201, 0.28));
+  filter: saturate(1.2);
+  pointer-events: none;
+}
+
+.home-stack > * {
+  position: relative;
+  z-index: 1;
 }
 
 .grid {
@@ -230,10 +251,10 @@ p {
   border: 1px solid rgba(255, 255, 255, 0.76);
   border-radius: 30px;
   background:
-    linear-gradient(140deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.58)),
+    linear-gradient(140deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.34)),
     var(--glass);
   box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(24px) saturate(1.25);
+  backdrop-filter: blur(28px) saturate(1.38);
 }
 
 .home-hero {
@@ -299,8 +320,9 @@ p {
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.76);
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.66);
+  background: rgba(255, 255, 255, 0.46);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 12px 28px rgba(22, 24, 31, 0.07);
+  backdrop-filter: blur(20px) saturate(1.28);
 }
 
 .stat-card.featured {
@@ -308,12 +330,12 @@ p {
   display: grid;
   align-content: center;
   background:
-    linear-gradient(135deg, rgba(220, 245, 241, 0.96), rgba(255, 226, 220, 0.88));
+    linear-gradient(135deg, rgba(220, 245, 241, 0.68), rgba(255, 226, 220, 0.46));
 }
 
 .stat-card.insight-tile {
   background:
-    linear-gradient(135deg, rgba(238, 231, 255, 0.94), rgba(255, 255, 255, 0.74));
+    linear-gradient(135deg, rgba(238, 231, 255, 0.62), rgba(255, 255, 255, 0.38));
 }
 
 .stat-card span,
@@ -382,8 +404,9 @@ p {
   border: 1px solid rgba(255, 255, 255, 0.76);
   border-radius: 24px;
   background:
-    linear-gradient(135deg, rgba(220, 238, 255, 0.86), rgba(255, 255, 255, 0.72));
+    linear-gradient(135deg, rgba(220, 238, 255, 0.54), rgba(255, 255, 255, 0.34));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(18px) saturate(1.25);
 }
 
 .trend-chart svg {
@@ -437,7 +460,7 @@ p {
   gap: 14px;
   padding: 16px;
   background:
-    linear-gradient(135deg, rgba(220, 245, 241, 0.9), rgba(255, 241, 201, 0.72)),
+    linear-gradient(135deg, rgba(220, 245, 241, 0.48), rgba(255, 241, 201, 0.32)),
     var(--glass);
 }
 
@@ -468,19 +491,25 @@ p {
   padding: 10px 4px;
   border: 1px solid rgba(16, 17, 22, 0.12);
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.5);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   color: var(--ink);
+  backdrop-filter: blur(18px) saturate(1.2);
   cursor: pointer;
 }
 
 .day-pill span {
+  position: relative;
+  z-index: 1;
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 750;
 }
 
 .day-pill strong {
+  position: relative;
+  z-index: 1;
   font-size: 1rem;
 }
 
@@ -495,13 +524,27 @@ p {
 }
 
 .day-pill.active {
-  border-color: #101116;
-  background: #101116;
-  color: #ffffff;
+  border-color: rgba(145, 111, 255, 0.46);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(246, 242, 255, 0.48));
+  color: #3f2a73;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 12px 24px rgba(145, 111, 255, 0.18);
+}
+
+.day-pill.active::after {
+  content: "";
+  position: absolute;
+  inset: auto -10% -1px -10%;
+  height: 58%;
+  background: linear-gradient(135deg, rgba(172, 130, 255, 0.74), rgba(255, 129, 196, 0.48));
+  border-radius: 999px 999px 18px 18px;
+  opacity: 0.95;
 }
 
 .day-pill.active span {
-  color: rgba(255, 255, 255, 0.76);
+  color: rgba(63, 42, 115, 0.72);
 }
 
 .day-pill.today:not(.active) {
@@ -531,7 +574,8 @@ p {
   padding: 10px;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(18px) saturate(1.22);
 }
 
 .overview-metrics strong,
@@ -590,12 +634,14 @@ p {
 
 .care-card {
   background:
-    linear-gradient(145deg, rgba(255, 241, 201, 0.92), rgba(255, 255, 255, 0.72));
+    linear-gradient(145deg, rgba(255, 241, 201, 0.48), rgba(255, 255, 255, 0.3));
+  backdrop-filter: blur(26px) saturate(1.3);
 }
 
 .recent-card {
   background:
-    linear-gradient(145deg, rgba(220, 238, 255, 0.9), rgba(255, 255, 255, 0.72));
+    linear-gradient(145deg, rgba(220, 238, 255, 0.48), rgba(255, 255, 255, 0.3));
+  backdrop-filter: blur(26px) saturate(1.3);
 }
 
 .hero-status {
@@ -1070,24 +1116,30 @@ textarea {
   width: min(calc(100% - 24px), 720px);
   margin: 0 auto;
   padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.76);
   border-radius: 999px;
-  background: rgba(16, 17, 22, 0.93);
-  box-shadow: 0 18px 42px rgba(16, 17, 22, 0.24);
-  backdrop-filter: blur(22px) saturate(1.2);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.34)),
+    rgba(255, 255, 255, 0.4);
+  box-shadow:
+    0 18px 42px rgba(72, 58, 118, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(28px) saturate(1.4);
   transform: translateZ(0);
 }
 
 .nav-btn {
+  position: relative;
   min-width: 0;
   min-height: 48px;
   padding: 5px 4px;
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.66);
+  color: rgba(56, 62, 74, 0.72);
   font-size: 0.75rem;
   font-weight: 850;
+  overflow: hidden;
 }
 
 .nav-btn span {
@@ -1097,9 +1149,23 @@ textarea {
 }
 
 .nav-btn.active {
-  background: #ffffff;
-  color: var(--ink);
-  box-shadow: 0 8px 20px rgba(255, 255, 255, 0.18);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(238, 231, 255, 0.58));
+  color: #3f2a73;
+  box-shadow:
+    0 10px 22px rgba(145, 111, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.nav-btn.active::after {
+  content: "";
+  position: absolute;
+  right: 18%;
+  bottom: 6px;
+  left: 18%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(145, 111, 255, 0.88), rgba(255, 107, 154, 0.64));
 }
 
 .setup-list {
