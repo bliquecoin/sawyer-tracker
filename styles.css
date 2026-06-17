@@ -58,7 +58,9 @@ button {
 }
 
 .app-shell {
+  height: 100dvh;
   min-height: 100svh;
+  overflow: hidden;
 }
 
 .loading-screen {
@@ -83,13 +85,16 @@ button {
 }
 
 .screen {
+  position: relative;
   display: flex;
+  height: 100%;
   min-height: 100svh;
   flex-direction: column;
   background:
     radial-gradient(circle at 15% 5%, rgba(255, 107, 87, 0.1), transparent 30%),
     radial-gradient(circle at 86% 24%, rgba(31, 138, 131, 0.12), transparent 26%),
     #ffffff;
+  overflow: hidden;
 }
 
 .topbar {
@@ -146,9 +151,13 @@ p {
 }
 
 .content {
+  flex: 1;
   width: min(100%, 980px);
   margin: 0 auto;
-  padding: calc(18px + env(safe-area-inset-top)) 14px calc(104px + env(safe-area-inset-bottom));
+  padding: calc(18px + env(safe-area-inset-top)) 14px calc(126px + env(safe-area-inset-bottom));
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .view {
@@ -254,6 +263,7 @@ p {
 .stat-glass-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: dense;
   gap: 10px;
 }
 
@@ -272,6 +282,11 @@ p {
   align-content: center;
   background:
     linear-gradient(135deg, rgba(220, 245, 241, 0.96), rgba(255, 226, 220, 0.88));
+}
+
+.stat-card.insight-tile {
+  background:
+    linear-gradient(135deg, rgba(238, 231, 255, 0.94), rgba(255, 255, 255, 0.74));
 }
 
 .stat-card span,
@@ -322,6 +337,68 @@ p {
   color: rgba(255, 255, 255, 0.86);
   font-size: 0.85rem;
   font-weight: 750;
+}
+
+.trend-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.trend-copy h2 {
+  margin-bottom: 5px;
+}
+
+.trend-chart {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(220, 238, 255, 0.86), rgba(255, 255, 255, 0.72));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.trend-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.trend-area {
+  fill: rgba(255, 107, 87, 0.16);
+}
+
+.trend-line {
+  fill: none;
+  stroke: var(--brand);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 4;
+}
+
+.trend-bar {
+  fill: rgba(255, 107, 87, 0.18);
+}
+
+.trend-dot {
+  fill: #ffffff;
+  stroke: var(--brand);
+  stroke-width: 3;
+}
+
+.trend-count {
+  fill: var(--ink);
+  font-size: 10px;
+  font-weight: 850;
+  text-anchor: middle;
+}
+
+.trend-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  text-anchor: middle;
 }
 
 .week-strip {
@@ -807,9 +884,9 @@ textarea {
 }
 
 .toast {
-  position: fixed;
+  position: absolute;
   right: 14px;
-  bottom: calc(80px + env(safe-area-inset-bottom));
+  bottom: calc(92px + env(safe-area-inset-bottom));
   left: 14px;
   z-index: 50;
   display: none;
@@ -826,7 +903,7 @@ textarea {
 }
 
 .bottom-nav {
-  position: fixed;
+  position: absolute;
   right: 12px;
   bottom: calc(10px + env(safe-area-inset-bottom));
   left: 12px;
@@ -842,6 +919,7 @@ textarea {
   background: rgba(16, 17, 22, 0.93);
   box-shadow: 0 18px 42px rgba(16, 17, 22, 0.24);
   backdrop-filter: blur(22px) saturate(1.2);
+  transform: translateZ(0);
 }
 
 .nav-btn {
@@ -908,11 +986,16 @@ textarea {
   }
 
   .stat-glass-grid {
-    grid-template-columns: 1.15fr repeat(3, minmax(0, 1fr));
+    grid-template-columns: 1.25fr repeat(4, minmax(0, 1fr));
   }
 
   .stat-card.featured {
     grid-row: auto;
+  }
+
+  .trend-card {
+    grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
+    align-items: center;
   }
 
   .plan-grid {

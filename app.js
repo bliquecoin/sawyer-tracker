@@ -530,6 +530,7 @@
     const nextDue = getNextDueEntry(entries);
     const installClass = state.installPrompt ? "panel install-banner ready" : "panel install-banner";
     const pendingEntries = entries.filter((entry) => entry.status !== "given");
+    const quickInsight = homeInsight(summary, nextDue, pendingEntries);
 
     return `
       <div class="home-stack">
@@ -564,6 +565,11 @@
               <strong>${nextDue ? escapeHtml(nextDue.shortLabel) : "Clear"}</strong>
               <small>${pendingEntries.length ? `${pendingEntries.length} pending` : "all done"}</small>
             </article>
+            <article class="stat-card insight-tile">
+              <span>${escapeHtml(quickInsight.label)}</span>
+              <strong>${escapeHtml(quickInsight.value)}</strong>
+              <small>${escapeHtml(quickInsight.detail)}</small>
+            </article>
           </div>
 
           <button class="seizure-cta" data-tab="log" data-focus-seizure="true" type="button">
@@ -571,6 +577,8 @@
             <small>${escapeHtml(summary.lastSeizureText)}</small>
           </button>
         </section>
+
+        ${renderSeizureTrend(summary)}
 
         ${renderWeekStrip()}
 
@@ -610,6 +618,83 @@
           </article>
         </section>
       </div>
+    `;
+  }
+
+  function homeInsight(summary, nextDue, pendingEntries) {
+    if (summary.thisMonthSeizures > 0) {
+      return {
+        label: "This month",
+        value: `${summary.thisMonthSeizures}`,
+        detail: `${summary.thisMonthSeizures === 1 ? "seizure" : "seizures"} logged`
+      };
+    }
+    if (summary.daysSinceLast !== null) {
+      const milestone = [7, 14, 30, 60, 90, 120, 180, 365].find((value) => summary.daysSinceLast < value) || 365;
+      return {
+        label: "Milestone",
+        value: `${milestone} days`,
+        detail: `${Math.max(0, milestone - summary.daysSinceLast)} days to go`
+      };
+    }
+    if (nextDue) {
+      return {
+        label: "Care focus",
+        value: nextDue.shortLabel,
+        detail: `${pendingEntries.length || 1} care item${pendingEntries.length === 1 ? "" : "s"} left today`
+      };
+    }
+    return {
+      label: "Care focus",
+      value: "All clear",
+      detail: "No seizures logged yet"
+    };
+  }
+
+  function renderSeizureTrend(summary) {
+    const monthly = getMonthlySeizureCounts();
+    const max = Math.max(...monthly.map((item) => item.count), 1);
+    const chartWidth = 300;
+    const chartHeight = 116;
+    const leftPad = 16;
+    const rightPad = 16;
+    const bottomPad = 24;
+    const topPad = 14;
+    const plotWidth = chartWidth - leftPad - rightPad;
+    const plotHeight = chartHeight - topPad - bottomPad;
+    const step = plotWidth / Math.max(monthly.length - 1, 1);
+    const points = monthly.map((item, index) => {
+      const x = leftPad + step * index;
+      const y = topPad + plotHeight - (item.count / max) * plotHeight;
+      return { ...item, x, y };
+    });
+    const path = points
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${round1(point.x)} ${round1(point.y)}`)
+      .join(" ");
+    const areaPath = `${path} L ${round1(points.at(-1).x)} ${chartHeight - bottomPad} L ${round1(points[0].x)} ${chartHeight - bottomPad} Z`;
+
+    return `
+      <section class="trend-card glass-panel">
+        <div class="trend-copy">
+          <p class="eyebrow">Seizure trend</p>
+          <h2>At a glance</h2>
+          <p class="subtle">${summary.totalSeizures ? `${summary.totalSeizures} seizure${summary.totalSeizures === 1 ? "" : "s"} tracked across your timeline.` : "Your graph will build as seizures are logged."}</p>
+        </div>
+        <div class="trend-chart" aria-label="Seizures over the last six months">
+          <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Monthly seizure trend">
+            <path class="trend-area" d="${areaPath}"></path>
+            <path class="trend-line" d="${path}"></path>
+            ${points.map((point) => `
+              <g>
+                <rect class="trend-bar" x="${round1(point.x - 10)}" y="${round1(topPad + plotHeight - (point.count / max) * plotHeight)}" width="20" height="${round1((point.count / max) * plotHeight)}" rx="10"></rect>
+                <circle class="trend-dot" cx="${round1(point.x)}" cy="${round1(point.y)}" r="${point.count ? 4.5 : 3.5}"></circle>
+                <text class="trend-count" x="${round1(point.x)}" y="${round1(Math.max(10, point.y - 8))}">${point.count}</text>
+                <text class="trend-label" x="${round1(point.x)}" y="${chartHeight - 5}">${escapeHtml(point.label)}</text>
+              </g>
+            `).join("")}
+          </svg>
+        </div>
+      </section>
     `;
   }
 
