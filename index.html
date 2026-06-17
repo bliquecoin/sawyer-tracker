@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f8faf7" />
+    <meta
+      name="description"
+      content="A private local-first seizure, medication, and supplement tracker for Sawyer."
+    />
+    <title>Sawyer Tracker</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell" aria-live="polite">
+      <main class="loading-screen">
+        <div class="mark" aria-hidden="true">S</div>
+        <h1>Sawyer Tracker</h1>
+        <p>Loading local records...</p>
+      </main>
+    </div>
+    <template id="file-input-template">
+      <input type="file" accept="application/json,.json" />
+    </template>
+    <script src="./config.js"></script>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

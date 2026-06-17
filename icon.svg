@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sawyer Tracker icon">
+  <rect width="512" height="512" rx="96" fill="#d8ece8"/>
+  <circle cx="256" cy="256" r="158" fill="#fff" stroke="#27766f" stroke-width="24"/>
+  <path d="M177 297c21 31 48 47 79 47s58-16 79-47" fill="none" stroke="#27766f" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="201" cy="222" r="22" fill="#1f2822"/>
+  <circle cx="311" cy="222" r="22" fill="#1f2822"/>
+  <path d="M256 255l-27 28h54z" fill="#b1423a"/>
+  <path d="M142 165c-36-52-18-92 22-92 33 0 55 29 61 67" fill="#fff" stroke="#27766f" stroke-width="24" stroke-linejoin="round"/>
+  <path d="M370 165c36-52 18-92-22-92-33 0-55 29-61 67" fill="#fff" stroke="#27766f" stroke-width="24" stroke-linejoin="round"/>
+</svg>
