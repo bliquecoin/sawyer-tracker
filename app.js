@@ -32,7 +32,9 @@
     syncBusy: false,
     syncMessage: "",
     syncTimer: null,
-    loginBypassed: false,
+    aiBusy: false,
+    aiInsight: null,
+    aiError: "",
     selectedDayKey: localDateKey(new Date()),
     pullDistance: 0,
     pullRefreshing: false,
@@ -151,11 +153,11 @@
     attachGlobalListeners();
     await hydrate();
     await initSupabase();
+    if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
+      await syncWithSupabase({ silent: true });
+    }
     render();
     startReminderLoop();
-    if (state.settings?.syncEnabled) {
-      syncWithSupabase({ silent: true }).catch(() => {});
-    }
   }
 
   function registerServiceWorker() {
@@ -239,6 +241,9 @@
           state.supabaseSession = session;
           if (session?.user?.email) {
             await updateSettings({ currentUserEmail: session.user.email });
+            if (state.settings?.syncEnabled && navigator.onLine) {
+              await syncWithSupabase({ silent: true });
+            }
           }
           render();
         });
@@ -647,7 +652,7 @@
   }
 
   function shouldShowLoginScreen() {
-    return hasSupabaseConfig() && !isSignedIn() && !state.loginBypassed;
+    return hasSupabaseConfig() && !isSignedIn();
   }
 
   function renderLoginScreen() {
@@ -658,7 +663,7 @@
         <div>
           <p class="eyebrow">${escapeHtml(formatWelcomeDate(new Date()))}</p>
           <h1>Sawyer Tracker</h1>
-          <p class="subtle">Sign in once on this device. After that, Sawyer Tracker opens automatically while the saved session is valid.</p>
+          <p class="subtle">Sign in once on this device. After that, Sawyer Tracker opens automatically while the saved session is valid and keeps Sawyer's shared record in Supabase.</p>
         </div>
 
         <form id="login-form" class="form-grid">
@@ -669,8 +674,7 @@
           <button class="btn primary" type="submit">Send Login Link</button>
         </form>
 
-        <button class="btn ghost" data-action="continue-offline" type="button">Continue on this device</button>
-        <p class="subtle sync-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Local tracking still works without signing in.")}</p>
+        <p class="subtle sync-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Use the same signed-in record on both phones to avoid mismatched logs.")}</p>
       </section>
     `;
   }
@@ -1085,6 +1089,8 @@
           </div>
         </section>
 
+        ${renderAiInsightPanel()}
+
         <section class="panel">
           <div class="panel-body">
             <h2>Seizures by Month</h2>
@@ -1100,6 +1106,46 @@
           </div>
         </section>
       </div>
+    `;
+  }
+
+  function renderAiInsightPanel() {
+    const insight = state.aiInsight;
+    const canRun = hasSupabaseConfig() && isSignedIn();
+
+    return `
+      <section class="panel ai-panel">
+        <div class="panel-body">
+          <div class="dose-main">
+            <div>
+              <p class="eyebrow">AI review</p>
+              <h2>${escapeHtml(insight?.title || "Ask AI to review Sawyer's records")}</h2>
+            </div>
+            <button class="btn primary small" data-action="generate-ai" ${state.aiBusy || !canRun ? "disabled" : ""}>
+              ${state.aiBusy ? "Reviewing..." : "Run AI"}
+            </button>
+          </div>
+          <p class="subtle">${escapeHtml(insight?.summary || (canRun ? "Uses synced Supabase records to draft pattern notes and vet questions." : "Sign in to sync records before using AI review."))}</p>
+          ${state.aiError ? `<p class="subtle danger-text">${escapeHtml(state.aiError)}</p>` : ""}
+          ${insight?.bullets?.length ? `
+            <div class="insight-list ai-list">
+              ${insight.bullets.map((item) => `
+                <article class="insight">
+                  <strong>${escapeHtml(item.title || "Observation")}</strong>
+                  <p class="subtle">${escapeHtml(item.detail || item.body || "")}</p>
+                </article>
+              `).join("")}
+            </div>
+          ` : ""}
+          ${insight?.questions?.length ? `
+            <div class="ai-questions">
+              <p class="eyebrow">Ask your vet</p>
+              <ul>${insight.questions.map((question) => `<li>${escapeHtml(question)}</li>`).join("")}</ul>
+            </div>
+          ` : ""}
+          <p class="subtle">AI can notice patterns, but it cannot diagnose or replace your vet.</p>
+        </div>
+      </section>
     `;
   }
 
@@ -1449,10 +1495,6 @@
       render();
       setTimeout(() => document.querySelector("#note-title")?.focus(), 50);
     }
-    if (action === "continue-offline") {
-      state.loginBypassed = true;
-      render();
-    }
     if (action === "install-app") installApp();
     if (action === "enable-reminders") enableReminders();
     if (action === "disable-reminders") disableReminders();
@@ -1460,8 +1502,17 @@
     if (action === "import-json") importJson();
     if (action === "export-csv") exportCsv();
     if (action === "sync-now") syncWithSupabase();
+    if (action === "generate-ai") generateAiInsights();
     if (action === "sign-out") signOut();
     if (action === "reset-data") resetData();
+  }
+
+  async function syncAfterLocalChange() {
+    if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
+      await syncWithSupabase({ silent: true });
+      return;
+    }
+    queueBackgroundSync();
   }
 
   async function logDose(doseKey, status) {
@@ -1494,9 +1545,9 @@
 
     await dbPut("events", event);
     await hydrate();
+    await syncAfterLocalChange();
     render();
     restoreScroll();
-    queueBackgroundSync();
     showToast(`${entry.schedule.name} marked ${status}.`);
   }
 
@@ -1513,9 +1564,9 @@
       });
     }
     await hydrate();
+    await syncAfterLocalChange();
     render();
     restoreScroll();
-    queueBackgroundSync();
     showToast(message);
   }
 
@@ -1552,9 +1603,9 @@
     await dbPut("events", record);
     resetTimer(false);
     await hydrate();
+    await syncAfterLocalChange();
     state.activeTab = "today";
     render();
-    queueBackgroundSync();
     showToast("Seizure saved.");
   }
 
@@ -1580,9 +1631,9 @@
     });
 
     await hydrate();
+    await syncAfterLocalChange();
     state.activeTab = "today";
     render();
-    queueBackgroundSync();
     showToast("Note saved.");
   }
 
@@ -1610,9 +1661,9 @@
     });
 
     await hydrate();
+    await syncAfterLocalChange();
     state.activeTab = "today";
     render();
-    queueBackgroundSync();
     showToast("Vet visit saved.");
   }
 
@@ -1641,9 +1692,9 @@
     });
 
     await hydrate();
+    await syncAfterLocalChange();
     state.activeTab = "today";
     render();
-    queueBackgroundSync();
     showToast("Blood test saved.");
   }
 
@@ -1708,8 +1759,8 @@
     }
 
     await hydrate();
+    await syncAfterLocalChange();
     render();
-    queueBackgroundSync();
     showToast("Setup saved.");
   }
 
@@ -1780,6 +1831,67 @@
     }
   }
 
+  async function generateAiInsights() {
+    if (state.aiBusy) return;
+
+    try {
+      if (!hasSupabaseConfig()) throw new Error("Supabase sync needs to be configured first.");
+      if (!isSignedIn()) throw new Error("Sign in so AI can review the shared Supabase records.");
+      if (!navigator.onLine) throw new Error("You need to be online to run AI review.");
+
+      state.aiBusy = true;
+      state.aiError = "";
+      render();
+
+      await syncWithSupabase({ silent: true });
+      const client = state.supabaseClient || (await initSupabase());
+      if (!client) throw new Error("Supabase is not available.");
+
+      const { data, error } = await client.functions.invoke("sawyer-ai-insights", {
+        body: {
+          householdId: state.settings.supabaseHouseholdId,
+          dogName: state.profile?.name || "Sawyer"
+        }
+      });
+      if (error) throw error;
+
+      state.aiInsight = normalizeAiInsight(data);
+      state.aiError = "";
+      showToast("AI review updated.");
+    } catch (error) {
+      state.aiError = error.message || "AI review failed.";
+      showToast(state.aiError);
+    } finally {
+      state.aiBusy = false;
+      render();
+    }
+  }
+
+  function normalizeAiInsight(data) {
+    const fallback = {
+      title: "AI review",
+      summary: "No AI response was returned.",
+      bullets: [],
+      questions: []
+    };
+    if (!data || typeof data !== "object") return fallback;
+
+    return {
+      title: String(data.title || fallback.title),
+      summary: String(data.summary || fallback.summary),
+      provider: String(data.provider || ""),
+      bullets: Array.isArray(data.bullets)
+        ? data.bullets.slice(0, 6).map((item) => ({
+            title: String(item?.title || "Observation"),
+            detail: String(item?.detail || item?.body || "")
+          }))
+        : [],
+      questions: Array.isArray(data.questions)
+        ? data.questions.slice(0, 6).map((item) => String(item))
+        : []
+    };
+  }
+
   function queueBackgroundSync() {
     if (!state.settings?.syncEnabled || !isSignedIn() || !navigator.onLine) return;
     clearTimeout(state.syncTimer);
@@ -1793,11 +1905,11 @@
     const silent = Boolean(options.silent);
 
     try {
-      if (!navigator.onLine) throw new Error("You are offline. Local tracking still works.");
+      if (!navigator.onLine) throw new Error("You are offline. Supabase will update when this device is online.");
       if (!hasSupabaseConfig()) throw new Error("Add Supabase settings first.");
 
       state.syncBusy = true;
-      state.syncMessage = "Syncing local records with Supabase...";
+      state.syncMessage = "Syncing this device with Supabase...";
       if (!silent) render();
 
       const client = await requireSupabaseSession();
