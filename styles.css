@@ -155,7 +155,7 @@ p {
   flex: 1;
   width: min(100%, 980px);
   margin: 0 auto;
-  padding: calc(18px + env(safe-area-inset-top)) 14px calc(126px + env(safe-area-inset-bottom));
+  padding: calc(54px + env(safe-area-inset-top)) 14px calc(126px + env(safe-area-inset-bottom));
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -163,12 +163,13 @@ p {
 
 .pull-refresh {
   position: sticky;
-  top: 0;
+  top: calc(8px + env(safe-area-inset-top));
   z-index: 5;
   display: grid;
-  height: 0;
+  height: 34px;
+  margin: -44px 0 10px;
   place-items: center;
-  transform: translateY(calc(var(--pull-distance, 0px) - 44px));
+  transform: translateY(calc(var(--pull-distance, 0px) - 36px));
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 850;
@@ -196,6 +197,27 @@ p {
   display: block;
 }
 
+.login-screen {
+  justify-content: center;
+}
+
+.login-content {
+  display: grid;
+  width: min(100%, 520px);
+  margin: auto;
+  padding: calc(28px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom));
+}
+
+.login-card {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.login-card h1 {
+  margin-bottom: 8px;
+}
+
 .stack {
   display: grid;
   gap: 14px;
@@ -210,14 +232,15 @@ p {
 .home-stack::before {
   content: "";
   position: absolute;
-  inset: 64px 0 auto;
+  top: 72px;
+  left: 50%;
   z-index: 0;
-  height: min(760px, 78%);
-  border-radius: 46px;
-  background:
-    linear-gradient(135deg, rgba(255, 107, 87, 0.32), rgba(145, 111, 255, 0.28) 42%, rgba(31, 138, 131, 0.24) 78%),
-    linear-gradient(24deg, rgba(220, 238, 255, 0.4), rgba(255, 241, 201, 0.28));
-  filter: saturate(1.2);
+  width: min(620px, 96%);
+  height: min(620px, 68vh);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(145, 111, 255, 0.3) 0%, rgba(255, 107, 87, 0.2) 30%, rgba(31, 138, 131, 0.14) 48%, transparent 74%);
+  filter: blur(28px) saturate(1.06);
+  transform: translateX(-50%);
   pointer-events: none;
 }
 
@@ -264,33 +287,21 @@ p {
 }
 
 .home-topline {
-  display: grid;
-  grid-template-columns: 50px minmax(0, 1fr) 50px;
-  align-items: center;
-  gap: 12px;
-}
-
-.avatar {
-  display: grid;
-  width: 50px;
-  height: 50px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.76);
-  border-radius: 50%;
-  background:
-    linear-gradient(135deg, rgba(255, 241, 201, 0.92), rgba(220, 245, 241, 0.9));
-  color: var(--teal);
-  font-weight: 900;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 24px rgba(31, 138, 131, 0.14);
+  display: block;
 }
 
 .welcome-copy {
   min-width: 0;
-  text-align: center;
+  max-width: 28rem;
+  text-align: left;
 }
 
 .welcome-copy .eyebrow {
   text-transform: none;
+}
+
+.welcome-copy .subtle {
+  margin: 8px 0 0;
 }
 
 .icon-button {
@@ -524,23 +535,25 @@ p {
 }
 
 .day-pill.active {
-  border-color: rgba(145, 111, 255, 0.46);
+  border-color: rgba(145, 111, 255, 0.22);
   background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(246, 242, 255, 0.48));
+    linear-gradient(160deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.36));
   color: #3f2a73;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 12px 24px rgba(145, 111, 255, 0.18);
+    0 10px 24px rgba(145, 111, 255, 0.12);
 }
 
 .day-pill.active::after {
   content: "";
   position: absolute;
-  inset: auto -10% -1px -10%;
-  height: 58%;
-  background: linear-gradient(135deg, rgba(172, 130, 255, 0.74), rgba(255, 129, 196, 0.48));
-  border-radius: 999px 999px 18px 18px;
-  opacity: 0.95;
+  top: -18%;
+  right: 8%;
+  left: 8%;
+  height: 48%;
+  background: radial-gradient(ellipse at center, rgba(172, 130, 255, 0.66), rgba(255, 129, 196, 0.28) 46%, transparent 72%);
+  filter: blur(7px);
+  opacity: 0.82;
 }
 
 .day-pill.active span {
@@ -1217,7 +1230,7 @@ textarea {
   }
 
   .stat-glass-grid {
-    grid-template-columns: 1.25fr repeat(4, minmax(0, 1fr));
+    grid-template-columns: 1.25fr repeat(2, minmax(0, 1fr));
   }
 
   .stat-card.featured {

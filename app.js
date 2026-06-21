@@ -32,6 +32,7 @@
     syncBusy: false,
     syncMessage: "",
     syncTimer: null,
+    loginBypassed: false,
     selectedDayKey: localDateKey(new Date()),
     pullDistance: 0,
     pullRefreshing: false,
@@ -491,6 +492,19 @@
     const todayEntries = getTodayDoseEntries();
     const summary = getSummary();
 
+    if (shouldShowLoginScreen()) {
+      app.innerHTML = `
+        <div class="screen login-screen">
+          <main class="login-content">
+            ${renderLoginScreen()}
+          </main>
+          <div id="toast" class="toast" role="status"></div>
+        </div>
+      `;
+      bindUi();
+      return;
+    }
+
     app.innerHTML = `
       <div class="screen">
         <main class="content">
@@ -541,20 +555,16 @@
 
   function renderToday(summary, entries) {
     const installClass = state.installPrompt ? "panel install-banner ready" : "panel install-banner";
-    const missedEntries = entries.filter((entry) => entry.status === "missed" || entry.status === "skipped");
-    const assumedEntries = entries.filter((entry) => entry.status !== "missed" && entry.status !== "skipped");
-    const quickInsight = homeInsight(summary, entries);
 
     return `
       <div class="home-stack">
         <section class="home-hero glass-panel">
           <div class="home-topline">
-            <div class="avatar" aria-hidden="true">${escapeHtml((state.profile?.name || "S").charAt(0))}</div>
             <div class="welcome-copy">
               <p class="eyebrow">${escapeHtml(formatWelcomeDate(new Date()))}</p>
-              <h1>Hello, ${escapeHtml(displayUserName())}</h1>
+              <h1>${escapeHtml(state.profile?.name || "Sawyer")}'s day</h1>
+              <p class="subtle">${escapeHtml(homeGreeting(summary))}</p>
             </div>
-            <button class="icon-button" data-action="quick-note" type="button" aria-label="Add care note">+</button>
           </div>
 
           <div class="stat-glass-grid" aria-label="Tracking statistics">
@@ -572,16 +582,6 @@
               <span>Average gap</span>
               <strong>${summary.averageGapText}</strong>
               <small>between logs</small>
-            </article>
-            <article class="stat-card">
-              <span>Today's meds</span>
-              <strong>${assumedEntries.length}/${entries.length || 0}</strong>
-              <small>${missedEntries.length ? `${missedEntries.length} exception${missedEntries.length === 1 ? "" : "s"}` : "assumed given"}</small>
-            </article>
-            <article class="stat-card insight-tile">
-              <span>${escapeHtml(quickInsight.label)}</span>
-              <strong>${escapeHtml(quickInsight.value)}</strong>
-              <small>${escapeHtml(quickInsight.detail)}</small>
             </article>
           </div>
 
@@ -638,27 +638,41 @@
     `;
   }
 
-  function homeInsight(summary, entries) {
-    const exceptions = entries.filter((entry) => entry.status === "missed" || entry.status === "skipped");
-    if (exceptions.length) {
-      return {
-        label: "Exceptions",
-        value: `${exceptions.length} flagged`,
-        detail: "Missed or skipped today"
-      };
-    }
-    if (summary.thisMonthSeizures > 0) {
-      return {
-        label: "This month",
-        value: `${summary.thisMonthSeizures}`,
-        detail: `${summary.thisMonthSeizures === 1 ? "seizure" : "seizures"} logged`
-      };
-    }
-    return {
-      label: "Dose log",
-      value: "Clean",
-      detail: "Only exceptions need taps"
-    };
+  function homeGreeting(summary) {
+    const name = state.profile?.name || "Sawyer";
+    if (summary.daysSinceLast === null) return `Ready when ${name} needs a record.`;
+    if (summary.daysSinceLast === 0) return "You logged a seizure today. Keep notes gentle and specific.";
+    if (summary.daysSinceLast === 1) return `${name} is 1 day seizure-free.`;
+    return `${name} is ${summary.daysSinceLast} days seizure-free.`;
+  }
+
+  function shouldShowLoginScreen() {
+    return hasSupabaseConfig() && !isSignedIn() && !state.loginBypassed;
+  }
+
+  function renderLoginScreen() {
+    const email = signedInEmail();
+
+    return `
+      <section class="login-card glass-panel">
+        <div>
+          <p class="eyebrow">${escapeHtml(formatWelcomeDate(new Date()))}</p>
+          <h1>Sawyer Tracker</h1>
+          <p class="subtle">Sign in once on this device. After that, Sawyer Tracker opens automatically while the saved session is valid.</p>
+        </div>
+
+        <form id="login-form" class="form-grid">
+          <div class="field">
+            <label for="login-email">Email</label>
+            <input id="login-email" name="email" type="email" autocomplete="email" value="${escapeHtml(email)}" placeholder="you@example.com" required />
+          </div>
+          <button class="btn primary" type="submit">Send Login Link</button>
+        </form>
+
+        <button class="btn ghost" data-action="continue-offline" type="button">Continue on this device</button>
+        <p class="subtle sync-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Local tracking still works without signing in.")}</p>
+      </section>
+    `;
   }
 
   function renderSeizureTrend(summary) {
@@ -1335,10 +1349,15 @@
   }
 
   function renderPreservingContentScroll() {
+    const restoreScroll = captureContentScroll();
+    render();
+    restoreScroll();
+  }
+
+  function captureContentScroll() {
     const content = document.querySelector(".content");
     const scrollTop = content?.scrollTop || 0;
-    render();
-    requestAnimationFrame(() => {
+    return () => requestAnimationFrame(() => {
       const nextContent = document.querySelector(".content");
       if (nextContent) nextContent.scrollTop = scrollTop;
     });
@@ -1413,6 +1432,7 @@
     await hydrate();
     if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
       await syncWithSupabase({ silent: true });
+      render();
     } else {
       render();
     }
@@ -1429,6 +1449,10 @@
       render();
       setTimeout(() => document.querySelector("#note-title")?.focus(), 50);
     }
+    if (action === "continue-offline") {
+      state.loginBypassed = true;
+      render();
+    }
     if (action === "install-app") installApp();
     if (action === "enable-reminders") enableReminders();
     if (action === "disable-reminders") disableReminders();
@@ -1444,6 +1468,7 @@
     const entry = getTodayDoseEntries().find((item) => item.key === doseKey);
     if (!entry) return;
 
+    const restoreScroll = captureContentScroll();
     const existing = entry.log;
     const timestamp = nowIso();
     const event = {
@@ -1470,11 +1495,13 @@
     await dbPut("events", event);
     await hydrate();
     render();
+    restoreScroll();
     queueBackgroundSync();
     showToast(`${entry.schedule.name} marked ${status}.`);
   }
 
   async function removeEvent(id, message) {
+    const restoreScroll = captureContentScroll();
     const existing = await dbGet("events", id);
     if (existing) {
       const timestamp = nowIso();
@@ -1487,6 +1514,7 @@
     }
     await hydrate();
     render();
+    restoreScroll();
     queueBackgroundSync();
     showToast(message);
   }
