@@ -40,6 +40,7 @@
     pullRefreshing: false,
     severity: 3
   };
+  const startedFromAuthRedirect = isAuthRedirectUrl();
 
   const DEFAULT_PROFILE = {
     id: DOG_ID,
@@ -232,6 +233,12 @@
       const { data, error } = await state.supabaseClient.auth.getSession();
       if (error) throw error;
       state.supabaseSession = data.session;
+      if (startedFromAuthRedirect && data.session?.user) {
+        state.syncMessage = "Signed in here. The installed app may still need the one-time code flow once.";
+      }
+      if (startedFromAuthRedirect) {
+        cleanAuthRedirectUrl();
+      }
 
       const email = data.session?.user?.email || "";
       if (email && state.settings.currentUserEmail !== email) {
@@ -246,6 +253,7 @@
         state.supabaseClient.auth.onAuthStateChange(async (_event, session) => {
           state.supabaseSession = session;
           if (session?.user?.email) {
+            cleanAuthRedirectUrl();
             await updateSettings({
               currentUserEmail: session.user.email,
               pendingLoginEmail: "",
@@ -430,6 +438,31 @@
       return FALLBACK_APP_URL;
     }
     return url.toString();
+  }
+
+  function isAuthRedirectUrl() {
+    const search = new URLSearchParams(window.location.search || "");
+    const hashText = window.location.hash?.startsWith("#") ? window.location.hash.slice(1) : "";
+    const hash = new URLSearchParams(hashText);
+    return Boolean(
+      search.has("code") ||
+        search.has("token_hash") ||
+        search.has("type") ||
+        hash.has("access_token") ||
+        hash.has("refresh_token") ||
+        hash.has("type")
+    );
+  }
+
+  function cleanAuthRedirectUrl() {
+    if (!isAuthRedirectUrl() || !window.history?.replaceState) return;
+    const url = new URL(window.location.href);
+    url.search = "";
+    url.hash = "";
+    if (url.pathname.endsWith("/index.html")) {
+      url.pathname = url.pathname.slice(0, -"index.html".length);
+    }
+    window.history.replaceState({}, document.title, url.toString());
   }
 
   function isSignedIn() {

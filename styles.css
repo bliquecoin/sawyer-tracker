@@ -199,12 +199,19 @@ p {
 
 .login-screen {
   justify-content: center;
+  height: auto;
+  min-height: 100svh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .login-content {
   display: grid;
   width: min(100%, 520px);
-  margin: auto;
+  min-height: 100svh;
+  margin: 0 auto;
+  align-content: center;
   padding: calc(28px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom));
 }
 
