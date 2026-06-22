@@ -151,6 +151,7 @@
   init();
 
   async function init() {
+    if (await resetStaleBrowserCache()) return;
     registerServiceWorker();
     requestPersistentStorage();
     attachGlobalListeners();
@@ -161,6 +162,34 @@
     }
     render();
     startReminderLoop();
+  }
+
+  async function resetStaleBrowserCache() {
+    const params = new URLSearchParams(window.location.search || "");
+    if (!params.has("fresh") && !params.has("reset")) return false;
+    if (sessionStorage.getItem("sawyerFreshReset") === "done") return false;
+
+    sessionStorage.setItem("sawyerFreshReset", "done");
+    try {
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    } catch (error) {
+      // A failed cleanup should not leave the app unusable.
+    }
+
+    params.delete("fresh");
+    params.delete("reset");
+    const url = new URL(window.location.href);
+    url.search = params.toString();
+    url.hash = "";
+    window.location.replace(url.toString());
+    return true;
   }
 
   function registerServiceWorker() {
@@ -1510,7 +1539,7 @@
     content.addEventListener(
       "touchstart",
       (event) => {
-        if (content.scrollTop > 0 || state.pullRefreshing) return;
+        if (pageScrollTop() > 2 || state.pullRefreshing) return;
         startY = event.touches[0].clientY;
         pulling = true;
       },
@@ -1522,7 +1551,7 @@
       (event) => {
         if (!pulling || state.pullRefreshing) return;
         const distance = event.touches[0].clientY - startY;
-        if (distance <= 0 || content.scrollTop > 0) {
+        if (distance <= 0 || pageScrollTop() > 2) {
           resetPull();
           return;
         }
@@ -1553,6 +1582,10 @@
       },
       { passive: true }
     );
+  }
+
+  function pageScrollTop() {
+    return window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
   }
 
   async function refreshApp() {

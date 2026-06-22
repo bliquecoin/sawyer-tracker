@@ -34,11 +34,13 @@
 }
 
 html {
+  height: auto;
   min-height: 100%;
   background: var(--bg);
 }
 
 body {
+  height: auto;
   min-height: 100%;
   margin: 0;
   background: var(--bg);
@@ -58,9 +60,9 @@ button {
 }
 
 .app-shell {
-  height: 100dvh;
   min-height: 100svh;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .loading-screen {
@@ -87,7 +89,7 @@ button {
 .screen {
   position: relative;
   display: flex;
-  height: 100%;
+  height: auto;
   min-height: 100svh;
   flex-direction: column;
   background:
@@ -95,7 +97,7 @@ button {
     radial-gradient(ellipse at 20% 8%, rgba(255, 107, 87, 0.12), transparent 38%),
     radial-gradient(ellipse at 84% 24%, rgba(145, 111, 255, 0.13), transparent 36%),
     #ffffff;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .topbar {
@@ -157,7 +159,7 @@ p {
   margin: 0 auto;
   padding: calc(54px + env(safe-area-inset-top)) 14px calc(126px + env(safe-area-inset-bottom));
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -1172,7 +1174,7 @@ textarea {
 }
 
 .bottom-nav {
-  position: absolute;
+  position: fixed;
   right: 12px;
   bottom: calc(10px + env(safe-area-inset-bottom));
   left: 12px;

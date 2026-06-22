@@ -1,4 +1,4 @@
-const CACHE_NAME = "sawyer-tracker-v16";
+const CACHE_NAME = "sawyer-tracker-v17";
 const ASSETS = [
   "./",
   "./index.html",
@@ -29,17 +29,46 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
+  const request = event.request;
+  const url = new URL(request.url);
+  const isAppAsset =
+    request.mode === "navigate" ||
+    url.pathname.endsWith("/") ||
+    url.pathname.endsWith("/index.html") ||
+    url.pathname.endsWith("/app.js") ||
+    url.pathname.endsWith("/styles.css") ||
+    url.pathname.endsWith("/config.js") ||
+    url.pathname.endsWith("/manifest.webmanifest");
 
-      return fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => caches.match("./index.html"));
-    })
-  );
+  if (isAppAsset) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
+  event.respondWith(cacheFirst(request));
 });
+
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request, { cache: "no-store" });
+    const cache = await caches.open(CACHE_NAME);
+    cache.put(request, response.clone());
+    return response;
+  } catch (error) {
+    return (await caches.match(request)) || (await caches.match("./index.html"));
+  }
+}
+
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(request);
+    const cache = await caches.open(CACHE_NAME);
+    cache.put(request, response.clone());
+    return response;
+  } catch (error) {
+    return caches.match("./index.html");
+  }
+}
