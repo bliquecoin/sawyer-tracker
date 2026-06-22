@@ -117,6 +117,10 @@ html.ios-browser .content {
   overflow: visible;
 }
 
+html.ios-browser .pull-refresh {
+  display: none;
+}
+
 .topbar {
   position: sticky;
   top: 0;
@@ -1195,7 +1199,7 @@ textarea {
   right: 12px;
   bottom: calc(10px + env(safe-area-inset-bottom));
   left: 12px;
-  z-index: 30;
+  z-index: 1000;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 4px;
@@ -1211,6 +1215,10 @@ textarea {
     0 18px 42px rgba(72, 58, 118, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(28px) saturate(1.4);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  isolation: isolate;
+  pointer-events: auto;
+  touch-action: manipulation;
   transform: translateZ(0);
 }
 
@@ -1231,6 +1239,10 @@ html.ios-browser .toast {
   font-size: 0.75rem;
   font-weight: 850;
   overflow: hidden;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .nav-btn span {

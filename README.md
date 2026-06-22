@@ -41,6 +41,17 @@ The app uses a small browser cache so it opens quickly, but new care records req
 
 Supabase is the shared source of truth for Beau and Janelle's phones. The browser cache is only used to render the app quickly and recover from Safari storage quirks.
 
+### iPhone Sign-In Note
+
+Safari and an iPhone Home Screen web app keep separate browser storage. If a Supabase magic link opens in Safari, it signs in Safari, not the installed Home Screen app. For the smoothest installed-app sign-in, edit the Supabase Auth Magic Link template to include the 6-digit token:
+
+```html
+<h2>Sawyer Tracker sign-in</h2>
+<p>Your one-time code is: {{ .Token }}</p>
+<p>You can also sign in with this link:</p>
+<p><a href="{{ .ConfirmationURL }}">Sign in to Sawyer Tracker</a></p>
+```
+
 ### 1. Create Supabase Project
 
 Create a Supabase project, then open the SQL editor.

@@ -156,15 +156,24 @@
     { id: "blood_test", label: "Blood" }
   ];
 
-  init();
-
   function setRuntimeClasses() {
-    const standalone =
-      window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
-    const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    document.documentElement.classList.toggle("standalone-app", Boolean(standalone));
-    document.documentElement.classList.toggle("ios-browser", Boolean(isiOS && !standalone));
+    document.documentElement.classList.toggle("standalone-app", isStandaloneApp());
+    document.documentElement.classList.toggle("ios-browser", isIosBrowser());
   }
+
+  function isStandaloneApp() {
+    return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+  }
+
+  function isIosDevice() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }
+
+  function isIosBrowser() {
+    return isIosDevice() && !isStandaloneApp();
+  }
+
+  init();
 
   async function init() {
     if (await resetStaleBrowserCache()) return;
@@ -244,7 +253,7 @@
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
-        safeHydrate().then(render).then(checkReminders);
+        refreshApp({ silent: true }).catch(() => safeHydrate().then(render).then(checkReminders));
       }
     });
   }
@@ -326,11 +335,15 @@
         }
       );
 
+      if (startedFromAuthRedirect) {
+        await handleAuthRedirect(state.supabaseClient);
+      }
+
       const { data, error } = await state.supabaseClient.auth.getSession();
       if (error) throw error;
       state.supabaseSession = data.session;
       if (startedFromAuthRedirect && data.session?.user) {
-        state.syncMessage = "Signed in here. The installed app may still need the one-time code flow once.";
+        state.syncMessage = "Signed in on this version of Sawyer Tracker.";
       }
       if (startedFromAuthRedirect) {
         cleanAuthRedirectUrl();
@@ -367,7 +380,8 @@
 
       return state.supabaseClient;
     } catch (error) {
-      state.syncMessage = error.message || "Supabase could not be initialized.";
+      state.syncMessage = authErrorMessage(error) || "Supabase could not be initialized.";
+      if (startedFromAuthRedirect) cleanAuthRedirectUrl();
       return null;
     }
   }
@@ -382,6 +396,33 @@
     if (!data.session) throw new Error("Sign in before syncing.");
 
     return client;
+  }
+
+  async function handleAuthRedirect(client) {
+    const search = new URLSearchParams(window.location.search || "");
+    const hashText = window.location.hash?.startsWith("#") ? window.location.hash.slice(1) : "";
+    const hash = new URLSearchParams(hashText);
+    const authError = search.get("error_description") || hash.get("error_description") || search.get("error") || hash.get("error");
+    if (authError) throw new Error(authError);
+
+    const code = search.get("code");
+    if (code && client.auth.exchangeCodeForSession) {
+      const { data, error } = await client.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      state.supabaseSession = data.session;
+      return;
+    }
+
+    const tokenHash = search.get("token_hash") || hash.get("token_hash");
+    if (tokenHash) {
+      const type = search.get("type") || hash.get("type") || "email";
+      const { data, error } = await client.auth.verifyOtp({
+        token_hash: tokenHash,
+        type
+      });
+      if (error) throw error;
+      state.supabaseSession = data.session;
+    }
   }
 
   function openDb() {
@@ -641,6 +682,9 @@
     if (status === 429 && /rate limit|security purposes/i.test(message)) {
       return "Please wait a minute before sending another login link.";
     }
+    if (/code verifier|auth code|invalid.*code|both auth code/i.test(message)) {
+      return "That sign-in link opened in a different browser or expired. Open the email link in the same app/browser that sent it, or use the 6-digit code if the email includes one.";
+    }
     return message || "Login link could not be sent.";
   }
 
@@ -873,7 +917,7 @@
         <div>
           <p class="eyebrow">${escapeHtml(formatWelcomeDate(new Date()))}</p>
           <h1>Sawyer Tracker</h1>
-          <p class="subtle">Sign in once on this device. After that, Sawyer Tracker opens automatically while the saved session is valid and keeps Sawyer's shared record in Supabase.</p>
+          <p class="subtle">Sign in once in the version you use. Safari and the Home Screen app keep separate sessions, so a link opened in Safari signs in Safari only.</p>
         </div>
 
         ${renderTrustedDeviceLogin(true)}
@@ -892,12 +936,13 @@
           <label for="login-email">Email</label>
           <input id="login-email" name="email" type="email" autocomplete="email" value="${escapeHtml(email)}" placeholder="you@example.com" required />
         </div>
-        <button class="btn primary" type="submit" ${configured ? "" : "disabled"}>Send Sign-In Code</button>
+        <button class="btn primary" type="submit" ${configured ? "" : "disabled"}>Send Sign-In Email</button>
       </form>
 
       <div class="form-divider"></div>
 
       <form id="otp-form" class="form-grid trusted-code-form">
+        <p class="subtle">If the email contains a 6-digit code, enter it here to trust this exact app. If it only contains a link, open that link in the same place you started sign-in.</p>
         <div class="field">
           <label for="login-token">One-time code</label>
           <input id="login-token" name="token" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="123456" />
@@ -1631,14 +1676,21 @@
 
   function captureContentScroll() {
     const content = document.querySelector(".content");
-    const scrollTop = content?.scrollTop || 0;
+    const useWindowScroll = isIosBrowser();
+    const scrollTop = useWindowScroll ? window.scrollY || 0 : content?.scrollTop || 0;
     return () => requestAnimationFrame(() => {
+      if (useWindowScroll) {
+        window.scrollTo({ top: scrollTop, left: 0, behavior: "auto" });
+        return;
+      }
       const nextContent = document.querySelector(".content");
       if (nextContent) nextContent.scrollTop = scrollTop;
     });
   }
 
   function bindPullRefresh() {
+    if (isIosBrowser()) return;
+
     const content = document.querySelector(".content");
     const indicator = document.querySelector("#pull-refresh");
     if (!content || !indicator || content.__pullRefreshBound) return;
@@ -1703,8 +1755,9 @@
     );
   }
 
-  async function refreshApp() {
-    await hydrate();
+  async function refreshApp(options = {}) {
+    await safeHydrate();
+    await initSupabase();
     if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
       await syncWithSupabase({ silent: true });
       render();
@@ -1712,7 +1765,9 @@
       render();
     }
     checkReminders();
-    showToast("Updated.");
+    if (!options.silent) {
+      showToast(isSignedIn() ? "Synced with Supabase." : "This app is not signed in yet.");
+    }
   }
 
   async function handleAction(action) {
@@ -2057,7 +2112,7 @@
       await updateSettings({
         currentUserEmail: email,
         pendingLoginEmail: email,
-        lastSyncMessage: "Sign-in email sent. Enter the one-time code here to trust this device."
+        lastSyncMessage: "Sign-in email sent. If it has a 6-digit code, enter it here. If it has a link, open it in this same browser/app."
       });
       render();
       showToast("Sign-in email sent.");
@@ -2078,7 +2133,7 @@
     const email = String(state.settings?.pendingLoginEmail || state.settings?.currentUserEmail || "").trim().toLowerCase();
     const token = String(form.get("token") || "").replace(/\D/g, "");
     if (!email) {
-      showToast("Send a sign-in code first.");
+      showToast("Send a sign-in email first.");
       return;
     }
     if (token.length !== 6) {
