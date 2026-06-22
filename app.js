@@ -58,6 +58,7 @@
     supabaseHouseholdId: "",
     syncEnabled: false,
     currentUserEmail: "",
+    pendingLoginEmail: "",
     emergencyLocalMode: false,
     lastSyncAt: null,
     lastSyncMessage: "",
@@ -234,7 +235,11 @@
 
       const email = data.session?.user?.email || "";
       if (email && state.settings.currentUserEmail !== email) {
-        await updateSettings({ currentUserEmail: email });
+        await updateSettings({
+          currentUserEmail: email,
+          pendingLoginEmail: "",
+          emergencyLocalMode: false
+        });
       }
 
       if (!state.supabaseClient.__sawyerAuthBound) {
@@ -243,6 +248,7 @@
           if (session?.user?.email) {
             await updateSettings({
               currentUserEmail: session.user.email,
+              pendingLoginEmail: "",
               emergencyLocalMode: false,
               lastSyncMessage: "Signed in. Syncing shared Supabase records..."
             });
@@ -690,13 +696,7 @@
           <p class="subtle">Sign in once on this device. After that, Sawyer Tracker opens automatically while the saved session is valid and keeps Sawyer's shared record in Supabase.</p>
         </div>
 
-        <form id="login-form" class="form-grid">
-          <div class="field">
-            <label for="login-email">Email</label>
-            <input id="login-email" name="email" type="email" autocomplete="email" value="${escapeHtml(email)}" placeholder="you@example.com" required />
-          </div>
-          <button class="btn primary" type="submit">Send Login Link</button>
-        </form>
+        ${renderTrustedDeviceLogin(true)}
 
         ${
           shouldOfferEmergencyAccess()
@@ -705,6 +705,30 @@
         }
         <p class="subtle sync-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Use the same signed-in record on both phones to avoid mismatched logs.")}</p>
       </section>
+    `;
+  }
+
+  function renderTrustedDeviceLogin(configured) {
+    const email = state.settings?.pendingLoginEmail || signedInEmail();
+
+    return `
+      <form id="login-form" class="form-grid">
+        <div class="field">
+          <label for="login-email">Email</label>
+          <input id="login-email" name="email" type="email" autocomplete="email" value="${escapeHtml(email)}" placeholder="you@example.com" required />
+        </div>
+        <button class="btn primary" type="submit" ${configured ? "" : "disabled"}>Send Sign-In Code</button>
+      </form>
+
+      <div class="form-divider"></div>
+
+      <form id="otp-form" class="form-grid trusted-code-form">
+        <div class="field">
+          <label for="login-token">One-time code</label>
+          <input id="login-token" name="token" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="123456" />
+        </div>
+        <button class="btn secondary" type="submit" ${configured && email ? "" : "disabled"}>Trust This Device</button>
+      </form>
     `;
   }
 
@@ -1312,13 +1336,7 @@
                 </div>
               `
               : `
-                <form id="login-form" class="form-grid sync-form">
-                  <div class="field">
-                    <label for="login-email">Email</label>
-                    <input id="login-email" name="email" type="email" autocomplete="email" value="${escapeHtml(signedInEmail())}" placeholder="you@example.com" />
-                  </div>
-                  <button class="btn primary" type="submit" ${configured ? "" : "disabled"}>Send Login Link</button>
-                </form>
+                <div class="sync-form">${renderTrustedDeviceLogin(configured)}</div>
               `
           }
         </div>
@@ -1415,6 +1433,7 @@
     document.querySelector("#setup-form")?.addEventListener("submit", saveSetup);
     document.querySelector("#sync-config-form")?.addEventListener("submit", saveSyncConfig);
     document.querySelector("#login-form")?.addEventListener("submit", sendLoginLink);
+    document.querySelector("#otp-form")?.addEventListener("submit", verifyLoginCode);
 
     document.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", () => handleAction(button.dataset.action));
@@ -1841,10 +1860,59 @@
 
       await updateSettings({
         currentUserEmail: email,
-        lastSyncMessage: "Login link sent. Open it on this device to finish signing in."
+        pendingLoginEmail: email,
+        lastSyncMessage: "Sign-in email sent. Enter the one-time code here to trust this device."
       });
       render();
-      showToast("Login link sent.");
+      showToast("Sign-in email sent.");
+    } catch (error) {
+      state.syncMessage = authErrorMessage(error);
+      await updateSettings({
+        pendingLoginEmail: email,
+        lastSyncMessage: state.syncMessage
+      });
+      render();
+      showToast(state.syncMessage);
+    }
+  }
+
+  async function verifyLoginCode(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(state.settings?.pendingLoginEmail || state.settings?.currentUserEmail || "").trim().toLowerCase();
+    const token = String(form.get("token") || "").replace(/\D/g, "");
+    if (!email) {
+      showToast("Send a sign-in code first.");
+      return;
+    }
+    if (token.length !== 6) {
+      showToast("Enter the 6-digit code from the email.");
+      return;
+    }
+
+    try {
+      const client = state.supabaseClient || (await initSupabase());
+      if (!client) throw new Error("Add Supabase settings first.");
+
+      const { data, error } = await client.auth.verifyOtp({
+        email,
+        token,
+        type: "email"
+      });
+      if (error) throw error;
+
+      state.supabaseSession = data.session;
+      await updateSettings({
+        currentUserEmail: email,
+        pendingLoginEmail: "",
+        emergencyLocalMode: false,
+        lastSyncMessage: "This device is trusted. Syncing shared Supabase records..."
+      });
+      if (state.settings?.syncEnabled && navigator.onLine) {
+        await syncWithSupabase({ silent: true });
+      }
+      render();
+      showToast("Device trusted.");
     } catch (error) {
       state.syncMessage = authErrorMessage(error);
       await updateSettings({ lastSyncMessage: state.syncMessage });
@@ -1860,6 +1928,7 @@
       state.supabaseSession = null;
       await updateSettings({
         currentUserEmail: "",
+        pendingLoginEmail: "",
         emergencyLocalMode: false,
         lastSyncMessage: "Signed out."
       });
