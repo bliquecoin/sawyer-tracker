@@ -82,7 +82,7 @@
   <body>
     <main>
       <h1>Reset Sawyer Tracker</h1>
-      <p>This clears Safari's old tracker cache and removes the old offline app worker. Your Supabase records are not deleted.</p>
+      <p>This clears Safari's old tracker cache, local browser database, and offline app worker. Your Supabase records are not deleted.</p>
       <button id="reset-button" type="button">Reset Safari Cache</button>
       <a class="secondary" href="./?fresh=1">Open Tracker</a>
       <p id="status" class="status" role="status">Ready.</p>
@@ -108,6 +108,25 @@
                 .filter((key) => key.startsWith("sawyer-tracker"))
                 .map((key) => caches.delete(key))
             );
+          }
+
+          if ("indexedDB" in window) {
+            await new Promise((resolve) => {
+              const request = indexedDB.deleteDatabase("sawyer-care-tracker");
+              const timeout = setTimeout(resolve, 1800);
+              request.onsuccess = () => {
+                clearTimeout(timeout);
+                resolve();
+              };
+              request.onerror = () => {
+                clearTimeout(timeout);
+                resolve();
+              };
+              request.onblocked = () => {
+                clearTimeout(timeout);
+                resolve();
+              };
+            });
           }
 
           sessionStorage.removeItem("sawyerFreshReset");

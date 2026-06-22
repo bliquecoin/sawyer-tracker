@@ -32,6 +32,7 @@
     syncBusy: false,
     syncMessage: "",
     syncTimer: null,
+    storageUnavailable: false,
     aiBusy: false,
     aiInsight: null,
     aiError: "",
@@ -41,6 +42,12 @@
     severity: 3
   };
   const startedFromAuthRedirect = isAuthRedirectUrl();
+  const memoryStores = {
+    profile: new Map(),
+    settings: new Map(),
+    schedules: new Map(),
+    events: new Map()
+  };
 
   const DEFAULT_PROFILE = {
     id: DOG_ID,
@@ -155,7 +162,7 @@
     if (await retireServiceWorker()) return;
     requestPersistentStorage();
     attachGlobalListeners();
-    await hydrate();
+    await safeHydrate();
     await initSupabase();
     if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
       await syncWithSupabase({ silent: true });
@@ -228,9 +235,45 @@
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
-        hydrate().then(render).then(checkReminders);
+        safeHydrate().then(render).then(checkReminders);
       }
     });
+  }
+
+  async function safeHydrate() {
+    try {
+      await withTimeout(hydrate(), 3500, "Local storage took too long.");
+    } catch (error) {
+      useStorageFallback(error);
+    }
+  }
+
+  function useStorageFallback(error) {
+    state.storageUnavailable = true;
+    state.profile = state.profile || clone(DEFAULT_PROFILE);
+    state.settings = normalizeSettings(state.settings || DEFAULT_SETTINGS);
+    state.schedules = state.schedules?.length ? state.schedules : DEFAULT_SCHEDULES.map(clone);
+    state.events = state.events || [];
+    state.syncMessage =
+      "Safari storage is unavailable. The app is running in recovery mode; sign in to load shared Supabase records.";
+    seedMemoryStore("profile", [state.profile]);
+    seedMemoryStore("settings", [state.settings]);
+    seedMemoryStore("schedules", state.schedules);
+    seedMemoryStore("events", state.events);
+  }
+
+  function seedMemoryStore(storeName, values) {
+    const store = memoryStores[storeName];
+    if (!store) return;
+    values.forEach((value) => store.set(value.id, clone(value)));
+  }
+
+  function withTimeout(promise, ms, message) {
+    let timeoutId;
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
   }
 
   async function loadSupabaseLibrary() {
@@ -334,6 +377,16 @@
 
   function openDb() {
     return new Promise((resolve, reject) => {
+      if (!window.indexedDB) {
+        state.storageUnavailable = true;
+        reject(new Error("IndexedDB is not available."));
+        return;
+      }
+
+      const timeoutId = setTimeout(() => {
+        state.storageUnavailable = true;
+        reject(new Error("IndexedDB did not respond."));
+      }, 2500);
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onupgradeneeded = () => {
@@ -360,12 +413,25 @@
         }
       };
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        clearTimeout(timeoutId);
+        resolve(request.result);
+      };
+      request.onerror = () => {
+        clearTimeout(timeoutId);
+        state.storageUnavailable = true;
+        reject(request.error);
+      };
+      request.onblocked = () => {
+        clearTimeout(timeoutId);
+        state.storageUnavailable = true;
+        reject(new Error("IndexedDB is blocked by another Safari tab."));
+      };
     });
   }
 
   async function dbGetAll(storeName) {
+    if (state.storageUnavailable) return memoryGetAll(storeName);
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, "readonly");
@@ -377,6 +443,7 @@
   }
 
   async function dbGet(storeName, key) {
+    if (state.storageUnavailable) return memoryGet(storeName, key);
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, "readonly");
@@ -388,6 +455,7 @@
   }
 
   async function dbPut(storeName, value) {
+    if (state.storageUnavailable) return memoryPut(storeName, value);
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, "readwrite");
@@ -401,6 +469,7 @@
   }
 
   async function dbBulkPut(storeName, values) {
+    if (state.storageUnavailable) return memoryBulkPut(storeName, values);
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, "readwrite");
@@ -415,6 +484,7 @@
   }
 
   async function dbDelete(storeName, key) {
+    if (state.storageUnavailable) return memoryDelete(storeName, key);
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, "readwrite");
@@ -428,6 +498,7 @@
   }
 
   async function dbClear(storeName) {
+    if (state.storageUnavailable) return memoryClear(storeName);
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, "readwrite");
@@ -438,6 +509,33 @@
       };
       tx.onerror = () => reject(tx.error);
     });
+  }
+
+  function memoryGetAll(storeName) {
+    return Array.from(memoryStores[storeName]?.values() || []).map(clone);
+  }
+
+  function memoryGet(storeName, key) {
+    const value = memoryStores[storeName]?.get(key);
+    return value ? clone(value) : null;
+  }
+
+  function memoryPut(storeName, value) {
+    memoryStores[storeName]?.set(value.id, clone(value));
+    return clone(value);
+  }
+
+  function memoryBulkPut(storeName, values) {
+    values.forEach((value) => memoryPut(storeName, value));
+    return values.map(clone);
+  }
+
+  function memoryDelete(storeName, key) {
+    memoryStores[storeName]?.delete(key);
+  }
+
+  function memoryClear(storeName) {
+    memoryStores[storeName]?.clear();
   }
 
   function normalizeSettings(settings) {
