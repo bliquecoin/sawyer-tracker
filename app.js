@@ -1539,7 +1539,7 @@
     content.addEventListener(
       "touchstart",
       (event) => {
-        if (pageScrollTop() > 2 || state.pullRefreshing) return;
+        if (content.scrollTop > 0 || state.pullRefreshing) return;
         startY = event.touches[0].clientY;
         pulling = true;
       },
@@ -1551,7 +1551,7 @@
       (event) => {
         if (!pulling || state.pullRefreshing) return;
         const distance = event.touches[0].clientY - startY;
-        if (distance <= 0 || pageScrollTop() > 2) {
+        if (distance <= 0 || content.scrollTop > 0) {
           resetPull();
           return;
         }
@@ -1582,10 +1582,6 @@
       },
       { passive: true }
     );
-  }
-
-  function pageScrollTop() {
-    return window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
   }
 
   async function refreshApp() {
