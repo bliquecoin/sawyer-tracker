@@ -152,7 +152,7 @@
 
   async function init() {
     if (await resetStaleBrowserCache()) return;
-    registerServiceWorker();
+    if (await retireServiceWorker()) return;
     requestPersistentStorage();
     attachGlobalListeners();
     await hydrate();
@@ -167,21 +167,8 @@
   async function resetStaleBrowserCache() {
     const params = new URLSearchParams(window.location.search || "");
     if (!params.has("fresh") && !params.has("reset")) return false;
-    if (sessionStorage.getItem("sawyerFreshReset") === "done") return false;
 
-    sessionStorage.setItem("sawyerFreshReset", "done");
-    try {
-      if ("serviceWorker" in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((registration) => registration.unregister()));
-      }
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((key) => caches.delete(key)));
-      }
-    } catch (error) {
-      // A failed cleanup should not leave the app unusable.
-    }
+    await clearServiceWorkerState();
 
     params.delete("fresh");
     params.delete("reset");
@@ -192,10 +179,37 @@
     return true;
   }
 
-  function registerServiceWorker() {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./sw.js").catch(() => {});
+  async function retireServiceWorker() {
+    if (sessionStorage.getItem("sawyerServiceWorkerRetired") === "done") return false;
+
+    const hadServiceWorker = Boolean(navigator.serviceWorker?.controller);
+    const cleared = await clearServiceWorkerState();
+    if (!hadServiceWorker && !cleared) return false;
+
+    sessionStorage.setItem("sawyerServiceWorkerRetired", "done");
+    const url = new URL(window.location.href);
+    url.hash = "";
+    window.location.replace(url.toString());
+    return true;
+  }
+
+  async function clearServiceWorkerState() {
+    let cleared = false;
+    try {
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        if (registrations.length) cleared = true;
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        if (keys.length) cleared = true;
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    } catch (error) {
+      // A failed cleanup should not leave the app unusable.
     }
+    return cleared;
   }
 
   function requestPersistentStorage() {
