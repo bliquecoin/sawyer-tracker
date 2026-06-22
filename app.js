@@ -58,6 +58,7 @@
     supabaseHouseholdId: "",
     syncEnabled: false,
     currentUserEmail: "",
+    emergencyLocalMode: false,
     lastSyncAt: null,
     lastSyncMessage: "",
     lastBackupAt: null,
@@ -240,7 +241,11 @@
         state.supabaseClient.auth.onAuthStateChange(async (_event, session) => {
           state.supabaseSession = session;
           if (session?.user?.email) {
-            await updateSettings({ currentUserEmail: session.user.email });
+            await updateSettings({
+              currentUserEmail: session.user.email,
+              emergencyLocalMode: false,
+              lastSyncMessage: "Signed in. Syncing shared Supabase records..."
+            });
             if (state.settings?.syncEnabled && navigator.onLine) {
               await syncWithSupabase({ silent: true });
             }
@@ -514,6 +519,7 @@
       <div class="screen">
         <main class="content">
           <div id="pull-refresh" class="pull-refresh" aria-live="polite">Pull to refresh</div>
+          ${renderEmergencySyncBanner()}
           <section class="view ${state.activeTab === "today" ? "active" : ""}" data-view="today">
             ${renderToday(summary, todayEntries)}
           </section>
@@ -652,7 +658,25 @@
   }
 
   function shouldShowLoginScreen() {
+    return hasSupabaseConfig() && !isSignedIn() && !state.settings?.emergencyLocalMode;
+  }
+
+  function shouldOfferEmergencyAccess() {
     return hasSupabaseConfig() && !isSignedIn();
+  }
+
+  function renderEmergencySyncBanner() {
+    if (!hasSupabaseConfig() || isSignedIn() || !state.settings?.emergencyLocalMode) return "";
+
+    return `
+      <aside class="emergency-sync-banner glass-panel">
+        <div>
+          <strong>Emergency local mode</strong>
+          <p>Records are being kept on this phone until Supabase sign-in works. Use one phone for logging until sync is restored.</p>
+        </div>
+        <button class="btn secondary small" data-tab="backup" type="button">Sign in</button>
+      </aside>
+    `;
   }
 
   function renderLoginScreen() {
@@ -674,6 +698,11 @@
           <button class="btn primary" type="submit">Send Login Link</button>
         </form>
 
+        ${
+          shouldOfferEmergencyAccess()
+            ? `<button class="btn secondary" data-action="emergency-local" type="button">Emergency: log on this phone</button>`
+            : ""
+        }
         <p class="subtle sync-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Use the same signed-in record on both phones to avoid mismatched logs.")}</p>
       </section>
     `;
@@ -1495,6 +1524,15 @@
       render();
       setTimeout(() => document.querySelector("#note-title")?.focus(), 50);
     }
+    if (action === "emergency-local") {
+      await updateSettings({
+        emergencyLocalMode: true,
+        lastSyncMessage: "Emergency local mode is on. Sign in again when Supabase email sending is available, then sync this phone."
+      });
+      state.activeTab = "today";
+      render();
+      showToast("Emergency local logging enabled.");
+    }
     if (action === "install-app") installApp();
     if (action === "enable-reminders") enableReminders();
     if (action === "disable-reminders") disableReminders();
@@ -1809,6 +1847,7 @@
       showToast("Login link sent.");
     } catch (error) {
       state.syncMessage = authErrorMessage(error);
+      await updateSettings({ lastSyncMessage: state.syncMessage });
       render();
       showToast(state.syncMessage);
     }
@@ -1821,6 +1860,7 @@
       state.supabaseSession = null;
       await updateSettings({
         currentUserEmail: "",
+        emergencyLocalMode: false,
         lastSyncMessage: "Signed out."
       });
       render();
