@@ -1,6 +1,6 @@
 # Sawyer Tracker
 
-A local-first phone-friendly tracker for Sawyer's seizures, Epibrom, Phenomav, and MCT oil C8/C10.
+A phone-friendly tracker for Sawyer's seizures, Epibrom, Phenomav, and MCT oil C8/C10, using Supabase as the shared source of truth.
 
 ## Live App
 
@@ -24,7 +24,7 @@ Open:
 http://127.0.0.1:4173
 ```
 
-The app stores records in the browser with IndexedDB and can work offline after the first load.
+The app uses a small browser cache so it opens quickly, but new care records require a signed-in Supabase connection.
 
 ## Current Features
 
@@ -39,7 +39,7 @@ The app stores records in the browser with IndexedDB and can work offline after 
 
 ## Supabase Sync
 
-The app is local-first. It saves to IndexedDB immediately, then syncs with Supabase when configured and signed in.
+Supabase is the shared source of truth for Beau and Janelle's phones. The browser cache is only used to render the app quickly and recover from Safari storage quirks.
 
 ### 1. Create Supabase Project
 

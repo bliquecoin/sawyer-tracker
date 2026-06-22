@@ -839,23 +839,19 @@
   }
 
   function shouldShowLoginScreen() {
-    return hasSupabaseConfig() && !isSignedIn() && !state.settings?.emergencyLocalMode;
-  }
-
-  function shouldOfferEmergencyAccess() {
     return hasSupabaseConfig() && !isSignedIn();
   }
 
   function renderEmergencySyncBanner() {
-    if (!hasSupabaseConfig() || isSignedIn() || !state.settings?.emergencyLocalMode) return "";
+    if (!state.storageUnavailable) return "";
 
     return `
       <aside class="emergency-sync-banner glass-panel">
         <div>
-          <strong>Emergency local mode</strong>
-          <p>Records are being kept on this phone until Supabase sign-in works. Use one phone for logging until sync is restored.</p>
+          <strong>Safari recovery mode</strong>
+          <p>The phone cache is unavailable, so Sawyer Tracker is using Supabase as the live record for this session.</p>
         </div>
-        <button class="btn secondary small" data-tab="backup" type="button">Sign in</button>
+        <button class="btn secondary small" data-tab="backup" type="button">Cloud status</button>
       </aside>
     `;
   }
@@ -873,11 +869,6 @@
 
         ${renderTrustedDeviceLogin(true)}
 
-        ${
-          shouldOfferEmergencyAccess()
-            ? `<button class="btn secondary" data-action="emergency-local" type="button">Emergency: log on this phone</button>`
-            : ""
-        }
         <p class="subtle sync-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Use the same signed-in record on both phones to avoid mismatched logs.")}</p>
       </section>
     `;
@@ -1460,11 +1451,16 @@
     const syncStatus = state.syncBusy
       ? "Syncing"
       : signedIn
-        ? "Signed in"
+        ? navigator.onLine
+          ? "Cloud connected"
+          : "Offline"
         : configured
           ? "Needs sign in"
           : "Not set up";
     const syncMessage = state.syncMessage || state.settings?.lastSyncMessage || "";
+    const sourceMessage = signedIn
+      ? "Supabase is the shared source of truth. This device only keeps a cache so the app opens quickly."
+      : "Sign in before logging records. New entries are saved only when Supabase is connected.";
 
     return `
       <section class="panel">
@@ -1484,6 +1480,7 @@
               <strong>${escapeHtml(lastSync)}</strong>
             </div>
           </div>
+          <p class="subtle sync-message">${escapeHtml(sourceMessage)}</p>
           ${syncMessage ? `<p class="subtle sync-message">${escapeHtml(syncMessage)}</p>` : ""}
 
           <form id="sync-config-form" class="form-grid sync-form">
@@ -1718,15 +1715,6 @@
       render();
       setTimeout(() => document.querySelector("#note-title")?.focus(), 50);
     }
-    if (action === "emergency-local") {
-      await updateSettings({
-        emergencyLocalMode: true,
-        lastSyncMessage: "Emergency local mode is on. Sign in again when Supabase email sending is available, then sync this phone."
-      });
-      state.activeTab = "today";
-      render();
-      showToast("Emergency local logging enabled.");
-    }
     if (action === "install-app") installApp();
     if (action === "enable-reminders") enableReminders();
     if (action === "disable-reminders") disableReminders();
@@ -1744,10 +1732,28 @@
       await syncWithSupabase({ silent: true });
       return;
     }
-    queueBackgroundSync();
+    throw new Error(cloudSaveBlockMessage());
+  }
+
+  function cloudSaveBlockMessage() {
+    if (!hasSupabaseConfig()) return "Supabase is not configured yet.";
+    if (!state.settings?.syncEnabled) return "Supabase sync is not enabled yet.";
+    if (!isSignedIn()) return "Sign in before saving Sawyer's records.";
+    if (!navigator.onLine) return "Internet is required before saving Sawyer's records.";
+    return "Supabase is not ready yet.";
+  }
+
+  function canSaveCloudRecord() {
+    if (hasSupabaseConfig() && state.settings?.syncEnabled && isSignedIn() && navigator.onLine) return true;
+    const message = cloudSaveBlockMessage();
+    state.syncMessage = message;
+    showToast(message);
+    if (!isSignedIn()) render();
+    return false;
   }
 
   async function logDose(doseKey, status) {
+    if (!canSaveCloudRecord()) return;
     const entry = getTodayDoseEntries().find((item) => item.key === doseKey);
     if (!entry) return;
 
@@ -1784,6 +1790,7 @@
   }
 
   async function removeEvent(id, message) {
+    if (!canSaveCloudRecord()) return;
     const restoreScroll = captureContentScroll();
     const existing = await dbGet("events", id);
     if (existing) {
@@ -1804,6 +1811,7 @@
 
   async function saveSeizure(event) {
     event.preventDefault();
+    if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
     const date = form.get("date");
     const time = form.get("time");
@@ -1843,6 +1851,7 @@
 
   async function saveNote(event) {
     event.preventDefault();
+    if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
     const title = String(form.get("title") || "Care note").trim() || "Care note";
     const body = String(form.get("body") || "").trim();
@@ -1871,6 +1880,7 @@
 
   async function saveVetVisit(event) {
     event.preventDefault();
+    if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
     const date = String(form.get("date") || toDateInputValue(new Date()));
     const time = String(form.get("time") || "12:00");
@@ -1901,6 +1911,7 @@
 
   async function saveBloodTest(event) {
     event.preventDefault();
+    if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
     const date = String(form.get("date") || toDateInputValue(new Date()));
     const time = String(form.get("time") || "12:00");
@@ -1932,6 +1943,7 @@
 
   async function saveSetup(event) {
     event.preventDefault();
+    if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
     const timestamp = nowIso();
     const dogName = String(form.get("dogName") || "Sawyer").trim() || "Sawyer";
@@ -2992,7 +3004,7 @@
   }
 
   async function resetData() {
-    if (!confirm("Clear all local Sawyer Tracker data on this device? Export a backup first if you need it.")) {
+    if (!confirm("Clear Sawyer Tracker's browser cache on this device? Supabase records are not deleted.")) {
       return;
     }
 
@@ -3003,7 +3015,7 @@
     await hydrate();
     state.activeTab = "today";
     render();
-    showToast("Local data cleared.");
+    showToast("Device cache cleared.");
   }
 
   function downloadBlob(content, filename, type) {
