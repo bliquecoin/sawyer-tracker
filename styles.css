@@ -157,7 +157,7 @@ p {
   flex: 1;
   width: min(100%, 980px);
   margin: 0 auto;
-  padding: calc(54px + env(safe-area-inset-top)) 14px calc(126px + env(safe-area-inset-bottom));
+  padding: calc(54px + env(safe-area-inset-top)) 14px calc(152px + env(safe-area-inset-bottom));
   overflow-x: hidden;
   overflow-y: visible;
   -webkit-overflow-scrolling: touch;
@@ -1175,16 +1175,17 @@ textarea {
 
 .bottom-nav {
   position: fixed;
-  right: 12px;
-  bottom: calc(10px + env(safe-area-inset-bottom));
-  left: 12px;
-  z-index: 30;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: calc(22px + env(safe-area-inset-bottom));
+  left: max(12px, env(safe-area-inset-left));
+  z-index: 120;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
-  width: min(calc(100% - 24px), 720px);
+  gap: 5px;
+  width: auto;
+  max-width: 720px;
   margin: 0 auto;
-  padding: 8px;
+  padding: 9px;
   border: 1px solid rgba(255, 255, 255, 0.76);
   border-radius: 999px;
   background:
@@ -1194,14 +1195,15 @@ textarea {
     0 18px 42px rgba(72, 58, 118, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(28px) saturate(1.4);
+  pointer-events: auto;
   transform: translateZ(0);
 }
 
 .nav-btn {
   position: relative;
   min-width: 0;
-  min-height: 48px;
-  padding: 5px 4px;
+  min-height: 58px;
+  padding: 8px 4px 10px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -1209,6 +1211,7 @@ textarea {
   font-size: 0.75rem;
   font-weight: 850;
   overflow: hidden;
+  touch-action: manipulation;
 }
 
 .nav-btn span {
@@ -1230,7 +1233,7 @@ textarea {
   content: "";
   position: absolute;
   right: 30%;
-  bottom: 3px;
+  bottom: 5px;
   left: 30%;
   height: 2px;
   border-radius: 999px;
@@ -1309,8 +1312,8 @@ textarea {
   }
 
   .bottom-nav {
-    right: 0;
-    left: 0;
+    right: max(18px, calc((100vw - 720px) / 2));
+    left: max(18px, calc((100vw - 720px) / 2));
   }
 }
 
