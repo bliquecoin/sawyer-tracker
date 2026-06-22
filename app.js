@@ -48,6 +48,7 @@
     schedules: new Map(),
     events: new Map()
   };
+  setRuntimeClasses();
 
   const DEFAULT_PROFILE = {
     id: DOG_ID,
@@ -156,6 +157,14 @@
   ];
 
   init();
+
+  function setRuntimeClasses() {
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+    const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    document.documentElement.classList.toggle("standalone-app", Boolean(standalone));
+    document.documentElement.classList.toggle("ios-browser", Boolean(isiOS && !standalone));
+  }
 
   async function init() {
     if (await resetStaleBrowserCache()) return;

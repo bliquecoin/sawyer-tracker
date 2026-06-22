@@ -63,6 +63,20 @@ button {
   overflow: hidden;
 }
 
+html.ios-browser,
+html.ios-browser body {
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html.ios-browser .app-shell,
+html.ios-browser .screen {
+  height: auto;
+  min-height: 100svh;
+  overflow: visible;
+}
+
 .loading-screen {
   display: grid;
   min-height: 100svh;
@@ -96,6 +110,11 @@ button {
     radial-gradient(ellipse at 84% 24%, rgba(145, 111, 255, 0.13), transparent 36%),
     #ffffff;
   overflow: hidden;
+}
+
+html.ios-browser .content {
+  min-height: 100svh;
+  overflow: visible;
 }
 
 .topbar {
@@ -1193,6 +1212,11 @@ textarea {
     inset 0 1px 0 rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(28px) saturate(1.4);
   transform: translateZ(0);
+}
+
+html.ios-browser .bottom-nav,
+html.ios-browser .toast {
+  position: fixed;
 }
 
 .nav-btn {
