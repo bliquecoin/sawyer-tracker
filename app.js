@@ -203,8 +203,9 @@
       }
       if ("caches" in window) {
         const keys = await caches.keys();
-        if (keys.length) cleared = true;
-        await Promise.all(keys.map((key) => caches.delete(key)));
+        const trackerKeys = keys.filter((key) => key.startsWith("sawyer-tracker"));
+        if (trackerKeys.length) cleared = true;
+        await Promise.all(trackerKeys.map((key) => caches.delete(key)));
       }
     } catch (error) {
       // A failed cleanup should not leave the app unusable.
