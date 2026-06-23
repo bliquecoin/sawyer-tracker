@@ -23,7 +23,7 @@ type CareEvent = {
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, x-sawyer-access-key, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS"
 };
 
@@ -33,8 +33,9 @@ Deno.serve(async (req: Request) => {
 
   try {
     const authorization = req.headers.get("authorization") || "";
-    if (!authorization.startsWith("Bearer ")) {
-      return json({ message: "Sign in before running AI review." }, 401);
+    const accessKey = req.headers.get("x-sawyer-access-key") || "";
+    if (!authorization.startsWith("Bearer ") && !accessKey) {
+      return json({ message: "Connect Supabase before running AI review." }, 401);
     }
 
     const body = await req.json().catch(() => ({}));
@@ -45,7 +46,14 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       readPublishableKey(),
-      { global: { headers: { authorization } } }
+      {
+        global: {
+          headers: {
+            ...(authorization ? { authorization } : {}),
+            ...(accessKey ? { "x-sawyer-access-key": accessKey } : {})
+          }
+        }
+      }
     );
 
     const [{ data: eventRows, error: eventError }, { data: dogRows }] = await Promise.all([

@@ -1,6 +1,6 @@
 -- Run this after schema.sql.
 -- Run this after schema.sql.
--- Replace the two email values with the emails that will sign in on each iPhone.
+-- Email members are optional now. Phone access normally uses the household access code.
 
 with created_household as (
   insert into public.sawyer_households (name)

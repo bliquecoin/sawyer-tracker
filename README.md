@@ -24,7 +24,7 @@ Open:
 http://127.0.0.1:4173
 ```
 
-The app uses a small browser cache so it opens quickly, but new care records require a signed-in Supabase connection.
+The app uses a small browser cache so it opens quickly, but new care records require a connected Supabase household access code.
 
 ## Current Features
 
@@ -41,16 +41,11 @@ The app uses a small browser cache so it opens quickly, but new care records req
 
 Supabase is the shared source of truth for Beau and Janelle's phones. The browser cache is only used to render the app quickly and recover from Safari storage quirks.
 
-### iPhone Sign-In Note
+### Household Access Code
 
-Safari and an iPhone Home Screen web app keep separate browser storage. If a Supabase magic link opens in Safari, it signs in Safari, not the installed Home Screen app. For the smoothest installed-app sign-in, edit the Supabase Auth Magic Link template to include the 6-digit token:
+Sawyer Tracker does not require Supabase email sign-in for normal use. Each phone enters the shared household access code once, stores a hash on that device, and sends it to Supabase with each sync request. Row Level Security checks that hash before any records are read or written.
 
-```html
-<h2>Sawyer Tracker sign-in</h2>
-<p>Your one-time code is: {{ .Token }}</p>
-<p>You can also sign in with this link:</p>
-<p><a href="{{ .ConfirmationURL }}">Sign in to Sawyer Tracker</a></p>
-```
+Do not commit the plain access code or its hash. Store the hash only in the private Supabase table created by the household access migration.
 
 ### 1. Create Supabase Project
 
@@ -68,7 +63,7 @@ Then edit and run:
 supabase/seed-household.sql
 ```
 
-Replace the two email placeholders with the emails that will sign in on each iPhone. Copy the returned `household_id`.
+The email member rows are still supported for backwards compatibility, but normal phone access uses the household access code. Copy the returned `household_id`.
 
 ### 2. Configure the App
 
@@ -83,9 +78,9 @@ window.SAWYER_SUPABASE_CONFIG = {
 };
 ```
 
-The publishable key is public. Access is protected by Supabase Auth plus Row Level Security.
+The publishable key is public. Access is protected by Row Level Security plus the shared household access code.
 
-### 3. Auth Settings
+### 3. App URL
 
 The deployed app URL is:
 
@@ -93,7 +88,7 @@ The deployed app URL is:
 https://bliquecoin.github.io/sawyer-tracker/
 ```
 
-Supabase accepted this redirect URL during setup.
+Use this URL when installing the app on iPhone.
 
 ### 4. Deploy for iPhone
 
@@ -107,6 +102,6 @@ The app must be served over HTTPS for reliable install/offline behavior on iPhon
 After deployment:
 
 1. Open the HTTPS URL in Safari on each iPhone.
-2. Sign in with the allowed email.
+2. Enter the shared household access code.
 3. Use Safari Share > Add to Home Screen.
 4. Open from the Home Screen and tap Backup > Sync Now.

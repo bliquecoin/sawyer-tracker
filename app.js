@@ -8,6 +8,8 @@
   const OVERDUE_MINUTES = 45;
   const SUPABASE_JS_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
   const FALLBACK_APP_URL = "https://bliquecoin.github.io/sawyer-tracker/";
+  const ACCESS_KEY_STORAGE = "sawyer-household-access-key-hash";
+  const ACCESS_HEADER = "x-sawyer-access-key";
   const SUPABASE_TABLES = {
     dogs: "sawyer_dogs",
     schedules: "sawyer_care_schedules",
@@ -29,6 +31,7 @@
     installPrompt: null,
     supabaseClient: null,
     supabaseSession: null,
+    householdAccessHash: readHouseholdAccessHash(),
     syncBusy: false,
     syncMessage: "",
     syncTimer: null,
@@ -273,7 +276,7 @@
     state.schedules = state.schedules?.length ? state.schedules : DEFAULT_SCHEDULES.map(clone);
     state.events = state.events || [];
     state.syncMessage =
-      "Safari storage is unavailable. The app is running in recovery mode; sign in to load shared Supabase records.";
+      "Safari storage is unavailable. The app is running in recovery mode; connect Supabase to load shared records.";
     seedMemoryStore("profile", [state.profile]);
     seedMemoryStore("settings", [state.settings]);
     seedMemoryStore("schedules", state.schedules);
@@ -327,6 +330,9 @@
         state.settings.supabaseUrl,
         state.settings.supabaseAnonKey,
         {
+          global: {
+            headers: state.householdAccessHash ? { [ACCESS_HEADER]: state.householdAccessHash } : {}
+          },
           auth: {
             autoRefreshToken: true,
             detectSessionInUrl: true,
@@ -343,7 +349,7 @@
       if (error) throw error;
       state.supabaseSession = data.session;
       if (startedFromAuthRedirect && data.session?.user) {
-        state.syncMessage = "Signed in on this version of Sawyer Tracker.";
+        state.syncMessage = "Supabase connected on this version of Sawyer Tracker.";
       }
       if (startedFromAuthRedirect) {
         cleanAuthRedirectUrl();
@@ -367,7 +373,7 @@
               currentUserEmail: session.user.email,
               pendingLoginEmail: "",
               emergencyLocalMode: false,
-              lastSyncMessage: "Signed in. Syncing shared Supabase records..."
+              lastSyncMessage: "Supabase connected. Syncing shared records..."
             });
             if (state.settings?.syncEnabled && navigator.onLine) {
               await syncWithSupabase({ silent: true });
@@ -390,10 +396,12 @@
     const client = state.supabaseClient || (await initSupabase());
     if (!client) throw new Error("Add Supabase settings first.");
 
+    if (state.householdAccessHash) return client;
+
     const { data, error } = await client.auth.getSession();
     if (error) throw error;
     state.supabaseSession = data.session;
-    if (!data.session) throw new Error("Sign in before syncing.");
+    if (!data.session) throw new Error("Enter the household access code before syncing.");
 
     return client;
   }
@@ -616,6 +624,37 @@
     );
   }
 
+  function readHouseholdAccessHash() {
+    try {
+      return localStorage.getItem(ACCESS_KEY_STORAGE) || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function writeHouseholdAccessHash(hash) {
+    state.householdAccessHash = hash;
+    state.supabaseClient = null;
+    try {
+      if (hash) {
+        localStorage.setItem(ACCESS_KEY_STORAGE, hash);
+      } else {
+        localStorage.removeItem(ACCESS_KEY_STORAGE);
+      }
+    } catch {
+      state.householdAccessHash = hash;
+    }
+  }
+
+  async function sha256Hex(value) {
+    if (!window.crypto?.subtle) throw new Error("This browser cannot save the household access code.");
+    const bytes = new TextEncoder().encode(value);
+    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
   function canonicalAppUrl() {
     const configured = externalConfig.appUrl || externalConfig.siteUrl || "";
     if (configured) return configured.endsWith("/") ? configured : `${configured}/`;
@@ -658,14 +697,17 @@
   }
 
   function isSignedIn() {
-    return Boolean(state.supabaseSession?.user);
+    return Boolean(state.supabaseSession?.user || state.householdAccessHash);
   }
 
   function signedInEmail() {
-    return state.supabaseSession?.user?.email || state.settings?.currentUserEmail || "";
+    return state.supabaseSession?.user?.email || state.settings?.currentUserEmail || (state.householdAccessHash ? "Household access" : "");
   }
 
   function displayUserName() {
+    if (state.householdAccessHash && !state.supabaseSession?.user?.email) {
+      return `${state.profile?.name || "Sawyer"} team`;
+    }
     const email = signedInEmail();
     if (!email) return `${state.profile?.name || "Sawyer"} team`;
     const localPart = email.split("@")[0] || "";
@@ -677,15 +719,15 @@
     const message = String(error?.message || "").trim();
     const status = error?.status || error?.statusCode;
     if (/email rate limit|over_email_send_rate_limit/i.test(message)) {
-      return "Supabase email limit hit. Wait about an hour before sending another login link, or configure custom SMTP for reliable sign-in.";
+      return "Supabase email limit hit. Use the household access code instead of email sign-in.";
     }
     if (status === 429 && /rate limit|security purposes/i.test(message)) {
-      return "Please wait a minute before sending another login link.";
+      return "Supabase rate limit hit. Try again shortly.";
     }
     if (/code verifier|auth code|invalid.*code|both auth code/i.test(message)) {
-      return "That sign-in link opened in a different browser or expired. Open the email link in the same app/browser that sent it, or use the 6-digit code if the email includes one.";
+      return "That old sign-in link opened in a different browser or expired. Use the household access code instead.";
     }
-    return message || "Login link could not be sent.";
+    return message || "Supabase could not connect.";
   }
 
   async function updateSettings(patch) {
@@ -910,44 +952,29 @@
   }
 
   function renderLoginScreen() {
-    const email = signedInEmail();
-
     return `
       <section class="login-card glass-panel">
         <div>
           <p class="eyebrow">${escapeHtml(formatWelcomeDate(new Date()))}</p>
           <h1>Sawyer Tracker</h1>
-          <p class="subtle">Sign in once in the version you use. Safari and the Home Screen app keep separate sessions, so a link opened in Safari signs in Safari only.</p>
+          <p class="subtle">Enter the household access code once on this device. After that, Sawyer's records sync directly with Supabase without email sign-in.</p>
         </div>
 
         ${renderTrustedDeviceLogin(true)}
 
-        <p class="subtle sync-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Use the same signed-in record on both phones to avoid mismatched logs.")}</p>
+        <p class="subtle sync-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Use the same access code on both phones to keep one shared Supabase record.")}</p>
       </section>
     `;
   }
 
   function renderTrustedDeviceLogin(configured) {
-    const email = state.settings?.pendingLoginEmail || signedInEmail();
-
     return `
-      <form id="login-form" class="form-grid">
+      <form id="access-form" class="form-grid">
         <div class="field">
-          <label for="login-email">Email</label>
-          <input id="login-email" name="email" type="email" autocomplete="email" value="${escapeHtml(email)}" placeholder="you@example.com" required />
+          <label for="household-access-code">Household access code</label>
+          <input id="household-access-code" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter Sawyer's code" required />
         </div>
-        <button class="btn primary" type="submit" ${configured ? "" : "disabled"}>Send Sign-In Email</button>
-      </form>
-
-      <div class="form-divider"></div>
-
-      <form id="otp-form" class="form-grid trusted-code-form">
-        <p class="subtle">If the email contains a 6-digit code, enter it here to trust this exact app. If it only contains a link, open that link in the same place you started sign-in.</p>
-        <div class="field">
-          <label for="login-token">One-time code</label>
-          <input id="login-token" name="token" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="123456" />
-        </div>
-        <button class="btn secondary" type="submit" ${configured && email ? "" : "disabled"}>Trust This Device</button>
+        <button class="btn primary" type="submit" ${configured ? "" : "disabled"}>Connect to Supabase</button>
       </form>
     `;
   }
@@ -1398,7 +1425,7 @@
               ${state.aiBusy ? "Reviewing..." : "Run AI"}
             </button>
           </div>
-          <p class="subtle">${escapeHtml(insight?.summary || (canRun ? "Uses synced Supabase records to draft pattern notes and vet questions." : "Sign in to sync records before using AI review."))}</p>
+          <p class="subtle">${escapeHtml(insight?.summary || (canRun ? "Uses synced Supabase records to draft pattern notes and vet questions." : "Connect Supabase before using AI review."))}</p>
           ${state.aiError ? `<p class="subtle danger-text">${escapeHtml(state.aiError)}</p>` : ""}
           ${insight?.bullets?.length ? `
             <div class="insight-list ai-list">
@@ -1509,12 +1536,12 @@
           ? "Cloud connected"
           : "Offline"
         : configured
-          ? "Needs sign in"
+          ? "Needs access code"
           : "Not set up";
     const syncMessage = state.syncMessage || state.settings?.lastSyncMessage || "";
     const sourceMessage = signedIn
       ? "Supabase is the shared source of truth. This device only keeps a cache so the app opens quickly."
-      : "Sign in before logging records. New entries are saved only when Supabase is connected.";
+      : "Enter Sawyer's household access code before logging records. New entries are saved only when Supabase is connected.";
 
     return `
       <section class="panel">
@@ -1526,7 +1553,7 @@
               <strong>${escapeHtml(syncStatus)}</strong>
             </div>
             <div class="metric">
-              <span>User</span>
+              <span>Access</span>
               <strong>${escapeHtml(signedInEmail() || "--")}</strong>
             </div>
             <div class="metric">
@@ -1558,7 +1585,7 @@
               ? `
                 <div class="button-row sync-actions">
                   <button class="btn primary" data-action="sync-now" ${state.syncBusy ? "disabled" : ""}>Sync Now</button>
-                  <button class="btn secondary" data-action="sign-out">Sign Out</button>
+                  <button class="btn secondary" data-action="sign-out">Forget Access</button>
                 </div>
               `
               : `
@@ -1658,8 +1685,7 @@
     document.querySelector("#blood-test-form")?.addEventListener("submit", saveBloodTest);
     document.querySelector("#setup-form")?.addEventListener("submit", saveSetup);
     document.querySelector("#sync-config-form")?.addEventListener("submit", saveSyncConfig);
-    document.querySelector("#login-form")?.addEventListener("submit", sendLoginLink);
-    document.querySelector("#otp-form")?.addEventListener("submit", verifyLoginCode);
+    document.querySelector("#access-form")?.addEventListener("submit", saveAccessCode);
 
     document.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", () => handleAction(button.dataset.action));
@@ -1766,7 +1792,7 @@
     }
     checkReminders();
     if (!options.silent) {
-      showToast(isSignedIn() ? "Synced with Supabase." : "This app is not signed in yet.");
+      showToast(isSignedIn() ? "Synced with Supabase." : "This device is not connected to Supabase yet.");
     }
   }
 
@@ -1802,7 +1828,7 @@
   function cloudSaveBlockMessage() {
     if (!hasSupabaseConfig()) return "Supabase is not configured yet.";
     if (!state.settings?.syncEnabled) return "Supabase sync is not enabled yet.";
-    if (!isSignedIn()) return "Sign in before saving Sawyer's records.";
+    if (!isSignedIn()) return "Enter the household access code before saving Sawyer's records.";
     if (!navigator.onLine) return "Internet is required before saving Sawyer's records.";
     return "Supabase is not ready yet.";
   }
@@ -2092,80 +2118,31 @@
     showToast("Sync setup saved.");
   }
 
-  async function sendLoginLink(event) {
+  async function saveAccessCode(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const email = String(form.get("email") || "").trim().toLowerCase();
-    if (!email) return;
-
-    try {
-      const client = state.supabaseClient || (await initSupabase());
-      if (!client) throw new Error("Add Supabase settings first.");
-
-      const redirectTo = canonicalAppUrl();
-      const { error } = await client.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: redirectTo }
-      });
-      if (error) throw error;
-
-      await updateSettings({
-        currentUserEmail: email,
-        pendingLoginEmail: email,
-        lastSyncMessage: "Sign-in email sent. If it has a 6-digit code, enter it here. If it has a link, open it in this same browser/app."
-      });
-      render();
-      showToast("Sign-in email sent.");
-    } catch (error) {
-      state.syncMessage = authErrorMessage(error);
-      await updateSettings({
-        pendingLoginEmail: email,
-        lastSyncMessage: state.syncMessage
-      });
-      render();
-      showToast(state.syncMessage);
-    }
-  }
-
-  async function verifyLoginCode(event) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const email = String(state.settings?.pendingLoginEmail || state.settings?.currentUserEmail || "").trim().toLowerCase();
-    const token = String(form.get("token") || "").replace(/\D/g, "");
-    if (!email) {
-      showToast("Send a sign-in email first.");
-      return;
-    }
-    if (token.length !== 6) {
-      showToast("Enter the 6-digit code from the email.");
+    const accessCode = String(form.get("accessCode") || "").trim();
+    if (accessCode.length < 10) {
+      showToast("Enter Sawyer's household access code.");
       return;
     }
 
     try {
-      const client = state.supabaseClient || (await initSupabase());
-      if (!client) throw new Error("Add Supabase settings first.");
-
-      const { data, error } = await client.auth.verifyOtp({
-        email,
-        token,
-        type: "email"
-      });
-      if (error) throw error;
-
-      state.supabaseSession = data.session;
+      const hash = await sha256Hex(accessCode);
+      writeHouseholdAccessHash(hash);
+      await initSupabase();
+      await syncWithSupabase({ silent: true, throwOnError: true });
       await updateSettings({
-        currentUserEmail: email,
+        currentUserEmail: "",
         pendingLoginEmail: "",
         emergencyLocalMode: false,
-        lastSyncMessage: "This device is trusted. Syncing shared Supabase records..."
+        lastSyncMessage: "Household access saved. Supabase is connected."
       });
-      if (state.settings?.syncEnabled && navigator.onLine) {
-        await syncWithSupabase({ silent: true });
-      }
       render();
-      showToast("Device trusted.");
+      showToast("Supabase connected.");
     } catch (error) {
-      state.syncMessage = authErrorMessage(error);
+      writeHouseholdAccessHash("");
+      state.syncMessage = error.message || "That household access code did not work.";
       await updateSettings({ lastSyncMessage: state.syncMessage });
       render();
       showToast(state.syncMessage);
@@ -2176,15 +2153,16 @@
     try {
       const client = state.supabaseClient || (await initSupabase());
       if (client) await client.auth.signOut();
+      writeHouseholdAccessHash("");
       state.supabaseSession = null;
       await updateSettings({
         currentUserEmail: "",
         pendingLoginEmail: "",
         emergencyLocalMode: false,
-        lastSyncMessage: "Signed out."
+        lastSyncMessage: "Household access removed from this device."
       });
       render();
-      showToast("Signed out.");
+      showToast("Household access removed.");
     } catch (error) {
       state.syncMessage = error.message || "Could not sign out.";
       render();
@@ -2196,7 +2174,7 @@
 
     try {
       if (!hasSupabaseConfig()) throw new Error("Supabase sync needs to be configured first.");
-      if (!isSignedIn()) throw new Error("Sign in so AI can review the shared Supabase records.");
+      if (!isSignedIn()) throw new Error("Connect Supabase so AI can review the shared records.");
       if (!navigator.onLine) throw new Error("You need to be online to run AI review.");
 
       state.aiBusy = true;
@@ -2208,6 +2186,7 @@
       if (!client) throw new Error("Supabase is not available.");
 
       const { data, error } = await client.functions.invoke("sawyer-ai-insights", {
+        headers: state.householdAccessHash ? { [ACCESS_HEADER]: state.householdAccessHash } : {},
         body: {
           householdId: state.settings.supabaseHouseholdId,
           dogName: state.profile?.name || "Sawyer"
@@ -2303,7 +2282,7 @@
 
       await updateSettings({
         syncEnabled: true,
-        currentUserEmail: state.supabaseSession?.user?.email || state.settings.currentUserEmail,
+        currentUserEmail: state.supabaseSession?.user?.email || "",
         lastSyncAt: nowIso(),
         lastSyncMessage: message
       });
@@ -2314,6 +2293,7 @@
     } catch (error) {
       state.syncMessage = error.message || "Sync failed.";
       if (!silent) showToast(state.syncMessage);
+      if (options.throwOnError) throw error;
     } finally {
       state.syncBusy = false;
       if (!silent) render();
