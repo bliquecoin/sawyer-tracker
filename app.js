@@ -831,6 +831,7 @@
 
     bindUi();
     updateTimerFace();
+    centerSelectedDayPill();
   }
 
   function navButton(tab, label, icon) {
@@ -883,7 +884,7 @@
 
         ${renderHomeInsight(summary)}
 
-        ${renderWeekStrip()}
+        ${renderMonthStrip()}
 
         ${renderDayOverview(state.selectedDayKey)}
 
@@ -1042,28 +1043,38 @@
     `;
   }
 
-  function renderWeekStrip() {
+  function renderMonthStrip() {
     const today = new Date();
-    const start = new Date(today);
-    start.setDate(today.getDate() - 3);
-    const days = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(start);
-      date.setDate(start.getDate() + index);
+    const selectedDate = dayKeyToDate(state.selectedDayKey);
+    const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
+    const seizureDays = new Set(
+      state.events
+        .filter((event) => event.type === "seizure")
+        .map((event) => localDateKey(new Date(event.occurredAt)))
+    );
+    const days = Array.from({ length: daysInMonth }, (_, index) => {
+      const date = new Date(monthStart);
+      date.setDate(index + 1);
       const isToday = date.toDateString() === today.toDateString();
-      const hasSeizure = state.events.some(
-        (event) => event.type === "seizure" && new Date(event.occurredAt).toDateString() === date.toDateString()
-      );
       const dayKey = localDateKey(date);
       const isSelected = dayKey === state.selectedDayKey;
+      const hasSeizure = seizureDays.has(dayKey);
       return `
-        <button class="day-pill ${isSelected ? "active" : ""} ${isToday ? "today" : ""} ${hasSeizure ? "marked" : ""}" data-day="${escapeHtml(dayKey)}" type="button">
+        <button class="day-pill ${isSelected ? "active" : ""} ${isToday ? "today" : ""} ${hasSeizure ? "marked" : ""}" data-day="${escapeHtml(dayKey)}" type="button" aria-label="${escapeHtml(date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }))}${hasSeizure ? ", seizure logged" : ""}">
           <span>${escapeHtml(date.toLocaleDateString(undefined, { weekday: "short" }))}</span>
           <strong>${date.getDate()}</strong>
         </button>
       `;
     });
 
-    return `<section class="week-strip" aria-label="This week">${days.join("")}</section>`;
+    return `
+      <section class="month-strip-wrap" aria-label="${escapeHtml(selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }))}">
+        <div class="month-strip" data-month-strip>
+          ${days.join("")}
+        </div>
+      </section>
+    `;
   }
 
   function renderDayOverview(dayKey) {
@@ -1718,10 +1729,21 @@
     bindPullRefresh();
   }
 
+  function centerSelectedDayPill() {
+    if (state.activeTab !== "today") return;
+    requestAnimationFrame(() => {
+      const strip = document.querySelector("[data-month-strip]");
+      const active = strip?.querySelector(".day-pill.active");
+      if (!strip || !active) return;
+      strip.scrollLeft = active.offsetLeft - strip.clientWidth / 2 + active.clientWidth / 2;
+    });
+  }
+
   function renderPreservingContentScroll() {
     const restoreScroll = captureContentScroll();
     render();
     restoreScroll();
+    centerSelectedDayPill();
   }
 
   function captureContentScroll() {
