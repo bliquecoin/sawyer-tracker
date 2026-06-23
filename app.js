@@ -42,6 +42,7 @@
     selectedDayKey: localDateKey(new Date()),
     pullDistance: 0,
     pullRefreshing: false,
+    editingSeizureId: "",
     severity: 3
   };
   const startedFromAuthRedirect = isAuthRedirectUrl();
@@ -1127,25 +1128,35 @@
 
   function renderLog() {
     const now = new Date();
-    const localDate = toDateInputValue(now);
-    const localTime = toTimeInputValue(now);
+    const editingSeizure = state.events.find((event) => event.id === state.editingSeizureId && event.type === "seizure");
+    const seizureDate = editingSeizure ? new Date(editingSeizure.occurredAt) : now;
+    const durationSeconds = editingSeizure ? editingSeizure.durationSeconds || 0 : getTimerSeconds();
+    const localDate = toDateInputValue(seizureDate);
+    const localTime = toTimeInputValue(seizureDate);
+    const selectedSeverity = editingSeizure?.severity || state.severity;
 
     return `
       <div class="stack desktop-two">
         <section class="panel">
           <div class="panel-body">
-            <h2>Seizure</h2>
+            <div class="dose-main">
+              <h2>${editingSeizure ? "Edit Seizure" : "Seizure"}</h2>
+              ${editingSeizure ? `<button class="btn ghost small" data-action="cancel-seizure-edit" type="button">Cancel</button>` : ""}
+            </div>
             <div class="form-grid">
-              <div class="timer-face">
-                <strong id="timer-face">${formatDuration(getTimerSeconds())}</strong>
-              </div>
-              <div class="button-row">
-                <button class="btn ${state.timerStartedAt ? "danger" : "primary"}" data-action="${state.timerStartedAt ? "stop-timer" : "start-timer"}">
-                  ${state.timerStartedAt ? "Stop Timer" : "Start Timer"}
-                </button>
-                <button class="btn secondary" data-action="reset-timer">Reset</button>
-              </div>
+              ${editingSeizure ? "" : `
+                <div class="timer-face">
+                  <strong id="timer-face">${formatDuration(getTimerSeconds())}</strong>
+                </div>
+                <div class="button-row">
+                  <button class="btn ${state.timerStartedAt ? "danger" : "primary"}" data-action="${state.timerStartedAt ? "stop-timer" : "start-timer"}">
+                    ${state.timerStartedAt ? "Stop Timer" : "Start Timer"}
+                  </button>
+                  <button class="btn secondary" data-action="reset-timer">Reset</button>
+                </div>
+              `}
               <form id="seizure-form" class="form-grid">
+                <input type="hidden" name="id" value="${escapeHtml(editingSeizure?.id || "")}" />
                 <div class="grid two">
                   <div class="field">
                     <label for="seizure-date">Date</label>
@@ -1159,28 +1170,29 @@
                 <div class="grid two">
                   <div class="field">
                     <label for="duration-minutes">Minutes</label>
-                    <input id="duration-minutes" name="minutes" type="number" min="0" step="1" inputmode="numeric" value="${Math.floor(getTimerSeconds() / 60)}" />
+                    <input id="duration-minutes" name="minutes" type="number" min="0" step="1" inputmode="numeric" value="${Math.floor(durationSeconds / 60)}" />
                   </div>
                   <div class="field">
                     <label for="duration-seconds">Seconds</label>
-                    <input id="duration-seconds" name="seconds" type="number" min="0" max="59" step="1" inputmode="numeric" value="${getTimerSeconds() % 60}" />
+                    <input id="duration-seconds" name="seconds" type="number" min="0" max="59" step="1" inputmode="numeric" value="${durationSeconds % 60}" />
                   </div>
                 </div>
                 <div class="field">
                   <span class="label">Severity</span>
+                  <input id="seizure-severity" name="severity" type="hidden" value="${selectedSeverity}" />
                   <div class="segmented" role="group" aria-label="Severity">
-                    ${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="${state.severity === n ? "active" : ""}" data-severity="${n}">${n}</button>`).join("")}
+                    ${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="${selectedSeverity === n ? "active" : ""}" data-severity="${n}">${n}</button>`).join("")}
                   </div>
                 </div>
                 <label class="check-chip">
-                  <input type="checkbox" name="cluster" /> Cluster seizure
+                  <input type="checkbox" name="cluster" ${editingSeizure?.cluster ? "checked" : ""} /> Cluster seizure
                 </label>
                 <div class="field">
                   <span class="label">Symptoms</span>
                   <div class="checks">
                     ${SYMPTOMS.map((symptom) => `
                       <label class="check-chip">
-                        <input type="checkbox" name="symptoms" value="${escapeHtml(symptom)}" /> ${escapeHtml(symptom)}
+                        <input type="checkbox" name="symptoms" value="${escapeHtml(symptom)}" ${editingSeizure?.symptoms?.includes(symptom) ? "checked" : ""} /> ${escapeHtml(symptom)}
                       </label>
                     `).join("")}
                   </div>
@@ -1188,22 +1200,25 @@
                 <div class="field">
                   <label for="trigger">Possible trigger</label>
                   <select id="trigger" name="trigger">
-                    ${TRIGGERS.map((trigger) => `<option value="${escapeHtml(trigger)}">${escapeHtml(trigger)}</option>`).join("")}
+                    ${TRIGGERS.map((trigger) => `<option value="${escapeHtml(trigger)}" ${editingSeizure?.trigger === trigger ? "selected" : ""}>${escapeHtml(trigger)}</option>`).join("")}
                   </select>
                 </div>
                 <div class="field">
                   <label for="rescue">Medication or care given during/after</label>
-                  <textarea id="rescue" name="rescue" placeholder="Example: stayed with him, cooled room, called vet"></textarea>
+                  <textarea id="rescue" name="rescue" placeholder="Example: stayed with him, cooled room, called vet">${escapeHtml(editingSeizure?.rescue || "")}</textarea>
                 </div>
                 <div class="field">
                   <label for="recovery">Recovery notes</label>
-                  <textarea id="recovery" name="recovery" placeholder="Example: pacing for 20 minutes, ate after"></textarea>
+                  <textarea id="recovery" name="recovery" placeholder="Example: pacing for 20 minutes, ate after">${escapeHtml(editingSeizure?.recovery || "")}</textarea>
                 </div>
                 <div class="field">
                   <label for="notes">Notes</label>
-                  <textarea id="notes" name="notes"></textarea>
+                  <textarea id="notes" name="notes">${escapeHtml(editingSeizure?.notes || "")}</textarea>
                 </div>
-                <button class="btn primary" type="submit">Save Seizure</button>
+                <div class="button-row">
+                  <button class="btn primary" type="submit">${editingSeizure ? "Update Seizure" : "Save Seizure"}</button>
+                  ${editingSeizure ? `<button class="btn danger" data-delete-event="${escapeHtml(editingSeizure.id)}" type="button">Delete Seizure</button>` : ""}
+                </div>
               </form>
             </div>
           </div>
@@ -1331,7 +1346,10 @@
             <strong>${escapeHtml(eventTitle(event))}</strong>
             <div class="timeline-meta">${escapeHtml(formatDateTime(new Date(event.occurredAt)))}</div>
           </div>
-          <button class="btn ghost small" data-delete-event="${event.id}">Delete</button>
+          <div class="timeline-actions">
+            ${event.type === "seizure" ? `<button class="btn secondary small" data-edit-seizure="${escapeHtml(event.id)}">Edit</button>` : ""}
+            <button class="btn ghost small" data-delete-event="${escapeHtml(event.id)}">Delete</button>
+          </div>
         </div>
         ${eventDetail(event)}
       </article>
@@ -1664,6 +1682,10 @@
       });
     });
 
+    document.querySelectorAll("[data-edit-seizure]").forEach((button) => {
+      button.addEventListener("click", () => editSeizure(button.dataset.editSeizure));
+    });
+
     document.querySelectorAll("[data-filter]").forEach((button) => {
       button.addEventListener("click", () => {
         state.timelineFilter = button.dataset.filter;
@@ -1674,6 +1696,8 @@
     document.querySelectorAll("[data-severity]").forEach((button) => {
       button.addEventListener("click", () => {
         state.severity = Number(button.dataset.severity);
+        const severityInput = document.querySelector("#seizure-severity");
+        if (severityInput) severityInput.value = String(state.severity);
         document.querySelectorAll("[data-severity]").forEach((item) => item.classList.remove("active"));
         button.classList.add("active");
       });
@@ -1815,6 +1839,7 @@
     if (action === "generate-ai") generateAiInsights();
     if (action === "sign-out") signOut();
     if (action === "reset-data") resetData();
+    if (action === "cancel-seizure-edit") cancelSeizureEdit();
   }
 
   async function syncAfterLocalChange() {
@@ -1892,6 +1917,7 @@
         syncStatus: "local"
       });
     }
+    if (state.editingSeizureId === id) state.editingSeizureId = "";
     await hydrate();
     await syncAfterLocalChange();
     render();
@@ -1899,10 +1925,31 @@
     showToast(message);
   }
 
+  async function editSeizure(id) {
+    const existing = state.events.find((event) => event.id === id && event.type === "seizure") || (await dbGet("events", id));
+    if (!existing || existing.type !== "seizure") {
+      showToast("That seizure record could not be opened.");
+      return;
+    }
+
+    state.editingSeizureId = existing.id;
+    state.severity = existing.severity || 3;
+    state.activeTab = "log";
+    render();
+    setTimeout(() => document.querySelector("#seizure-date")?.focus(), 50);
+  }
+
+  function cancelSeizureEdit() {
+    state.editingSeizureId = "";
+    render();
+  }
+
   async function saveSeizure(event) {
     event.preventDefault();
     if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
+    const existingId = String(form.get("id") || "").trim();
+    const existing = existingId ? await dbGet("events", existingId) : null;
     const date = form.get("date");
     const time = form.get("time");
     const occurredAt = new Date(`${date}T${time || "00:00"}`);
@@ -1912,31 +1959,35 @@
     const timestamp = nowIso();
 
     const record = {
-      id: uid(),
+      id: existing?.id || uid(),
       dogId: DOG_ID,
       type: "seizure",
       dayKey: localDateKey(occurredAt),
       occurredAt: occurredAt.toISOString(),
       durationSeconds,
-      severity: state.severity,
+      severity: Number(form.get("severity") || state.severity || existing?.severity || 3),
       cluster: form.get("cluster") === "on",
       symptoms: form.getAll("symptoms"),
       trigger: form.get("trigger") || "Unknown",
       rescue: String(form.get("rescue") || "").trim(),
       recovery: String(form.get("recovery") || "").trim(),
       notes: String(form.get("notes") || "").trim(),
-      createdAt: timestamp,
+      createdAt: existing?.createdAt || timestamp,
       updatedAt: timestamp,
       syncStatus: "local"
     };
 
     await dbPut("events", record);
-    resetTimer(false);
+    if (existing) {
+      state.editingSeizureId = "";
+    } else {
+      resetTimer(false);
+    }
     await hydrate();
     await syncAfterLocalChange();
     state.activeTab = "today";
     render();
-    showToast("Seizure saved.");
+    showToast(existing ? "Seizure updated." : "Seizure saved.");
   }
 
   async function saveNote(event) {
