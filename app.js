@@ -1012,6 +1012,20 @@
         </div>
         <div class="trend-chart" aria-label="Seizures over the last six months">
           <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Monthly seizure trend">
+            <defs>
+              <linearGradient id="trendAreaGradient" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stop-color="rgba(255, 107, 87, 0.28)"></stop>
+                <stop offset="100%" stop-color="rgba(255, 107, 87, 0.02)"></stop>
+              </linearGradient>
+              <linearGradient id="trendLineGradient" x1="0" x2="1" y1="0" y2="0">
+                <stop offset="0%" stop-color="#ff8a5f"></stop>
+                <stop offset="52%" stop-color="#ff6b57"></stop>
+                <stop offset="100%" stop-color="#c74e96"></stop>
+              </linearGradient>
+            </defs>
+            <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.25}" y2="${topPad + plotHeight * 0.25}"></line>
+            <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.5}" y2="${topPad + plotHeight * 0.5}"></line>
+            <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.75}" y2="${topPad + plotHeight * 0.75}"></line>
             <path class="trend-area" d="${areaPath}"></path>
             <path class="trend-line" d="${path}"></path>
             ${points.map((point) => `
