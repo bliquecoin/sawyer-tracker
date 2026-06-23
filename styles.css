@@ -289,11 +289,11 @@ p {
 }
 
 .grid.date-time-grid {
-  grid-template-columns: minmax(0, 1.35fr) minmax(86px, 0.65fr);
+  grid-template-columns: minmax(0, 0.62fr) minmax(118px, 0.38fr);
 }
 
 .grid.setup-dose-grid {
-  grid-template-columns: minmax(0, 0.72fr) minmax(76px, 0.28fr);
+  grid-template-columns: minmax(0, 0.48fr) minmax(118px, 0.52fr);
 }
 
 .panel {
@@ -571,6 +571,7 @@ p {
 
 .day-pill {
   position: relative;
+  isolation: isolate;
   display: grid;
   flex: 0 0 56px;
   min-height: 76px;
@@ -609,8 +610,7 @@ p {
   border-color: rgba(255, 137, 45, 0.92);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 0 0 1px rgba(255, 137, 45, 0.12),
-    0 8px 18px rgba(255, 137, 45, 0.08);
+    inset 0 0 0 1px rgba(255, 137, 45, 0.12);
 }
 
 .day-pill.active {
@@ -620,8 +620,7 @@ p {
   color: #5b3214;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    inset 0 -10px 20px rgba(255, 137, 45, 0.08),
-    0 12px 26px rgba(255, 137, 45, 0.14);
+    inset 0 -12px 22px rgba(255, 137, 45, 0.14);
 }
 
 .day-pill.active::after {
@@ -635,6 +634,7 @@ p {
   filter: blur(5px);
   opacity: 0.82;
   transform: translateY(32%);
+  z-index: 0;
 }
 
 .day-pill.active span {
@@ -1320,7 +1320,7 @@ html.ios-browser .toast {
 
 .setup-row {
   display: grid;
-  grid-template-columns: minmax(0, 0.66fr) minmax(86px, 0.34fr);
+  grid-template-columns: minmax(0, 0.48fr) minmax(118px, 0.52fr);
   align-items: end;
   gap: 10px;
   min-width: 0;
@@ -1398,6 +1398,12 @@ html.ios-browser .toast {
   .emergency-sync-banner {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 430px) {
+  .grid.date-time-grid {
+    grid-template-columns: 1fr;
   }
 }
 
