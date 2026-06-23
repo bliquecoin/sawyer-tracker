@@ -1168,7 +1168,7 @@
               `}
               <form id="seizure-form" class="form-grid">
                 <input type="hidden" name="id" value="${escapeHtml(editingSeizure?.id || "")}" />
-                <div class="grid two">
+                <div class="grid two date-time-grid">
                   <div class="field">
                     <label for="seizure-date">Date</label>
                     <input id="seizure-date" name="date" type="date" value="${localDate}" required />
@@ -1254,7 +1254,7 @@
 
             <h2>Vet Visit</h2>
             <form id="vet-form" class="form-grid">
-              <div class="grid two">
+              <div class="grid two date-time-grid">
                 <div class="field">
                   <label for="vet-date">Date</label>
                   <input id="vet-date" name="date" type="date" value="${localDate}" required />
@@ -1287,7 +1287,7 @@
 
             <h2>Blood Test</h2>
             <form id="blood-test-form" class="form-grid">
-              <div class="grid two">
+              <div class="grid two date-time-grid">
                 <div class="field">
                   <label for="blood-date">Date</label>
                   <input id="blood-date" name="date" type="date" value="${localDate}" required />
@@ -1631,7 +1631,7 @@
       <div class="panel">
         <div class="panel-body">
           <h3>${escapeHtml(schedule.name)}</h3>
-          <div class="grid two">
+          <div class="grid two setup-dose-grid">
             <div class="field">
               <label for="${schedule.id}-dose">Dose</label>
               <input id="${schedule.id}-dose" name="${schedule.id}:dose" value="${escapeHtml(schedule.dose || "")}" placeholder="Optional" />
