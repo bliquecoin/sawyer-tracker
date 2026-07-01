@@ -26,6 +26,17 @@ http://127.0.0.1:4173
 
 The app uses a small browser cache so it opens quickly, but new care records require a connected Supabase household access code.
 
+## Supabase Keep-Alive
+
+Free Supabase projects can pause after a week of low activity. The
+private `bliquecoin/sawyer-tracker-keepalive` repository makes three
+authenticated, read-only database requests twice daily. Keeping this scheduler
+in a private repository prevents GitHub's 60-day inactivity rule for scheduled
+workflows in public repositories from disabling it.
+
+This reduces the likelihood of inactivity pausing, but it is not a replacement
+for backups. Free projects should still be exported periodically.
+
 ## Current Features
 
 - Seizure logging with timer, duration, severity, symptoms, cluster flag, trigger, recovery, and notes
