@@ -6,6 +6,7 @@
   const DOG_ID = "sawyer";
   const REMINDER_WINDOW_MINUTES = 15;
   const OVERDUE_MINUTES = 45;
+  const CLUSTER_WINDOW_MS = 24 * 60 * 60 * 1000;
   const SUPABASE_JS_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
   const FALLBACK_APP_URL = "https://bliquecoin.github.io/sawyer-tracker/";
   const ACCESS_KEY_STORAGE = "sawyer-household-access-key-hash";
@@ -1102,7 +1103,7 @@
       ? `${exceptions.length} dose exception${exceptions.length === 1 ? "" : "s"}`
       : "Medication assumed given";
     const eventList = events.length
-      ? events.map((event) => `<li>${escapeHtml(eventTitle(event))}<span>${escapeHtml(formatTime(new Date(event.occurredAt)))}</span></li>`).join("")
+      ? events.map((event) => `<li>${escapeHtml(eventTitle(event))}<span>${escapeHtml(formatEventTime(event))}</span></li>`).join("")
       : `<li>No care records<span>${doses.length} scheduled</span></li>`;
 
     return `
@@ -1158,41 +1159,73 @@
     const durationSeconds = editingSeizure ? editingSeizure.durationSeconds || 0 : getTimerSeconds();
     const localDate = toDateInputValue(seizureDate);
     const localTime = toTimeInputValue(seizureDate);
+    const timeKnown = editingSeizure ? editingSeizure.timeKnown !== false : false;
     const selectedSeverity = editingSeizure?.severity || state.severity;
 
     return `
       <div class="stack desktop-two">
         <section class="panel">
           <div class="panel-body">
-            <div class="dose-main">
-              <h2>${editingSeizure ? "Edit Seizure" : "Seizure"}</h2>
+            <div class="dose-main log-heading">
+              <div>
+                <p class="eyebrow">${editingSeizure ? "Update record" : "Quick record"}</p>
+                <h2>${editingSeizure ? "Edit seizure" : "Log seizure"}</h2>
+                <p class="subtle">Add what you remember. Exact time and extra details are optional.</p>
+              </div>
               ${editingSeizure ? `<button class="btn ghost small" data-action="cancel-seizure-edit" type="button">Cancel</button>` : ""}
             </div>
-            <div class="form-grid">
-              ${editingSeizure ? "" : `
-                <div class="timer-face">
-                  <strong id="timer-face">${formatDuration(getTimerSeconds())}</strong>
-                </div>
-                <div class="button-row">
-                  <button class="btn ${state.timerStartedAt ? "danger" : "primary"}" data-action="${state.timerStartedAt ? "stop-timer" : "start-timer"}">
-                    ${state.timerStartedAt ? "Stop Timer" : "Start Timer"}
-                  </button>
-                  <button class="btn secondary" data-action="reset-timer">Reset</button>
-                </div>
-              `}
-              <form id="seizure-form" class="form-grid">
-                <input type="hidden" name="id" value="${escapeHtml(editingSeizure?.id || "")}" />
-                <div class="grid two date-time-grid">
-                  <div class="field">
-                    <label for="seizure-date">Date</label>
-                    ${renderDateInput("seizure-date", "date", localDate, true)}
-                  </div>
-                  <div class="field">
-                    <label for="seizure-time">Time</label>
-                    ${renderTimeInput("seizure-time", "time", localTime, true)}
+
+            <form id="seizure-form" class="form-grid seizure-form">
+              <input type="hidden" name="id" value="${escapeHtml(editingSeizure?.id || "")}" />
+
+              <section class="log-section">
+                <div class="log-section-heading">
+                  <span>1</span>
+                  <div>
+                    <strong>When</strong>
+                    <small>Date is enough if the time is unclear.</small>
                   </div>
                 </div>
-                <div class="grid two">
+                <div class="field">
+                  <label for="seizure-date">Date</label>
+                  ${renderDateInput("seizure-date", "date", localDate, true)}
+                </div>
+                <label class="toggle-row" for="seizure-time-known">
+                  <span>
+                    <strong>Add approximate time</strong>
+                    <small>Useful when you remember roughly when it happened.</small>
+                  </span>
+                  <input id="seizure-time-known" name="timeKnown" type="checkbox" data-time-known ${timeKnown ? "checked" : ""} />
+                </label>
+                <div class="field optional-time-field" data-optional-time ${timeKnown ? "" : "hidden"}>
+                  <label for="seizure-time">Approximate time</label>
+                  ${renderTimeInput("seizure-time", "time", localTime)}
+                </div>
+              </section>
+
+              <section class="log-section">
+                <div class="log-section-heading">
+                  <span>2</span>
+                  <div>
+                    <strong>What happened</strong>
+                    <small>Duration can be an estimate.</small>
+                  </div>
+                </div>
+                ${editingSeizure ? "" : `
+                  <div class="compact-timer">
+                    <div>
+                      <span>Live duration timer</span>
+                      <strong id="timer-face">${formatDuration(getTimerSeconds())}</strong>
+                    </div>
+                    <div class="button-row">
+                      <button class="btn ${state.timerStartedAt ? "danger" : "secondary"} small" data-action="${state.timerStartedAt ? "stop-timer" : "start-timer"}" type="button">
+                        ${state.timerStartedAt ? "Stop" : "Start"}
+                      </button>
+                      ${state.timerStartedAt ? `<button class="btn ghost small" data-action="reset-timer" type="button">Reset</button>` : ""}
+                    </div>
+                  </div>
+                `}
+                <div class="grid two duration-grid">
                   <div class="field">
                     <label for="duration-minutes">Minutes</label>
                     <input id="duration-minutes" name="minutes" type="number" min="0" step="1" inputmode="numeric" value="${Math.floor(durationSeconds / 60)}" />
@@ -1209,9 +1242,16 @@
                     ${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="${selectedSeverity === n ? "active" : ""}" data-severity="${n}">${n}</button>`).join("")}
                   </div>
                 </div>
-                <label class="check-chip">
-                  <input type="checkbox" name="cluster" ${editingSeizure?.cluster ? "checked" : ""} /> Cluster seizure
-                </label>
+              </section>
+
+              <details class="log-details" ${editingSeizure ? "open" : ""}>
+                <summary>
+                  <span>
+                    <strong>Symptoms, care and notes</strong>
+                    <small>Optional details for Sawyer's history.</small>
+                  </span>
+                </summary>
+                <div class="log-details-body">
                 <div class="field">
                   <span class="label">Symptoms</span>
                   <div class="checks">
@@ -1240,12 +1280,14 @@
                   <label for="notes">Notes</label>
                   <textarea id="notes" name="notes">${escapeHtml(editingSeizure?.notes || "")}</textarea>
                 </div>
-                <div class="button-row">
-                  <button class="btn primary" type="submit">${editingSeizure ? "Update Seizure" : "Save Seizure"}</button>
-                  ${editingSeizure ? `<button class="btn danger" data-delete-event="${escapeHtml(editingSeizure.id)}" type="button">Delete Seizure</button>` : ""}
                 </div>
-              </form>
-            </div>
+              </details>
+
+              <div class="button-row log-submit-row">
+                <button class="btn primary" type="submit">${editingSeizure ? "Update seizure" : "Save seizure"}</button>
+                ${editingSeizure ? `<button class="btn danger" data-delete-event="${escapeHtml(editingSeizure.id)}" type="button">Delete seizure</button>` : ""}
+              </div>
+            </form>
           </div>
         </section>
 
@@ -1369,7 +1411,7 @@
         <div class="timeline-head">
           <div>
             <strong>${escapeHtml(eventTitle(event))}</strong>
-            <div class="timeline-meta">${escapeHtml(formatDateTime(new Date(event.occurredAt)))}</div>
+            <div class="timeline-meta">${escapeHtml(formatEventDateTime(event))}</div>
           </div>
           <div class="timeline-actions">
             ${event.type === "seizure" ? `<button class="btn secondary small" data-edit-seizure="${escapeHtml(event.id)}">Edit</button>` : ""}
@@ -1746,6 +1788,18 @@
       input.addEventListener("change", updateDisplay);
     });
 
+    const timeKnownToggle = document.querySelector("[data-time-known]");
+    const optionalTimeField = document.querySelector("[data-optional-time]");
+    const optionalTimeInput = optionalTimeField?.querySelector("input[type='time']");
+    if (timeKnownToggle && optionalTimeField && optionalTimeInput) {
+      const updateOptionalTime = () => {
+        optionalTimeField.hidden = !timeKnownToggle.checked;
+        optionalTimeInput.disabled = !timeKnownToggle.checked;
+      };
+      timeKnownToggle.addEventListener("change", updateOptionalTime);
+      updateOptionalTime();
+    }
+
     document.querySelector("#seizure-form")?.addEventListener("submit", saveSeizure);
     document.querySelector("#note-form")?.addEventListener("submit", saveNote);
     document.querySelector("#vet-form")?.addEventListener("submit", saveVetVisit);
@@ -1972,6 +2026,7 @@
       });
     }
     if (state.editingSeizureId === id) state.editingSeizureId = "";
+    await refreshAutomaticClusterFlags();
     await hydrate();
     await syncAfterLocalChange();
     render();
@@ -2004,9 +2059,10 @@
     const form = new FormData(event.currentTarget);
     const existingId = String(form.get("id") || "").trim();
     const existing = existingId ? await dbGet("events", existingId) : null;
-    const date = form.get("date");
-    const time = form.get("time");
-    const occurredAt = new Date(`${date}T${time || "00:00"}`);
+    const date = String(form.get("date") || localDateKey(new Date()));
+    const timeKnown = form.get("timeKnown") === "on";
+    const time = timeKnown ? String(form.get("time") || "12:00") : "12:00";
+    const occurredAt = localTimeToDate(date, time);
     const minutes = clamp(Number(form.get("minutes") || 0), 0, 999);
     const seconds = clamp(Number(form.get("seconds") || 0), 0, 59);
     const durationSeconds = minutes * 60 + seconds;
@@ -2018,9 +2074,11 @@
       type: "seizure",
       dayKey: localDateKey(occurredAt),
       occurredAt: occurredAt.toISOString(),
+      timeKnown,
       durationSeconds,
       severity: Number(form.get("severity") || state.severity || existing?.severity || 3),
-      cluster: form.get("cluster") === "on",
+      cluster: false,
+      clusterSource: "automatic",
       symptoms: form.getAll("symptoms"),
       trigger: form.get("trigger") || "Unknown",
       rescue: String(form.get("rescue") || "").trim(),
@@ -2032,16 +2090,24 @@
     };
 
     await dbPut("events", record);
+    await refreshAutomaticClusterFlags();
     if (existing) {
       state.editingSeizureId = "";
     } else {
       resetTimer(false);
     }
     await hydrate();
+    const clusterDetected = isAutomaticCluster(record);
     await syncAfterLocalChange();
     state.activeTab = "today";
     render();
-    showToast(existing ? "Seizure updated." : "Seizure saved.");
+    showToast(
+      clusterDetected
+        ? `${existing ? "Seizure updated" : "Seizure saved"}. Multiple seizures were logged within 24 hours.`
+        : existing
+          ? "Seizure updated."
+          : "Seizure saved."
+    );
   }
 
   async function saveNote(event) {
@@ -2381,8 +2447,23 @@
         localRecords: await dbGetAll("events")
       });
 
-      const uploaded = dogResult.uploaded + scheduleResult.uploaded + eventResult.uploaded;
-      const downloaded = dogResult.downloaded + scheduleResult.downloaded + eventResult.downloaded;
+      let uploaded = dogResult.uploaded + scheduleResult.uploaded + eventResult.uploaded;
+      let downloaded = dogResult.downloaded + scheduleResult.downloaded + eventResult.downloaded;
+
+      await hydrate();
+      const clusterUpdates = await refreshAutomaticClusterFlags();
+      if (clusterUpdates) {
+        const clusterResult = await syncStore({
+          client,
+          householdId,
+          storeName: "events",
+          tableName: SUPABASE_TABLES.events,
+          localRecords: await dbGetAll("events")
+        });
+        uploaded += clusterResult.uploaded;
+        downloaded += clusterResult.downloaded;
+      }
+
       const message = `Synced ${uploaded} up and ${downloaded} down.`;
 
       await updateSettings({
@@ -2735,6 +2816,70 @@
       .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
   }
 
+  function automaticClusterIds(seizures) {
+    const ids = new Set();
+    const active = seizures
+      .filter((event) => event.type === "seizure" && !event.deletedAt)
+      .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
+
+    for (let firstIndex = 0; firstIndex < active.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < active.length; secondIndex += 1) {
+        const first = active[firstIndex];
+        const second = active[secondIndex];
+        if (seizuresShareClusterWindow(first, second)) {
+          ids.add(first.id);
+          ids.add(second.id);
+        }
+
+        if (
+          first.timeKnown !== false &&
+          second.timeKnown !== false &&
+          new Date(second.occurredAt).getTime() - new Date(first.occurredAt).getTime() >= CLUSTER_WINDOW_MS
+        ) {
+          break;
+        }
+      }
+    }
+
+    return ids;
+  }
+
+  function seizuresShareClusterWindow(first, second) {
+    if (first.timeKnown === false || second.timeKnown === false) {
+      return eventDayKey(first) === eventDayKey(second);
+    }
+    const difference = Math.abs(new Date(second.occurredAt).getTime() - new Date(first.occurredAt).getTime());
+    return difference < CLUSTER_WINDOW_MS;
+  }
+
+  function isAutomaticCluster(event, seizures = state.events) {
+    if (!event || event.type !== "seizure") return false;
+    return automaticClusterIds(seizures).has(event.id);
+  }
+
+  async function refreshAutomaticClusterFlags() {
+    const records = await dbGetAll("events");
+    const clusteredIds = automaticClusterIds(records);
+    const timestamp = nowIso();
+    const updates = records
+      .filter((record) => record.type === "seizure" && !record.deletedAt)
+      .filter(
+        (record) =>
+          Boolean(record.cluster) !== clusteredIds.has(record.id) ||
+          record.clusterSource !== "automatic"
+      )
+      .map((record) => ({
+        ...record,
+        cluster: clusteredIds.has(record.id),
+        clusterSource: "automatic",
+        updatedAt: timestamp,
+        syncStatus: "local"
+      }));
+
+    if (updates.length) await dbBulkPut("events", updates);
+    return updates.length;
+  }
+
   function getSummary() {
     const seizures = getSeizuresAsc();
     const now = new Date();
@@ -2742,7 +2887,7 @@
     const gaps = getSeizureGaps(seizures);
     const durations = seizures.map((event) => event.durationSeconds || 0).filter(Boolean);
     const monthKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
-    const thisMonthSeizures = seizures.filter((event) => event.occurredAt.startsWith(monthKey)).length;
+    const thisMonthSeizures = seizures.filter((event) => eventDayKey(event).startsWith(monthKey)).length;
 
     const daysSinceLast = last ? Math.floor((startOfDay(now) - startOfDay(new Date(last.occurredAt))) / 86400000) : null;
     const longestGap = gaps.length ? Math.max(...gaps.map((gap) => gap.days)) : null;
@@ -2752,7 +2897,7 @@
     return {
       totalSeizures: seizures.length,
       daysSinceLast,
-      lastSeizureText: last ? `Last seizure: ${formatDateTime(new Date(last.occurredAt))}` : "No seizure logged yet",
+      lastSeizureText: last ? `Last seizure: ${formatEventDateTime(last)}` : "No seizure logged yet",
       averageGapText: averageGap ? `${round1(averageGap)} days` : "--",
       longestGapText: longestGap ? `${round1(longestGap)} days` : "--",
       averageDurationText: averageDuration ? formatDuration(Math.round(averageDuration)) : "--",
@@ -2799,6 +2944,25 @@
         });
       }
       return insights;
+    }
+
+    const latestSeizure = seizures.at(-1);
+    const latestCluster = seizures.filter(
+      (seizure) =>
+        seizure.id === latestSeizure.id ||
+        seizuresShareClusterWindow(latestSeizure, seizure)
+    );
+    if (latestCluster.length > 1) {
+      const clusterIsCurrent =
+        latestSeizure.timeKnown === false
+          ? eventDayKey(latestSeizure) === localDateKey(new Date())
+          : Date.now() - new Date(latestSeizure.occurredAt).getTime() < CLUSTER_WINDOW_MS;
+      insights.push({
+        title: clusterIsCurrent ? "Cluster pattern detected" : "Last cluster pattern",
+        body: clusterIsCurrent
+          ? `${latestCluster.length} seizures were logged within the same 24-hour window. Follow Sawyer's emergency plan and contact his veterinary team.`
+          : `${latestCluster.length} seizures were logged within 24 hours of each other, ending ${formatDateShort(new Date(latestSeizure.occurredAt))}.`
+      });
     }
 
     const milestone = nextMilestone(summary.daysSinceLast || 0);
@@ -2868,6 +3032,9 @@
     const insights = buildInsights(summary).filter((insight) => insight.title !== "Vet wording");
     const latestBlood = latestEventOfType("blood_test");
     const latestVet = latestEventOfType("vet_visit");
+    const clusterInsight = insights.find((insight) => insight.title === "Cluster pattern detected");
+
+    if (clusterInsight) return clusterInsight;
 
     if (latestBlood?.phenobarbitalLevel || latestBlood?.bromideLevel) {
       const levels = [
@@ -2917,7 +3084,7 @@
     const doseEvents = state.events.filter((event) => event.type === "dose");
     let total = 0;
 
-    seizures.forEach((seizure) => {
+    seizures.filter((seizure) => seizure.timeKnown !== false).forEach((seizure) => {
       const seizureTime = new Date(seizure.occurredAt).getTime();
       const nearby = doseEvents.some((dose) => {
         const dueAt = new Date(dose.dueAt || dose.occurredAt).getTime();
@@ -2963,7 +3130,7 @@
       { label: "Evening", start: 18, end: 24, count: 0 }
     ];
 
-    seizures.forEach((seizure) => {
+    seizures.filter((seizure) => seizure.timeKnown !== false).forEach((seizure) => {
       const hour = new Date(seizure.occurredAt).getHours();
       const bucket = buckets.find((item) => hour >= item.start && hour < item.end);
       if (bucket) bucket.count += 1;
@@ -2983,7 +3150,7 @@
       months.push({
         key,
         label: date.toLocaleDateString(undefined, { month: "short" }),
-        count: state.events.filter((event) => event.type === "seizure" && event.occurredAt.startsWith(key)).length
+        count: state.events.filter((event) => event.type === "seizure" && eventDayKey(event).startsWith(key)).length
       });
     }
 
@@ -3009,7 +3176,7 @@
     if (event.type === "seizure") {
       const parts = [
         event.durationSeconds ? `Duration: ${formatDuration(event.durationSeconds)}` : "",
-        event.cluster ? "Cluster seizure" : "",
+        isAutomaticCluster(event) ? "Cluster pattern: another seizure was logged within 24 hours" : "",
         event.trigger ? `Trigger: ${event.trigger}` : "",
         event.symptoms?.length ? `Symptoms: ${event.symptoms.join(", ")}` : "",
         event.rescue ? `Care: ${event.rescue}` : "",
@@ -3111,6 +3278,8 @@
     const headers = [
       "type",
       "date_time",
+      "time_recorded",
+      "cluster_detected",
       "name",
       "status",
       "severity",
@@ -3131,7 +3300,9 @@
       .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt))
       .map((event) => [
         event.type,
-        event.occurredAt,
+        event.type === "seizure" && event.timeKnown === false ? eventDayKey(event) : event.occurredAt,
+        event.type === "seizure" ? event.timeKnown !== false : "",
+        event.type === "seizure" ? isAutomaticCluster(event) : "",
         event.medicationName || event.title || "",
         event.status || "",
         event.severity || "",
@@ -3253,6 +3424,23 @@
       hour: "numeric",
       minute: "2-digit"
     });
+  }
+
+  function formatEventDateTime(event) {
+    const date = new Date(event.occurredAt);
+    if (event.type === "seizure" && event.timeKnown === false) {
+      return date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      });
+    }
+    return formatDateTime(date);
+  }
+
+  function formatEventTime(event) {
+    if (event.type === "seizure" && event.timeKnown === false) return "Time not recorded";
+    return formatTime(new Date(event.occurredAt));
   }
 
   function formatTime(date) {
