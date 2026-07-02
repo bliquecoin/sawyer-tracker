@@ -281,7 +281,14 @@ p {
 
 .grid {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 12px;
+}
+
+.grid > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .grid.two {
@@ -305,6 +312,7 @@ p {
 }
 
 .panel-body {
+  min-width: 0;
   padding: 16px;
 }
 
@@ -1003,6 +1011,8 @@ p {
 
 .form-grid {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 12px;
 }
 
@@ -1014,6 +1024,8 @@ p {
 
 .field {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 6px;
 }
 
@@ -1028,6 +1040,7 @@ input,
 select,
 textarea {
   min-width: 0;
+  max-width: 100%;
   width: 100%;
   min-height: var(--tap);
   padding: 10px 11px;
@@ -1150,6 +1163,12 @@ textarea {
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 2px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.filters::-webkit-scrollbar {
+  display: none;
 }
 
 .filters .btn {
@@ -1255,7 +1274,7 @@ textarea {
 .bottom-nav {
   position: absolute;
   right: 12px;
-  bottom: calc(4px + env(safe-area-inset-bottom));
+  bottom: max(4px, calc(env(safe-area-inset-bottom) - 8px));
   left: 12px;
   z-index: 1000;
   display: grid;
@@ -1341,12 +1360,14 @@ html.ios-browser .toast {
   align-items: end;
   gap: 10px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .setup-row .field,
 .setup-list .panel,
 .setup-list .panel-body {
   min-width: 0;
+  max-width: 100%;
 }
 
 .setup-row input,
@@ -1421,6 +1442,40 @@ html.ios-browser .toast {
 @media (max-width: 430px) {
   .grid.date-time-grid {
     grid-template-columns: 1fr;
+  }
+
+  .grid.setup-dose-grid,
+  .setup-row {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 8px;
+  }
+
+  .filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .filters .btn {
+    min-width: 0;
+    width: 100%;
+    padding-inline: 6px;
+  }
+
+  .timeline-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .timeline-actions {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+
+  .timeline-actions .btn.small {
+    padding-inline: 9px;
   }
 }
 
