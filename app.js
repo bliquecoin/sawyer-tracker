@@ -37,8 +37,6 @@
     schedules: [],
     events: [],
     settings: null,
-    timerStartedAt: null,
-    timerTick: null,
     toastTimer: null,
     installPrompt: null,
     supabaseClient: null,
@@ -846,7 +844,6 @@
     `;
 
     bindUi();
-    updateTimerFace();
     centerSelectedDayPill();
   }
 
@@ -923,7 +920,6 @@
                 <p class="eyebrow">Today's plan</p>
                 <h2>Medication & supplements</h2>
               </div>
-              <button class="btn secondary small" data-action="start-timer">Timer</button>
             </div>
             <div class="dose-list">${entries.map(renderDoseRow).join("")}</div>
           </article>
@@ -1171,7 +1167,7 @@
     const now = new Date();
     const editingSeizure = state.events.find((event) => event.id === state.editingSeizureId && event.type === "seizure");
     const seizureDate = editingSeizure ? new Date(editingSeizure.occurredAt) : now;
-    const durationSeconds = editingSeizure ? editingSeizure.durationSeconds || 0 : getTimerSeconds();
+    const durationSeconds = clamp(editingSeizure?.durationSeconds || 0, 0, 120);
     const localDate = toDateInputValue(seizureDate);
     const localTime = toTimeInputValue(seizureDate);
     const timeKnown = editingSeizure ? editingSeizure.timeKnown !== false : false;
@@ -1185,7 +1181,7 @@
               <div>
                 <p class="eyebrow">${editingSeizure ? "Update record" : "Quick record"}</p>
                 <h2>${editingSeizure ? "Edit seizure" : "Log seizure"}</h2>
-                <p class="subtle">Add what you remember. Exact time and extra details are optional.</p>
+                <p class="subtle">Date, duration and severity. Everything else is optional.</p>
               </div>
               ${editingSeizure ? `<button class="btn ghost small" data-action="cancel-seizure-edit" type="button">Cancel</button>` : ""}
             </div>
@@ -1194,60 +1190,49 @@
               <input type="hidden" name="id" value="${escapeHtml(editingSeizure?.id || "")}" />
 
               <section class="log-section">
-                <div class="log-section-heading">
-                  <span>1</span>
-                  <div>
-                    <strong>When</strong>
-                    <small>Date is enough if the time is unclear.</small>
+                <div class="quick-when-grid">
+                  <div class="field">
+                    <label for="seizure-date">Date</label>
+                    ${renderDateInput("seizure-date", "date", localDate, true)}
                   </div>
+                  <label class="quick-time-toggle" for="seizure-time-known">
+                    <span class="label">Approximate time</span>
+                    <span class="quick-time-control">
+                      <span data-time-status>${timeKnown ? "Included" : "Not needed"}</span>
+                      <input id="seizure-time-known" name="timeKnown" type="checkbox" data-time-known ${timeKnown ? "checked" : ""} />
+                    </span>
+                  </label>
                 </div>
-                <div class="field">
-                  <label for="seizure-date">Date</label>
-                  ${renderDateInput("seizure-date", "date", localDate, true)}
-                </div>
-                <label class="toggle-row" for="seizure-time-known">
-                  <span>
-                    <strong>Add approximate time</strong>
-                    <small>Useful when you remember roughly when it happened.</small>
-                  </span>
-                  <input id="seizure-time-known" name="timeKnown" type="checkbox" data-time-known ${timeKnown ? "checked" : ""} />
-                </label>
                 <div class="field optional-time-field" data-optional-time ${timeKnown ? "" : "hidden"}>
                   <label for="seizure-time">Approximate time</label>
                   ${renderTimeInput("seizure-time", "time", localTime)}
                 </div>
               </section>
 
-              <section class="log-section">
-                <div class="log-section-heading">
-                  <span>2</span>
-                  <div>
-                    <strong>What happened</strong>
-                    <small>Duration can be an estimate.</small>
-                  </div>
-                </div>
-                ${editingSeizure ? "" : `
-                  <div class="compact-timer">
+              <section class="log-section seizure-measures">
+                <div class="duration-wheel">
+                  <div class="duration-wheel-heading">
                     <div>
-                      <span>Live duration timer</span>
-                      <strong id="timer-face">${formatDuration(getTimerSeconds())}</strong>
+                      <span class="label">Duration</span>
+                      <small>Slide to the closest estimate</small>
                     </div>
-                    <div class="button-row">
-                      <button class="btn ${state.timerStartedAt ? "danger" : "secondary"} small" data-action="${state.timerStartedAt ? "stop-timer" : "start-timer"}" type="button">
-                        ${state.timerStartedAt ? "Stop" : "Start"}
-                      </button>
-                      ${state.timerStartedAt ? `<button class="btn ghost small" data-action="reset-timer" type="button">Reset</button>` : ""}
-                    </div>
+                    <output id="duration-output" for="seizure-duration">${formatDuration(durationSeconds)}</output>
                   </div>
-                `}
-                <div class="grid two duration-grid">
-                  <div class="field">
-                    <label for="duration-minutes">Minutes</label>
-                    <input id="duration-minutes" name="minutes" type="number" min="0" step="1" inputmode="numeric" value="${Math.floor(durationSeconds / 60)}" />
-                  </div>
-                  <div class="field">
-                    <label for="duration-seconds">Seconds</label>
-                    <input id="duration-seconds" name="seconds" type="number" min="0" max="59" step="1" inputmode="numeric" value="${durationSeconds % 60}" />
+                  <input
+                    id="seizure-duration"
+                    name="durationSeconds"
+                    type="range"
+                    min="0"
+                    max="120"
+                    step="5"
+                    value="${durationSeconds}"
+                    style="--duration-progress: ${(durationSeconds / 120) * 100}%"
+                    aria-label="Seizure duration in seconds"
+                  />
+                  <div class="duration-scale" aria-hidden="true">
+                    <span>0 sec</span>
+                    <span>1 min</span>
+                    <span>2 min</span>
                   </div>
                 </div>
                 <div class="field">
@@ -1258,6 +1243,11 @@
                   </div>
                 </div>
               </section>
+
+              <div class="button-row log-submit-row">
+                <button class="btn primary" type="submit">${editingSeizure ? "Update seizure" : "Save seizure"}</button>
+                ${editingSeizure ? `<button class="btn danger" data-delete-event="${escapeHtml(editingSeizure.id)}" type="button">Delete seizure</button>` : ""}
+              </div>
 
               <details class="log-details" ${editingSeizure ? "open" : ""}>
                 <summary>
@@ -1297,11 +1287,6 @@
                 </div>
                 </div>
               </details>
-
-              <div class="button-row log-submit-row">
-                <button class="btn primary" type="submit">${editingSeizure ? "Update seizure" : "Save seizure"}</button>
-                ${editingSeizure ? `<button class="btn danger" data-delete-event="${escapeHtml(editingSeizure.id)}" type="button">Delete seizure</button>` : ""}
-              </div>
             </form>
           </div>
         </section>
@@ -1865,6 +1850,14 @@
       });
     });
 
+    const durationInput = document.querySelector("#seizure-duration");
+    durationInput?.addEventListener("input", () => {
+      const duration = clamp(Number(durationInput.value), 0, 120);
+      durationInput.style.setProperty("--duration-progress", `${(duration / 120) * 100}%`);
+      const output = document.querySelector("#duration-output");
+      if (output) output.textContent = formatDuration(duration);
+    });
+
     document.querySelectorAll(".time-input-shell input[type='time']").forEach((input) => {
       const display = input.closest(".time-input-shell")?.querySelector(".time-input-value");
       const updateDisplay = () => {
@@ -1886,10 +1879,12 @@
     const timeKnownToggle = document.querySelector("[data-time-known]");
     const optionalTimeField = document.querySelector("[data-optional-time]");
     const optionalTimeInput = optionalTimeField?.querySelector("input[type='time']");
+    const timeKnownStatus = document.querySelector("[data-time-status]");
     if (timeKnownToggle && optionalTimeField && optionalTimeInput) {
       const updateOptionalTime = () => {
         optionalTimeField.hidden = !timeKnownToggle.checked;
         optionalTimeInput.disabled = !timeKnownToggle.checked;
+        if (timeKnownStatus) timeKnownStatus.textContent = timeKnownToggle.checked ? "Included" : "Not needed";
       };
       timeKnownToggle.addEventListener("change", updateOptionalTime);
       updateOptionalTime();
@@ -2034,9 +2029,6 @@
   }
 
   async function handleAction(action) {
-    if (action === "start-timer") startTimer();
-    if (action === "stop-timer") stopTimer();
-    if (action === "reset-timer") resetTimer();
     if (action === "quick-note") {
       state.activeTab = "log";
       render();
@@ -2168,9 +2160,7 @@
     const timeKnown = form.get("timeKnown") === "on";
     const time = timeKnown ? String(form.get("time") || "12:00") : "12:00";
     const occurredAt = localTimeToDate(date, time);
-    const minutes = clamp(Number(form.get("minutes") || 0), 0, 999);
-    const seconds = clamp(Number(form.get("seconds") || 0), 0, 59);
-    const durationSeconds = minutes * 60 + seconds;
+    const durationSeconds = clamp(Number(form.get("durationSeconds") || 0), 0, 120);
     const timestamp = nowIso();
 
     const record = {
@@ -2196,11 +2186,7 @@
 
     await dbPut("events", record);
     await refreshAutomaticClusterFlags();
-    if (existing) {
-      state.editingSeizureId = "";
-    } else {
-      resetTimer(false);
-    }
+    if (existing) state.editingSeizureId = "";
     await hydrate();
     const clusterDetected = isAutomaticCluster(record);
     await syncAfterLocalChange();
@@ -2875,50 +2861,6 @@
 
   function recordUpdatedAt(record) {
     return record.updatedAt || record.updated_at || record.createdAt || "1970-01-01T00:00:00.000Z";
-  }
-
-  function startTimer() {
-    if (!state.timerStartedAt) {
-      state.timerStartedAt = Date.now();
-    }
-    if (state.activeTab !== "log") state.activeTab = "log";
-    render();
-    ensureTimerTick();
-  }
-
-  function stopTimer() {
-    const seconds = getTimerSeconds();
-    state.timerStartedAt = null;
-    clearInterval(state.timerTick);
-    state.timerTick = null;
-    render();
-    const minutesInput = document.querySelector("#duration-minutes");
-    const secondsInput = document.querySelector("#duration-seconds");
-    if (minutesInput) minutesInput.value = String(Math.floor(seconds / 60));
-    if (secondsInput) secondsInput.value = String(seconds % 60);
-  }
-
-  function resetTimer(shouldRender = true) {
-    state.timerStartedAt = null;
-    clearInterval(state.timerTick);
-    state.timerTick = null;
-    if (shouldRender) render();
-  }
-
-  function ensureTimerTick() {
-    if (state.timerTick) clearInterval(state.timerTick);
-    if (!state.timerStartedAt) return;
-    state.timerTick = setInterval(updateTimerFace, 1000);
-  }
-
-  function updateTimerFace() {
-    const face = document.querySelector("#timer-face");
-    if (face) face.textContent = formatDuration(getTimerSeconds());
-  }
-
-  function getTimerSeconds() {
-    if (!state.timerStartedAt) return 0;
-    return Math.max(0, Math.floor((Date.now() - state.timerStartedAt) / 1000));
   }
 
   async function installApp() {

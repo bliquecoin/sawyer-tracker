@@ -1035,9 +1035,39 @@ p {
 
 .log-section {
   display: grid;
-  gap: 14px;
-  padding: 20px 0;
+  gap: 12px;
+  padding: 14px 0;
   border-top: 1px solid rgba(16, 17, 22, 0.08);
+}
+
+.quick-when-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  align-items: end;
+  gap: 10px;
+}
+
+.quick-time-toggle {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.quick-time-control {
+  display: flex;
+  min-width: 0;
+  min-height: var(--tap);
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 
 .log-section-heading {
@@ -1092,7 +1122,8 @@ p {
   min-width: 0;
 }
 
-.toggle-row input[type="checkbox"] {
+.toggle-row input[type="checkbox"],
+.quick-time-toggle input[type="checkbox"] {
   width: 48px;
   min-width: 48px;
   max-width: 48px;
@@ -1111,7 +1142,8 @@ p {
   transition: background 160ms ease;
 }
 
-.toggle-row input[type="checkbox"]:checked {
+.toggle-row input[type="checkbox"]:checked,
+.quick-time-toggle input[type="checkbox"]:checked {
   background:
     radial-gradient(circle at 34px 50%, #ffffff 0 10px, transparent 11px),
     var(--brand);
@@ -1121,34 +1153,119 @@ p {
   display: none;
 }
 
-.compact-timer {
-  display: flex;
+.duration-wheel {
+  display: grid;
   min-width: 0;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border: 1px solid rgba(255, 107, 87, 0.15);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(255, 239, 235, 0.7)),
+    var(--brand-soft);
+}
+
+.duration-wheel-heading {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px;
-  border: 1px solid rgba(31, 138, 131, 0.14);
-  border-radius: 16px;
-  background: rgba(220, 245, 241, 0.48);
 }
 
-.compact-timer > div:first-child span {
+.duration-wheel-heading .label,
+.duration-wheel-heading small {
   display: block;
+}
+
+.duration-wheel-heading small {
+  margin-top: 2px;
   color: var(--muted);
-  font-size: 0.74rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+#duration-output {
+  color: var(--brand-strong);
+  font-size: 1.55rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+  line-height: 1;
+}
+
+#seizure-duration {
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+#seizure-duration::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--brand) 0 var(--duration-progress),
+    rgba(80, 73, 88, 0.14) var(--duration-progress) 100%
+  );
+  box-shadow: inset 0 1px 2px rgba(16, 17, 22, 0.1);
+}
+
+#seizure-duration::-webkit-slider-thumb {
+  width: 30px;
+  height: 30px;
+  margin-top: -11px;
+  border: 7px solid #ffffff;
+  border-radius: 50%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--brand);
+  box-shadow:
+    0 4px 12px rgba(217, 76, 60, 0.28),
+    0 0 0 1px rgba(217, 76, 60, 0.14);
+}
+
+#seizure-duration::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(80, 73, 88, 0.14);
+  box-shadow: inset 0 1px 2px rgba(16, 17, 22, 0.1);
+}
+
+#seizure-duration::-moz-range-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--brand);
+}
+
+#seizure-duration::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 7px solid #ffffff;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow:
+    0 4px 12px rgba(217, 76, 60, 0.28),
+    0 0 0 1px rgba(217, 76, 60, 0.14);
+}
+
+.duration-scale {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  color: var(--muted);
+  font-size: 0.68rem;
   font-weight: 750;
 }
 
-.compact-timer > div:first-child strong {
-  display: block;
-  margin-top: 2px;
-  font-variant-numeric: tabular-nums;
-  font-size: 1.18rem;
+.duration-scale span:nth-child(2) {
+  text-align: center;
 }
 
-.compact-timer .button-row {
-  flex-wrap: nowrap;
+.duration-scale span:last-child {
+  text-align: right;
 }
 
 .log-details {
@@ -1199,11 +1316,13 @@ p {
 }
 
 .log-submit-row {
-  padding-top: 18px;
+  padding: 2px 0 14px;
 }
 
 .log-submit-row .btn.primary {
   flex: 1 1 180px;
+  min-height: 50px;
+  box-shadow: 0 12px 24px rgba(255, 107, 87, 0.2);
 }
 
 .form-divider {
