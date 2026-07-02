@@ -1288,6 +1288,102 @@ textarea {
   resize: vertical;
 }
 
+.field-help {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+input[type="file"] {
+  padding: 6px;
+}
+
+input[type="file"]::file-selector-button {
+  min-height: 34px;
+  margin-right: 10px;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--lilac-soft);
+  color: #3f2a73;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.vet-documents {
+  display: grid;
+  gap: 16px;
+}
+
+.vet-documents h2 {
+  margin-bottom: 0;
+}
+
+.vet-documents .dose-main .subtle {
+  margin: 5px 0 0;
+}
+
+.document-upload-form {
+  padding: 16px 0 18px;
+  border-top: 1px solid rgba(16, 17, 22, 0.08);
+  border-bottom: 1px solid rgba(16, 17, 22, 0.08);
+}
+
+.document-message {
+  margin: 0;
+}
+
+.document-list {
+  display: grid;
+}
+
+.document-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(16, 17, 22, 0.08);
+}
+
+.document-row:last-child {
+  border-bottom: 0;
+}
+
+.document-copy {
+  min-width: 0;
+}
+
+.document-copy strong,
+.document-copy span {
+  display: block;
+}
+
+.document-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-copy span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.document-copy p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.document-row .button-row {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
 .checks {
   display: flex;
   flex-wrap: wrap;
@@ -1704,6 +1800,14 @@ html.ios-browser .toast {
 
   .timeline-actions .btn.small {
     padding-inline: 9px;
+  }
+
+  .document-row {
+    grid-template-columns: 1fr;
+  }
+
+  .document-row .button-row {
+    justify-content: flex-start;
   }
 }
 

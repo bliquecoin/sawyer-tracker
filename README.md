@@ -45,6 +45,7 @@ for backups. Free projects should still be exported periodically.
 - Long-term timeline
 - Local observations for seizure gaps, milestones, time-of-day patterns, missed/late dose context, and MCT oil context
 - Reminder permission and in-app reminder checks
+- Private vet PDF storage shared between both phones
 - Installable PWA shell
 - JSON backup/import and CSV export
 
@@ -90,6 +91,11 @@ window.SAWYER_SUPABASE_CONFIG = {
 ```
 
 The publishable key is public. Access is protected by Row Level Security plus the shared household access code.
+
+Vet PDFs are stored in the private `sawyer-vet-documents` Storage bucket.
+Uploads, short-lived viewing links, and permanent deletion are handled by the
+`sawyer-vet-documents` Edge Function. PDFs are limited to 20 MB and are not
+included in JSON backups.
 
 ### 3. App URL
 

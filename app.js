@@ -14,8 +14,19 @@
   const SUPABASE_TABLES = {
     dogs: "sawyer_dogs",
     schedules: "sawyer_care_schedules",
-    events: "sawyer_care_events"
+    events: "sawyer_care_events",
+    documents: "sawyer_vet_documents"
   };
+  const VET_DOCUMENT_BUCKET = "sawyer-vet-documents";
+  const MAX_VET_DOCUMENT_BYTES = 20 * 1024 * 1024;
+  const VET_DOCUMENT_CATEGORIES = [
+    { id: "visit_summary", label: "Visit summary" },
+    { id: "lab_results", label: "Lab results" },
+    { id: "prescription", label: "Prescription" },
+    { id: "imaging", label: "Imaging report" },
+    { id: "insurance", label: "Insurance" },
+    { id: "other", label: "Other" }
+  ];
   const app = document.querySelector("#app");
   const externalConfig = window.SAWYER_SUPABASE_CONFIG || {};
 
@@ -40,6 +51,9 @@
     aiBusy: false,
     aiInsight: null,
     aiError: "",
+    vetDocuments: [],
+    documentsBusy: false,
+    documentsMessage: "",
     selectedDayKey: localDateKey(new Date()),
     pullDistance: 0,
     pullRefreshing: false,
@@ -189,6 +203,7 @@
     await initSupabase();
     if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
       await syncWithSupabase({ silent: true });
+      await loadVetDocuments({ silent: true });
     }
     render();
     startReminderLoop();
@@ -1377,9 +1392,89 @@
               </div>
               <button class="btn primary" type="submit">Save Blood Test</button>
             </form>
+
+            <div class="form-divider"></div>
+
+            ${renderVetDocuments(localDate)}
           </div>
         </section>
       </div>
+    `;
+  }
+
+  function renderVetDocuments(localDate) {
+    const documents = state.vetDocuments || [];
+    const message = state.documentsMessage
+      ? `<p class="subtle document-message">${escapeHtml(state.documentsMessage)}</p>`
+      : "";
+
+    return `
+      <section class="vet-documents">
+        <div class="dose-main">
+          <div>
+            <h2>Vet Documents</h2>
+            <p class="subtle">Private PDFs shared between both phones.</p>
+          </div>
+          <span class="status-pill">${documents.length} stored</span>
+        </div>
+
+        <form id="vet-document-form" class="form-grid document-upload-form">
+          <div class="field">
+            <label for="vet-document-file">PDF document</label>
+            <input id="vet-document-file" name="file" type="file" accept="application/pdf,.pdf" required />
+            <small class="field-help">PDF only, up to 20 MB.</small>
+          </div>
+          <div class="grid two">
+            <div class="field">
+              <label for="vet-document-category">Document type</label>
+              <select id="vet-document-category" name="category">
+                ${VET_DOCUMENT_CATEGORIES.map((category) => `<option value="${category.id}">${escapeHtml(category.label)}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label for="vet-document-date">Document date</label>
+              ${renderDateInput("vet-document-date", "documentDate", localDate)}
+            </div>
+          </div>
+          <div class="field">
+            <label for="vet-document-notes">Notes</label>
+            <input id="vet-document-notes" name="notes" placeholder="Optional description" />
+          </div>
+          <button class="btn primary" type="submit" ${state.documentsBusy ? "disabled" : ""}>
+            ${state.documentsBusy ? "Uploading..." : "Upload PDF"}
+          </button>
+        </form>
+
+        ${message}
+
+        <div class="document-list">
+          ${
+            documents.length
+              ? documents.map(renderVetDocument).join("")
+              : `<div class="empty">No vet documents uploaded yet.</div>`
+          }
+        </div>
+      </section>
+    `;
+  }
+
+  function renderVetDocument(document) {
+    const category = VET_DOCUMENT_CATEGORIES.find((item) => item.id === document.category)?.label || "Other";
+    const date = document.document_date
+      ? formatDateShort(localTimeToDate(document.document_date, "12:00"))
+      : "Date not set";
+    return `
+      <article class="document-row">
+        <div class="document-copy">
+          <strong>${escapeHtml(document.file_name || "Vet document.pdf")}</strong>
+          <span>${escapeHtml(category)} · ${escapeHtml(date)} · ${escapeHtml(formatFileSize(document.size_bytes))}</span>
+          ${document.notes ? `<p>${escapeHtml(document.notes)}</p>` : ""}
+        </div>
+        <div class="button-row">
+          <button class="btn secondary small" data-view-vet-document="${escapeHtml(document.id)}" type="button">Open</button>
+          <button class="btn ghost small" data-delete-vet-document="${escapeHtml(document.id)}" type="button">Delete</button>
+        </div>
+      </article>
     `;
   }
 
@@ -1804,12 +1899,21 @@
     document.querySelector("#note-form")?.addEventListener("submit", saveNote);
     document.querySelector("#vet-form")?.addEventListener("submit", saveVetVisit);
     document.querySelector("#blood-test-form")?.addEventListener("submit", saveBloodTest);
+    document.querySelector("#vet-document-form")?.addEventListener("submit", uploadVetDocument);
     document.querySelector("#setup-form")?.addEventListener("submit", saveSetup);
     document.querySelector("#sync-config-form")?.addEventListener("submit", saveSyncConfig);
     document.querySelector("#access-form")?.addEventListener("submit", saveAccessCode);
 
     document.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", () => handleAction(button.dataset.action));
+    });
+
+    document.querySelectorAll("[data-view-vet-document]").forEach((button) => {
+      button.addEventListener("click", () => openVetDocument(button.dataset.viewVetDocument));
+    });
+
+    document.querySelectorAll("[data-delete-vet-document]").forEach((button) => {
+      button.addEventListener("click", () => deleteVetDocument(button.dataset.deleteVetDocument));
     });
 
     bindPullRefresh();
@@ -1918,6 +2022,7 @@
     await initSupabase();
     if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
       await syncWithSupabase({ silent: true });
+      await loadVetDocuments({ silent: true });
       render();
     } else {
       render();
@@ -1943,7 +2048,7 @@
     if (action === "export-json") exportJson();
     if (action === "import-json") importJson();
     if (action === "export-csv") exportCsv();
-    if (action === "sync-now") syncWithSupabase();
+    if (action === "sync-now") refreshApp();
     if (action === "generate-ai") generateAiInsights();
     if (action === "sign-out") signOut();
     if (action === "reset-data") resetData();
@@ -2202,6 +2307,170 @@
     showToast("Blood test saved.");
   }
 
+  async function loadVetDocuments(options = {}) {
+    if (!hasSupabaseConfig() || !isSignedIn() || !navigator.onLine) {
+      state.vetDocuments = [];
+      return;
+    }
+
+    try {
+      const client = await requireSupabaseSession();
+      const { data, error } = await client
+        .from(SUPABASE_TABLES.documents)
+        .select("id,file_name,content_type,size_bytes,category,document_date,notes,created_at,updated_at")
+        .eq("household_id", state.settings.supabaseHouseholdId)
+        .order("document_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      state.vetDocuments = data || [];
+      state.documentsMessage = "";
+    } catch (error) {
+      state.documentsMessage = error.message || "Vet documents could not be loaded.";
+      if (!options.silent) showToast(state.documentsMessage);
+    }
+  }
+
+  async function invokeVetDocumentAction(action, payload = {}) {
+    const client = state.supabaseClient || (await initSupabase());
+    if (!client) throw new Error("Supabase is not available.");
+    const { data, error } = await client.functions.invoke("sawyer-vet-documents", {
+      headers: state.householdAccessHash ? { [ACCESS_HEADER]: state.householdAccessHash } : {},
+      body: {
+        action,
+        householdId: state.settings.supabaseHouseholdId,
+        ...payload
+      }
+    });
+    if (error) {
+      let message = error.message || "Document request failed.";
+      try {
+        const details = await error.context?.json();
+        if (details?.message) message = details.message;
+      } catch {
+        // Keep the original function error.
+      }
+      throw new Error(message);
+    }
+    return data || {};
+  }
+
+  async function uploadVetDocument(event) {
+    event.preventDefault();
+    if (!canSaveCloudRecord() || state.documentsBusy) return;
+
+    const form = new FormData(event.currentTarget);
+    const file = form.get("file");
+    if (!(file instanceof File) || !file.name) {
+      showToast("Choose a PDF first.");
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      showToast("Choose a PDF document.");
+      return;
+    }
+    if (file.size <= 0 || file.size > MAX_VET_DOCUMENT_BYTES) {
+      showToast("PDFs must be 20 MB or smaller.");
+      return;
+    }
+
+    const restoreScroll = captureContentScroll();
+    let uploadSession = null;
+    state.documentsBusy = true;
+    state.documentsMessage = "Preparing secure upload...";
+    render();
+    restoreScroll();
+
+    try {
+      uploadSession = await invokeVetDocumentAction("create-upload", {
+        fileName: file.name,
+        sizeBytes: file.size
+      });
+      const client = state.supabaseClient || (await initSupabase());
+      if (!client) throw new Error("Supabase is not available.");
+
+      state.documentsMessage = "Uploading PDF...";
+      render();
+      restoreScroll();
+      const { error: uploadError } = await client.storage
+        .from(VET_DOCUMENT_BUCKET)
+        .uploadToSignedUrl(
+          uploadSession.storagePath,
+          uploadSession.token,
+          file,
+          {
+            contentType: "application/pdf",
+            upsert: false
+          }
+        );
+      if (uploadError) throw uploadError;
+
+      await invokeVetDocumentAction("finalize-upload", {
+        ...uploadSession,
+        fileName: file.name,
+        sizeBytes: file.size,
+        category: String(form.get("category") || "other"),
+        documentDate: String(form.get("documentDate") || ""),
+        notes: String(form.get("notes") || "")
+      });
+
+      await loadVetDocuments({ silent: true });
+      state.documentsMessage = "";
+      showToast("Vet PDF uploaded.");
+    } catch (error) {
+      if (uploadSession?.documentId && uploadSession?.storagePath) {
+        await invokeVetDocumentAction("abort-upload", uploadSession).catch(() => {});
+      }
+      state.documentsMessage = error.message || "PDF upload failed.";
+      showToast(state.documentsMessage);
+    } finally {
+      state.documentsBusy = false;
+      render();
+      restoreScroll();
+    }
+  }
+
+  async function openVetDocument(documentId) {
+    if (!documentId || state.documentsBusy) return;
+    const viewer = window.open("", "_blank");
+    try {
+      const data = await invokeVetDocumentAction("create-view-url", { documentId });
+      if (!data.url) throw new Error("A secure document link could not be created.");
+      if (viewer) {
+        viewer.opener = null;
+        viewer.location.href = data.url;
+      } else {
+        window.location.href = data.url;
+      }
+    } catch (error) {
+      if (viewer) viewer.close();
+      showToast(error.message || "Document could not be opened.");
+    }
+  }
+
+  async function deleteVetDocument(documentId) {
+    if (!documentId || state.documentsBusy) return;
+    if (!confirm("Delete this vet PDF permanently?")) return;
+
+    const restoreScroll = captureContentScroll();
+    state.documentsBusy = true;
+    state.documentsMessage = "Deleting PDF...";
+    render();
+    restoreScroll();
+    try {
+      await invokeVetDocumentAction("delete", { documentId });
+      await loadVetDocuments({ silent: true });
+      state.documentsMessage = "";
+      showToast("Vet PDF deleted.");
+    } catch (error) {
+      state.documentsMessage = error.message || "Document could not be deleted.";
+      showToast(state.documentsMessage);
+    } finally {
+      state.documentsBusy = false;
+      render();
+      restoreScroll();
+    }
+  }
+
   async function saveSetup(event) {
     event.preventDefault();
     if (!canSaveCloudRecord()) return;
@@ -2303,6 +2572,7 @@
       writeHouseholdAccessHash(hash);
       await initSupabase();
       await syncWithSupabase({ silent: true, throwOnError: true });
+      await loadVetDocuments({ silent: true });
       await updateSettings({
         currentUserEmail: "",
         pendingLoginEmail: "",
@@ -2326,6 +2596,7 @@
       if (client) await client.auth.signOut();
       writeHouseholdAccessHash("");
       state.supabaseSession = null;
+      state.vetDocuments = [];
       await updateSettings({
         currentUserEmail: "",
         pendingLoginEmail: "",
@@ -3455,6 +3726,13 @@
     const minutes = Math.floor(safe / 60);
     const remainder = safe % 60;
     return `${pad(minutes)}:${pad(remainder)}`;
+  }
+
+  function formatFileSize(bytes) {
+    const value = Math.max(0, Number(bytes) || 0);
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${round1(value / 1024)} KB`;
+    return `${round1(value / (1024 * 1024))} MB`;
   }
 
   function startOfDay(date) {
