@@ -1039,7 +1039,8 @@ label,
 input,
 select,
 textarea,
-.time-input-shell {
+.time-input-shell,
+.date-input-shell {
   min-width: 0;
   max-width: 100%;
   width: 100%;
@@ -1056,21 +1057,24 @@ input[type="time"] {
   padding-inline: 8px;
 }
 
-.time-input-shell {
+.time-input-shell,
+.date-input-shell {
   position: relative;
   display: flex;
   align-items: center;
   overflow: hidden;
 }
 
-.time-input-value {
+.time-input-value,
+.date-input-value {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.time-input-shell input[type="time"] {
+.time-input-shell input[type="time"],
+.date-input-shell input[type="date"] {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -1083,7 +1087,8 @@ input[type="time"] {
   opacity: 0;
 }
 
-.time-input-shell:focus-within {
+.time-input-shell:focus-within,
+.date-input-shell:focus-within {
   border-color: rgba(255, 107, 87, 0.58);
   box-shadow: 0 0 0 3px rgba(255, 107, 87, 0.12);
 }

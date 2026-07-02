@@ -1185,7 +1185,7 @@
                 <div class="grid two date-time-grid">
                   <div class="field">
                     <label for="seizure-date">Date</label>
-                    <input id="seizure-date" name="date" type="date" value="${localDate}" required />
+                    ${renderDateInput("seizure-date", "date", localDate, true)}
                   </div>
                   <div class="field">
                     <label for="seizure-time">Time</label>
@@ -1271,7 +1271,7 @@
               <div class="grid two date-time-grid">
                 <div class="field">
                   <label for="vet-date">Date</label>
-                  <input id="vet-date" name="date" type="date" value="${localDate}" required />
+                  ${renderDateInput("vet-date", "date", localDate, true)}
                 </div>
                 <div class="field">
                   <label for="vet-time">Time</label>
@@ -1304,7 +1304,7 @@
               <div class="grid two date-time-grid">
                 <div class="field">
                   <label for="blood-date">Date</label>
-                  <input id="blood-date" name="date" type="date" value="${localDate}" required />
+                  ${renderDateInput("blood-date", "date", localDate, true)}
                 </div>
                 <div class="field">
                   <label for="blood-time">Time</label>
@@ -1732,6 +1732,15 @@
       const display = input.closest(".time-input-shell")?.querySelector(".time-input-value");
       const updateDisplay = () => {
         if (display) display.textContent = formatTimeInputValue(input.value);
+      };
+      input.addEventListener("input", updateDisplay);
+      input.addEventListener("change", updateDisplay);
+    });
+
+    document.querySelectorAll(".date-input-shell input[type='date']").forEach((input) => {
+      const display = input.closest(".date-input-shell")?.querySelector(".date-input-value");
+      const updateDisplay = () => {
+        if (display) display.textContent = formatDateInputValue(input.value);
       };
       input.addEventListener("input", updateDisplay);
       input.addEventListener("change", updateDisplay);
@@ -3193,6 +3202,25 @@
         <input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="time" value="${escapeHtml(value)}" ${required ? "required" : ""} />
       </div>
     `;
+  }
+
+  function renderDateInput(id, name, value, required = false) {
+    return `
+      <div class="date-input-shell">
+        <span class="date-input-value" aria-hidden="true">${escapeHtml(formatDateInputValue(value))}</span>
+        <input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="date" value="${escapeHtml(value)}" ${required ? "required" : ""} />
+      </div>
+    `;
+  }
+
+  function formatDateInputValue(value) {
+    const [year, month, day] = String(value || "").split("-").map(Number);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return "Select date";
+    return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: "numeric"
+    });
   }
 
   function formatTimeInputValue(value) {
