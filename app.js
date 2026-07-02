@@ -1189,7 +1189,7 @@
                   </div>
                   <div class="field">
                     <label for="seizure-time">Time</label>
-                    <input id="seizure-time" name="time" type="time" value="${localTime}" required />
+                    ${renderTimeInput("seizure-time", "time", localTime, true)}
                   </div>
                 </div>
                 <div class="grid two">
@@ -1275,7 +1275,7 @@
                 </div>
                 <div class="field">
                   <label for="vet-time">Time</label>
-                  <input id="vet-time" name="time" type="time" value="${localTime}" />
+                  ${renderTimeInput("vet-time", "time", localTime)}
                 </div>
               </div>
               <div class="field">
@@ -1308,7 +1308,7 @@
                 </div>
                 <div class="field">
                   <label for="blood-time">Time</label>
-                  <input id="blood-time" name="time" type="time" value="${localTime}" />
+                  ${renderTimeInput("blood-time", "time", localTime)}
                 </div>
               </div>
               <div class="field">
@@ -1664,7 +1664,7 @@
                 </div>
                 <div class="field">
                   <label for="${schedule.id}-${time.id}-time">Time</label>
-                  <input id="${schedule.id}-${time.id}-time" name="${schedule.id}:${time.id}:time" type="time" value="${escapeHtml(time.time)}" />
+                  ${renderTimeInput(`${schedule.id}-${time.id}-time`, `${schedule.id}:${time.id}:time`, time.time)}
                 </div>
               </div>
             `).join("")}
@@ -1726,6 +1726,15 @@
         document.querySelectorAll("[data-severity]").forEach((item) => item.classList.remove("active"));
         button.classList.add("active");
       });
+    });
+
+    document.querySelectorAll(".time-input-shell input[type='time']").forEach((input) => {
+      const display = input.closest(".time-input-shell")?.querySelector(".time-input-value");
+      const updateDisplay = () => {
+        if (display) display.textContent = formatTimeInputValue(input.value);
+      };
+      input.addEventListener("input", updateDisplay);
+      input.addEventListener("change", updateDisplay);
     });
 
     document.querySelector("#seizure-form")?.addEventListener("submit", saveSeizure);
@@ -3175,6 +3184,21 @@
 
   function toTimeInputValue(date) {
     return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  function renderTimeInput(id, name, value, required = false) {
+    return `
+      <div class="time-input-shell">
+        <span class="time-input-value" aria-hidden="true">${escapeHtml(formatTimeInputValue(value))}</span>
+        <input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="time" value="${escapeHtml(value)}" ${required ? "required" : ""} />
+      </div>
+    `;
+  }
+
+  function formatTimeInputValue(value) {
+    const [hours, minutes] = String(value || "").split(":").map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return "Select time";
+    return formatTime(new Date(2000, 0, 1, hours, minutes));
   }
 
   function formatDateShort(date) {
