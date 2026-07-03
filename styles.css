@@ -1325,6 +1325,88 @@ p {
   box-shadow: 0 12px 24px rgba(255, 107, 87, 0.2);
 }
 
+.records-heading h2 {
+  margin-bottom: 0;
+}
+
+.records-heading .subtle {
+  margin: 7px 0 0;
+}
+
+.record-accordions {
+  margin-top: 14px;
+  border-top: 1px solid rgba(16, 17, 22, 0.08);
+}
+
+.record-disclosure {
+  border-bottom: 1px solid rgba(16, 17, 22, 0.08);
+}
+
+.record-disclosure summary {
+  position: relative;
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  padding: 12px 36px 12px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.record-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.record-disclosure summary:focus {
+  outline: none;
+}
+
+.record-disclosure summary:focus-visible {
+  outline: 2px solid rgba(255, 107, 87, 0.42);
+  outline-offset: 3px;
+}
+
+.record-disclosure summary strong,
+.record-disclosure summary small {
+  display: block;
+}
+
+.record-disclosure summary small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.record-disclosure summary::after {
+  content: "+";
+  position: absolute;
+  right: 5px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--panel-soft);
+  color: var(--brand-strong);
+  font-size: 1.1rem;
+  font-weight: 750;
+}
+
+.record-disclosure[open] summary::after {
+  content: "−";
+  background: var(--brand-soft);
+}
+
+.record-form {
+  gap: 12px;
+  padding: 2px 0 18px;
+}
+
+.document-upload-disclosure {
+  border-top: 1px solid rgba(16, 17, 22, 0.08);
+}
+
 .form-divider {
   height: 1px;
   margin: 18px 0;
@@ -1444,9 +1526,7 @@ input[type="file"]::file-selector-button {
 }
 
 .document-upload-form {
-  padding: 16px 0 18px;
-  border-top: 1px solid rgba(16, 17, 22, 0.08);
-  border-bottom: 1px solid rgba(16, 17, 22, 0.08);
+  padding-top: 2px;
 }
 
 .document-message {
@@ -1867,6 +1947,10 @@ html.ios-browser .toast {
   .stack.desktop-two {
     grid-template-columns: 1fr 1fr;
     align-items: start;
+  }
+
+  .other-records-panel {
+    grid-column: 1 / -1;
   }
 
   .bottom-nav {

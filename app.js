@@ -1291,96 +1291,123 @@
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel document-library-panel">
           <div class="panel-body">
-            <h2>Care Note</h2>
-            <form id="note-form" class="form-grid">
-              <div class="field">
-                <label for="note-title">Title</label>
-                <input id="note-title" name="title" placeholder="Appetite, behaviour, vet call" />
-              </div>
-              <div class="field">
-                <label for="note-body">Note</label>
-                <textarea id="note-body" name="body" required></textarea>
-              </div>
-              <button class="btn primary" type="submit">Save Note</button>
-            </form>
-
-            <div class="form-divider"></div>
-
-            <h2>Vet Visit</h2>
-            <form id="vet-form" class="form-grid">
-              <div class="grid two date-time-grid">
-                <div class="field">
-                  <label for="vet-date">Date</label>
-                  ${renderDateInput("vet-date", "date", localDate, true)}
-                </div>
-                <div class="field">
-                  <label for="vet-time">Time</label>
-                  ${renderTimeInput("vet-time", "time", localTime)}
-                </div>
-              </div>
-              <div class="field">
-                <label for="vet-clinic">Clinic or vet</label>
-                <input id="vet-clinic" name="clinic" placeholder="Vet name or clinic" />
-              </div>
-              <div class="field">
-                <label for="vet-reason">Reason</label>
-                <input id="vet-reason" name="reason" placeholder="Checkup, seizure review, medication review" required />
-              </div>
-              <div class="field">
-                <label for="vet-weight">Weight</label>
-                <input id="vet-weight" name="weight" placeholder="Example: 24.8 kg" />
-              </div>
-              <div class="field">
-                <label for="vet-plan">Plan / medication changes</label>
-                <textarea id="vet-plan" name="plan" placeholder="Next steps, dosage changes, follow-up date"></textarea>
-              </div>
-              <button class="btn primary" type="submit">Save Vet Visit</button>
-            </form>
-
-            <div class="form-divider"></div>
-
-            <h2>Blood Test</h2>
-            <form id="blood-test-form" class="form-grid">
-              <div class="grid two date-time-grid">
-                <div class="field">
-                  <label for="blood-date">Date</label>
-                  ${renderDateInput("blood-date", "date", localDate, true)}
-                </div>
-                <div class="field">
-                  <label for="blood-time">Time</label>
-                  ${renderTimeInput("blood-time", "time", localTime)}
-                </div>
-              </div>
-              <div class="field">
-                <label for="blood-panel">Test / panel</label>
-                <input id="blood-panel" name="panel" placeholder="Phenobarbital level, bromide level, liver panel" required />
-              </div>
-              <div class="grid two">
-                <div class="field">
-                  <label for="blood-phenobarbital">Phenobarbital</label>
-                  <input id="blood-phenobarbital" name="phenobarbitalLevel" placeholder="Value and units" />
-                </div>
-                <div class="field">
-                  <label for="blood-bromide">Bromide</label>
-                  <input id="blood-bromide" name="bromideLevel" placeholder="Value and units" />
-                </div>
-              </div>
-              <div class="field">
-                <label for="blood-results">Results</label>
-                <textarea id="blood-results" name="results" placeholder="Paste key results or lab notes"></textarea>
-              </div>
-              <div class="field">
-                <label for="blood-notes">Notes</label>
-                <textarea id="blood-notes" name="notes" placeholder="Vet interpretation, recheck timing, changes"></textarea>
-              </div>
-              <button class="btn primary" type="submit">Save Blood Test</button>
-            </form>
-
-            <div class="form-divider"></div>
-
             ${renderVetDocuments(localDate)}
+          </div>
+        </section>
+
+        <section class="panel other-records-panel">
+          <div class="panel-body">
+            <div class="records-heading">
+              <p class="eyebrow">Other records</p>
+              <h2>Add to Sawyer's history</h2>
+              <p class="subtle">Open the record you need. The others stay out of the way.</p>
+            </div>
+
+            <div class="record-accordions">
+              <details class="record-disclosure" data-record-disclosure>
+                <summary>
+                  <span>
+                    <strong>Care note</strong>
+                    <small>Appetite, behaviour or a general observation</small>
+                  </span>
+                </summary>
+                <form id="note-form" class="form-grid record-form">
+                  <div class="field">
+                    <label for="note-title">Title</label>
+                    <input id="note-title" name="title" placeholder="Appetite, behaviour, vet call" />
+                  </div>
+                  <div class="field">
+                    <label for="note-body">Note</label>
+                    <textarea id="note-body" name="body" required></textarea>
+                  </div>
+                  <button class="btn primary" type="submit">Save Note</button>
+                </form>
+              </details>
+
+              <details class="record-disclosure" data-record-disclosure>
+                <summary>
+                  <span>
+                    <strong>Vet visit</strong>
+                    <small>Appointment details, weight and treatment plan</small>
+                  </span>
+                </summary>
+                <form id="vet-form" class="form-grid record-form">
+                  <div class="grid two date-time-grid">
+                    <div class="field">
+                      <label for="vet-date">Date</label>
+                      ${renderDateInput("vet-date", "date", localDate, true)}
+                    </div>
+                    <div class="field">
+                      <label for="vet-time">Time</label>
+                      ${renderTimeInput("vet-time", "time", localTime)}
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label for="vet-clinic">Clinic or vet</label>
+                    <input id="vet-clinic" name="clinic" placeholder="Vet name or clinic" />
+                  </div>
+                  <div class="field">
+                    <label for="vet-reason">Reason</label>
+                    <input id="vet-reason" name="reason" placeholder="Checkup, seizure review, medication review" required />
+                  </div>
+                  <div class="field">
+                    <label for="vet-weight">Weight</label>
+                    <input id="vet-weight" name="weight" placeholder="Example: 24.8 kg" />
+                  </div>
+                  <div class="field">
+                    <label for="vet-plan">Plan / medication changes</label>
+                    <textarea id="vet-plan" name="plan" placeholder="Next steps, dosage changes, follow-up date"></textarea>
+                  </div>
+                  <button class="btn primary" type="submit">Save Vet Visit</button>
+                </form>
+              </details>
+
+              <details class="record-disclosure" data-record-disclosure>
+                <summary>
+                  <span>
+                    <strong>Blood test</strong>
+                    <small>Levels, panel results and the vet's interpretation</small>
+                  </span>
+                </summary>
+                <form id="blood-test-form" class="form-grid record-form">
+                  <div class="grid two date-time-grid">
+                    <div class="field">
+                      <label for="blood-date">Date</label>
+                      ${renderDateInput("blood-date", "date", localDate, true)}
+                    </div>
+                    <div class="field">
+                      <label for="blood-time">Time</label>
+                      ${renderTimeInput("blood-time", "time", localTime)}
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label for="blood-panel">Test / panel</label>
+                    <input id="blood-panel" name="panel" placeholder="Phenobarbital level, bromide level, liver panel" required />
+                  </div>
+                  <div class="grid two">
+                    <div class="field">
+                      <label for="blood-phenobarbital">Phenobarbital</label>
+                      <input id="blood-phenobarbital" name="phenobarbitalLevel" placeholder="Value and units" />
+                    </div>
+                    <div class="field">
+                      <label for="blood-bromide">Bromide</label>
+                      <input id="blood-bromide" name="bromideLevel" placeholder="Value and units" />
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label for="blood-results">Results</label>
+                    <textarea id="blood-results" name="results" placeholder="Paste key results or lab notes"></textarea>
+                  </div>
+                  <div class="field">
+                    <label for="blood-notes">Notes</label>
+                    <textarea id="blood-notes" name="notes" placeholder="Vet interpretation, recheck timing, changes"></textarea>
+                  </div>
+                  <button class="btn primary" type="submit">Save Blood Test</button>
+                </form>
+              </details>
+            </div>
           </div>
         </section>
       </div>
@@ -1403,32 +1430,40 @@
           <span class="status-pill">${documents.length} stored</span>
         </div>
 
-        <form id="vet-document-form" class="form-grid document-upload-form">
-          <div class="field">
-            <label for="vet-document-file">PDF document</label>
-            <input id="vet-document-file" name="file" type="file" accept="application/pdf,.pdf" required />
-            <small class="field-help">PDF only, up to 20 MB.</small>
-          </div>
-          <div class="grid two">
+        <details class="record-disclosure document-upload-disclosure">
+          <summary>
+            <span>
+              <strong>Upload a PDF</strong>
+              <small>Visit summaries, lab results and prescriptions</small>
+            </span>
+          </summary>
+          <form id="vet-document-form" class="form-grid record-form document-upload-form">
             <div class="field">
-              <label for="vet-document-category">Document type</label>
-              <select id="vet-document-category" name="category">
-                ${VET_DOCUMENT_CATEGORIES.map((category) => `<option value="${category.id}">${escapeHtml(category.label)}</option>`).join("")}
-              </select>
+              <label for="vet-document-file">PDF document</label>
+              <input id="vet-document-file" name="file" type="file" accept="application/pdf,.pdf" required />
+              <small class="field-help">PDF only, up to 20 MB.</small>
+            </div>
+            <div class="grid two">
+              <div class="field">
+                <label for="vet-document-category">Document type</label>
+                <select id="vet-document-category" name="category">
+                  ${VET_DOCUMENT_CATEGORIES.map((category) => `<option value="${category.id}">${escapeHtml(category.label)}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field">
+                <label for="vet-document-date">Document date</label>
+                ${renderDateInput("vet-document-date", "documentDate", localDate)}
+              </div>
             </div>
             <div class="field">
-              <label for="vet-document-date">Document date</label>
-              ${renderDateInput("vet-document-date", "documentDate", localDate)}
+              <label for="vet-document-notes">Notes</label>
+              <input id="vet-document-notes" name="notes" placeholder="Optional description" />
             </div>
-          </div>
-          <div class="field">
-            <label for="vet-document-notes">Notes</label>
-            <input id="vet-document-notes" name="notes" placeholder="Optional description" />
-          </div>
-          <button class="btn primary" type="submit" ${state.documentsBusy ? "disabled" : ""}>
-            ${state.documentsBusy ? "Uploading..." : "Upload PDF"}
-          </button>
-        </form>
+            <button class="btn primary" type="submit" ${state.documentsBusy ? "disabled" : ""}>
+              ${state.documentsBusy ? "Uploading..." : "Upload PDF"}
+            </button>
+          </form>
+        </details>
 
         ${message}
 
@@ -1890,6 +1925,15 @@
       updateOptionalTime();
     }
 
+    document.querySelectorAll("[data-record-disclosure]").forEach((disclosure) => {
+      disclosure.addEventListener("toggle", () => {
+        if (!disclosure.open) return;
+        document.querySelectorAll("[data-record-disclosure]").forEach((other) => {
+          if (other !== disclosure) other.open = false;
+        });
+      });
+    });
+
     document.querySelector("#seizure-form")?.addEventListener("submit", saveSeizure);
     document.querySelector("#note-form")?.addEventListener("submit", saveNote);
     document.querySelector("#vet-form")?.addEventListener("submit", saveVetVisit);
@@ -2032,7 +2076,11 @@
     if (action === "quick-note") {
       state.activeTab = "log";
       render();
-      setTimeout(() => document.querySelector("#note-title")?.focus(), 50);
+      setTimeout(() => {
+        const noteTitle = document.querySelector("#note-title");
+        if (noteTitle?.closest("details")) noteTitle.closest("details").open = true;
+        noteTitle?.focus();
+      }, 50);
     }
     if (action === "install-app") installApp();
     if (action === "enable-reminders") enableReminders();
