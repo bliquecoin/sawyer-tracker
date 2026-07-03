@@ -902,7 +902,7 @@
             </div>
             <figure class="sawyer-welcome-art">
               <img
-                src="./assets/icons/sawyer-welcome-8bit.png"
+                src="./assets/icons/sawyer-welcome-8bit.png?v=3"
                 alt="8-bit portrait of Sawyer surrounded by his favourite treats"
               />
             </figure>
