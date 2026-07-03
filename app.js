@@ -901,7 +901,10 @@
               </p>
             </div>
             <figure class="sawyer-welcome-art">
-              <img src="./assets/icons/icon-512.png" alt="8-bit portrait of Sawyer" />
+              <img
+                src="./assets/icons/sawyer-welcome-8bit.png"
+                alt="8-bit portrait of Sawyer surrounded by his favourite treats"
+              />
             </figure>
           </div>
 
