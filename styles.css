@@ -353,10 +353,15 @@ p {
   display: grid;
   gap: 18px;
   padding: 18px;
+  overflow: hidden;
 }
 
 .home-topline {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  min-height: 126px;
+  align-items: center;
+  gap: 10px;
 }
 
 .welcome-copy {
@@ -365,12 +370,80 @@ p {
   text-align: left;
 }
 
-.welcome-copy .eyebrow {
-  text-transform: none;
+.welcome-date {
+  margin: 0 0 9px;
+  color: var(--brand-strong);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
 }
 
-.welcome-copy .subtle {
-  margin: 8px 0 0;
+.welcome-copy h1 {
+  margin: 0;
+  font-size: 1.62rem;
+  line-height: 1.06;
+}
+
+.welcome-copy h1 span {
+  display: block;
+  margin-bottom: 3px;
+  color: #263b36;
+  font-size: 0.76em;
+  font-weight: 750;
+}
+
+.welcome-status {
+  display: flex;
+  max-width: 25rem;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: #4f5962;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.welcome-status > span {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  margin-top: 0.34em;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 0 4px rgba(31, 138, 131, 0.1);
+}
+
+.welcome-status.attention > span {
+  background: var(--brand);
+  box-shadow: 0 0 0 4px rgba(255, 107, 87, 0.12);
+}
+
+.welcome-status.neutral > span {
+  background: var(--muted);
+  box-shadow: 0 0 0 4px rgba(109, 116, 128, 0.1);
+}
+
+.sawyer-welcome-art {
+  position: relative;
+  align-self: stretch;
+  width: 124px;
+  min-width: 0;
+  margin: -8px -16px -18px -2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sawyer-welcome-art img {
+  position: absolute;
+  right: -2px;
+  bottom: -4px;
+  display: block;
+  width: 132px;
+  height: 132px;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 14px rgba(112, 66, 19, 0.16));
+  image-rendering: pixelated;
 }
 
 .icon-button {

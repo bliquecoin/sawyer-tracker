@@ -882,16 +882,27 @@
 
   function renderToday(summary, entries) {
     const installClass = state.installPrompt ? "panel install-banner ready" : "panel install-banner";
+    const now = new Date();
+    const statusTone = summary.daysSinceLast === 0 ? "attention" : summary.daysSinceLast === null ? "neutral" : "steady";
 
     return `
       <div class="home-stack">
         <section class="home-hero glass-panel">
           <div class="home-topline">
             <div class="welcome-copy">
-              <p class="eyebrow">${escapeHtml(formatWelcomeDate(new Date()))}</p>
-              <h1>${escapeHtml(state.profile?.name || "Sawyer")}'s day</h1>
-              <p class="subtle">${escapeHtml(homeGreeting(summary))}</p>
+              <p class="welcome-date">${escapeHtml(formatWelcomeDate(now))}</p>
+              <h1>
+                <span>${escapeHtml(timeOfDayGreeting(now))}.</span>
+                Here's ${escapeHtml(state.profile?.name || "Sawyer")}'s day.
+              </h1>
+              <p class="welcome-status ${statusTone}">
+                <span aria-hidden="true"></span>
+                ${escapeHtml(homeGreeting(summary))}
+              </p>
             </div>
+            <figure class="sawyer-welcome-art">
+              <img src="./assets/icons/icon-512.png" alt="8-bit portrait of Sawyer" />
+            </figure>
           </div>
 
           <div class="stat-glass-grid" aria-label="Tracking statistics">
@@ -950,6 +961,13 @@
     if (summary.daysSinceLast === 0) return "You logged a seizure today. Keep notes gentle and specific.";
     if (summary.daysSinceLast === 1) return `${name} is 1 day seizure-free.`;
     return `${name} is ${summary.daysSinceLast} days seizure-free.`;
+  }
+
+  function timeOfDayGreeting(date) {
+    const hour = date.getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 17) return "Good afternoon";
+    return "Good evening";
   }
 
   function shouldShowLoginScreen() {
