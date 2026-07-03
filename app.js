@@ -904,9 +904,10 @@
 
         ${renderHomeInsight(summary)}
 
-        ${renderMonthStrip()}
-
-        ${renderDayOverview(state.selectedDayKey)}
+        <section class="day-browser glass-panel">
+          ${renderMonthStrip()}
+          ${renderDayOverview(state.selectedDayKey)}
+        </section>
 
         <section class="${installClass}">
           <div class="panel-body">
@@ -1106,11 +1107,18 @@
     });
 
     return `
-      <section class="month-strip-wrap" aria-label="${escapeHtml(selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }))}">
+      <div class="month-strip-wrap" aria-label="${escapeHtml(selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }))}">
+        <div class="day-browser-heading">
+          <div>
+            <p class="eyebrow">${escapeHtml(selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }))}</p>
+            <h2>${escapeHtml(formatDateShort(selectedDate))}</h2>
+          </div>
+          <span class="day-position">${selectedDate.getDate()} of ${daysInMonth}</span>
+        </div>
         <div class="month-strip" data-month-strip>
           ${days.join("")}
         </div>
-      </section>
+      </div>
     `;
   }
 
@@ -1129,12 +1137,9 @@
       : `<li>No care records<span>${doses.length} scheduled</span></li>`;
 
     return `
-      <section class="day-overview glass-panel">
-        <div class="dose-main">
-          <div>
-            <p class="eyebrow">Day overview</p>
-            <h2>${escapeHtml(formatDateShort(date))}</h2>
-          </div>
+      <div class="day-overview">
+        <div class="day-overview-heading">
+          <p class="eyebrow">Day overview</p>
           <span class="status-pill assumed">${escapeHtml(headline)}</span>
         </div>
         <div class="overview-metrics">
@@ -1143,7 +1148,7 @@
           <div><strong>${careRecords.length}</strong><span>Care</span></div>
         </div>
         <ul class="overview-list">${eventList}</ul>
-      </section>
+      </div>
     `;
   }
 

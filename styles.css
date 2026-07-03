@@ -659,8 +659,37 @@ p {
   }
 }
 
+.day-browser {
+  overflow: hidden;
+  padding: 0;
+}
+
 .month-strip-wrap {
   min-width: 0;
+  padding: 16px 12px 0;
+}
+
+.day-browser-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 10px;
+}
+
+.day-browser-heading h2 {
+  margin: 0;
+}
+
+.day-position {
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 137, 45, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.42);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .month-strip {
@@ -669,7 +698,7 @@ p {
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 4px 10px;
+  padding: 4px 4px 14px;
   scroll-padding-inline: 16px;
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
@@ -758,8 +787,11 @@ p {
 
 .day-overview {
   display: grid;
-  gap: 14px;
-  padding: 16px;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid rgba(16, 17, 22, 0.07);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.34));
 }
 
 .day-overview .status-pill {
@@ -768,19 +800,35 @@ p {
   text-align: right;
 }
 
+.day-overview-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.day-overview-heading .eyebrow {
+  margin: 0;
+}
+
 .overview-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.36);
+  backdrop-filter: blur(18px) saturate(1.22);
 }
 
 .overview-metrics div {
   min-width: 0;
-  padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.42);
-  backdrop-filter: blur(18px) saturate(1.22);
+  padding: 10px 12px;
+}
+
+.overview-metrics div + div {
+  border-left: 1px solid rgba(16, 17, 22, 0.07);
 }
 
 .overview-metrics strong,
