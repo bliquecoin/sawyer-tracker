@@ -10,14 +10,16 @@
     />
     <title>Sawyer Tracker</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=43" />
+    <link rel="icon" href="./assets/icons/favicon-64.png" sizes="64x64" type="image/png" />
+    <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png" />
+    <link rel="stylesheet" href="./styles.css?v=44" />
   </head>
   <body>
     <div id="app" class="app-shell" aria-live="polite">
       <main class="loading-screen">
-        <div class="mark" aria-hidden="true">S</div>
+        <div class="mark" aria-hidden="true">
+          <img src="./assets/icons/icon-192.png" alt="" />
+        </div>
         <h1>Sawyer Tracker</h1>
         <p>Connecting to Sawyer's shared record...</p>
       </main>
@@ -25,7 +27,7 @@
     <template id="file-input-template">
       <input type="file" accept="application/json,.json" />
     </template>
-    <script src="./config.js?v=43"></script>
-    <script src="./app.js?v=43" defer></script>
+    <script src="./config.js?v=44"></script>
+    <script src="./app.js?v=44" defer></script>
   </body>
 </html>

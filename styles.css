@@ -86,16 +86,17 @@ html.ios-browser .screen {
 }
 
 .mark {
-  display: grid;
-  width: 56px;
-  height: 56px;
+  width: 72px;
+  height: 72px;
   margin: 0 auto 16px;
-  place-items: center;
-  border: 2px solid var(--brand);
-  border-radius: 50%;
-  color: var(--brand);
-  font-size: 1.5rem;
-  font-weight: 800;
+}
+
+.mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
 }
 
 .screen {
