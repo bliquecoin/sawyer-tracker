@@ -738,14 +738,8 @@ p {
   font-weight: 800;
 }
 
-.plan-grid {
-  display: grid;
-  gap: 14px;
-}
-
 .plan-card {
   display: grid;
-  gap: 14px;
   padding: 16px;
   border-radius: 26px;
   box-shadow: var(--glass-shadow);
@@ -754,12 +748,6 @@ p {
 .care-card {
   background:
     linear-gradient(145deg, rgba(255, 241, 201, 0.48), rgba(255, 255, 255, 0.3));
-  backdrop-filter: blur(26px) saturate(1.3);
-}
-
-.recent-card {
-  background:
-    linear-gradient(145deg, rgba(220, 238, 255, 0.48), rgba(255, 255, 255, 0.3));
   backdrop-filter: blur(26px) saturate(1.3);
 }
 
@@ -885,59 +873,144 @@ p {
   flex: 1 1 150px;
 }
 
-.dose-list {
+.medication-plan {
   display: grid;
-  gap: 10px;
+  gap: 14px;
 }
 
-.dose-row {
-  display: grid;
-  gap: 10px;
-  padding: 12px 0;
-  border: 0;
-  border-bottom: 1px solid rgba(16, 17, 22, 0.08);
-  border-radius: 0;
-  background: transparent;
-}
-
-.dose-row.done {
-  background: transparent;
-}
-
-.dose-row.missed {
-  background: transparent;
-}
-
-.dose-row:last-child {
-  border-bottom: 0;
-}
-
-.dose-main {
+.medication-plan-heading {
   display: flex;
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
-  flex-wrap: wrap;
   gap: 12px;
 }
 
-.dose-main > * {
+.medication-plan-heading h2 {
+  margin-bottom: 0;
+}
+
+.medication-plan-heading .subtle {
+  margin: 6px 0 0;
+}
+
+.medication-plan-heading > .status-pill {
+  flex: 0 0 auto;
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.dose-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid rgba(16, 17, 22, 0.08);
+}
+
+.dose-group {
   min-width: 0;
+  padding: 12px;
+  border-right: 1px solid rgba(16, 17, 22, 0.08);
 }
 
-.dose-title {
+.dose-group:first-child {
+  padding-left: 0;
+}
+
+.dose-group:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.dose-group > header {
+  display: flex;
   min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
-.dose-title strong {
-  display: block;
-  overflow-wrap: anywhere;
+.dose-group > header strong {
+  font-size: 0.84rem;
 }
 
-.dose-title span,
-.subtle {
+.dose-group > header span {
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.medication-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  border-top: 1px solid rgba(16, 17, 22, 0.06);
+}
+
+.medication-row:first-child {
+  border-top: 0;
+}
+
+.medication-copy {
+  min-width: 0;
+}
+
+.medication-copy > strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.medication-meta {
+  display: block;
+  margin-top: 3px;
+}
+
+.medication-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.medication-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(47, 125, 84, 0.1);
+}
+
+.medication-state.missed::before,
+.medication-state.skipped::before {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px rgba(177, 66, 58, 0.1);
+}
+
+.missed-toggle {
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid rgba(177, 66, 58, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.52);
+  color: var(--danger);
+  font-size: 0.7rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.missed-toggle.active {
+  border-color: rgba(177, 66, 58, 0.28);
+  background: var(--danger-soft);
 }
 
 .status-pill {
@@ -1939,11 +2012,6 @@ html.ios-browser .toast {
     align-items: center;
   }
 
-  .plan-grid {
-    grid-template-columns: 1.1fr 0.9fr;
-    align-items: start;
-  }
-
   .stack.desktop-two {
     grid-template-columns: 1fr 1fr;
     align-items: start;
@@ -1963,6 +2031,22 @@ html.ios-browser .toast {
   .emergency-sync-banner {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .dose-groups {
+    grid-template-columns: 1fr;
+  }
+
+  .dose-group,
+  .dose-group:first-child,
+  .dose-group:last-child {
+    padding: 8px 0;
+    border-right: 0;
+    border-bottom: 1px solid rgba(16, 17, 22, 0.08);
+  }
+
+  .dose-group:last-child {
+    border-bottom: 0;
   }
 }
 

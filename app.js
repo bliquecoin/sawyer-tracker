@@ -913,28 +913,7 @@
           </div>
         </section>
 
-        <section class="plan-grid">
-          <article class="plan-card care-card">
-            <div class="dose-main">
-              <div>
-                <p class="eyebrow">Today's plan</p>
-                <h2>Medication & supplements</h2>
-              </div>
-            </div>
-            <div class="dose-list">${entries.map(renderDoseRow).join("")}</div>
-          </article>
-
-          <article class="plan-card recent-card">
-            <div class="dose-main">
-              <div>
-                <p class="eyebrow">History</p>
-                <h2>Recent notes</h2>
-              </div>
-              <button class="btn ghost small" data-tab="timeline">View all</button>
-            </div>
-            ${renderRecentList(4)}
-          </article>
-        </section>
+        ${renderMedicationPlan(entries)}
       </div>
     `;
   }
@@ -1136,29 +1115,69 @@
     `;
   }
 
-  function renderDoseRow(entry) {
-    const classes = ["dose-row"];
-    if (entry.status === "given" || entry.status === "assumed") classes.push("done");
-    if (entry.status === "missed") classes.push("missed");
-    const hasException = entry.status === "missed" || entry.status === "skipped";
+  function renderMedicationPlan(entries) {
+    const exceptions = entries.filter((entry) => entry.status === "missed" || entry.status === "skipped");
+    const groups = [];
+    entries.forEach((entry) => {
+      const key = entry.time.label || formatTime(entry.dueAt);
+      let group = groups.find((item) => item.key === key);
+      if (!group) {
+        group = { key, label: entry.time.label || "Scheduled", entries: [] };
+        groups.push(group);
+      }
+      group.entries.push(entry);
+    });
 
     return `
-      <article class="${classes.join(" ")}">
-        <div class="dose-main">
-          <div class="dose-title">
-            <strong>${escapeHtml(entry.schedule.name)}</strong>
-            <span>${escapeHtml(entry.time.label)} at ${escapeHtml(formatTime(entry.dueAt))}${entry.doseText ? ` · ${escapeHtml(entry.doseText)}` : ""}</span>
+      <section class="plan-card care-card medication-plan">
+        <div class="medication-plan-heading">
+          <div>
+            <p class="eyebrow">Today's medication</p>
+            <h2>Daily check</h2>
+            <p class="subtle">Assumed given unless you mark a dose as missed.</p>
           </div>
-          <span class="status-pill ${entry.pillClass}">${escapeHtml(entry.statusText)}</span>
+          <span class="status-pill ${exceptions.length ? "missed" : "assumed"}">
+            ${exceptions.length ? `${exceptions.length} missed` : "All assumed"}
+          </span>
         </div>
-        <div class="button-row">
-          ${
-            hasException
-              ? `<button class="btn secondary small" data-clear-dose="${entry.log.id}">Undo exception</button>`
-              : `<button class="btn secondary small" data-dose="${entry.key}" data-status="missed">Mark missed</button>`
-          }
-          ${entry.log && !hasException ? `<button class="btn ghost small" data-clear-dose="${entry.log.id}">Clear explicit log</button>` : ""}
+        <div class="dose-groups">
+          ${groups.map(renderDoseGroup).join("")}
         </div>
+      </section>
+    `;
+  }
+
+  function renderDoseGroup(group) {
+    const times = [...new Set(group.entries.map((entry) => formatTime(entry.dueAt)))];
+    return `
+      <section class="dose-group">
+        <header>
+          <strong>${escapeHtml(group.label)}</strong>
+          <span>${escapeHtml(times.join(", "))}</span>
+        </header>
+        <div>
+          ${group.entries.map(renderDoseRow).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderDoseRow(entry) {
+    const hasException = entry.status === "missed" || entry.status === "skipped";
+    const details = [entry.statusText, entry.doseText].filter(Boolean).join(" · ");
+    return `
+      <article class="medication-row ${hasException ? "missed" : ""}">
+        <div class="medication-copy">
+          <strong>${escapeHtml(entry.schedule.name)}</strong>
+          <span class="medication-meta">
+            <span class="medication-state ${entry.pillClass}">${escapeHtml(details)}</span>
+          </span>
+        </div>
+        ${
+          hasException
+            ? `<button class="missed-toggle active" data-clear-dose="${entry.log.id}" type="button">Undo missed</button>`
+            : `<button class="missed-toggle" data-dose="${entry.key}" data-status="missed" type="button">Mark missed</button>`
+        }
       </article>
     `;
   }
@@ -1536,16 +1555,6 @@
         ${eventDetail(event)}
       </article>
     `;
-  }
-
-  function renderRecentList(limit) {
-    const recent = state.events
-      .slice()
-      .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))
-      .slice(0, limit);
-
-    if (!recent.length) return `<div class="empty">No records yet.</div>`;
-    return `<div class="timeline-list">${recent.map(renderTimelineItem).join("")}</div>`;
   }
 
   function renderInsights(summary) {
