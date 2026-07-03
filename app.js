@@ -417,7 +417,10 @@
     const client = state.supabaseClient || (await initSupabase());
     if (!client) throw new Error("Add Supabase settings first.");
 
-    if (state.householdAccessHash) return client;
+    if (state.householdAccessHash) {
+      await verifyHouseholdAccess(client);
+      return client;
+    }
 
     const { data, error } = await client.auth.getSession();
     if (error) throw error;
@@ -425,6 +428,21 @@
     if (!data.session) throw new Error("Enter the household access code before syncing.");
 
     return client;
+  }
+
+  async function verifyHouseholdAccess(client) {
+    const householdId = state.settings?.supabaseHouseholdId;
+    if (!householdId) throw new Error("Sawyer's household is not configured.");
+
+    const { data, error } = await client
+      .from("sawyer_households")
+      .select("id")
+      .eq("id", householdId)
+      .limit(1);
+    if (error) throw error;
+    if (!data?.length) {
+      throw new Error("That access code does not match Sawyer's household. Check the code and try again.");
+    }
   }
 
   async function handleAuthRedirect(client) {
