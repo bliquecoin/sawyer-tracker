@@ -7,6 +7,7 @@
   const REMINDER_WINDOW_MINUTES = 15;
   const OVERDUE_MINUTES = 45;
   const CLUSTER_WINDOW_MS = 24 * 60 * 60 * 1000;
+  const HISTORY_PAGE_SIZE = 30;
   const SUPABASE_JS_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
   const FALLBACK_APP_URL = "https://bliquecoin.github.io/sawyer-tracker/";
   const ACCESS_KEY_STORAGE = "sawyer-household-access-key-hash";
@@ -33,6 +34,8 @@
   const state = {
     activeTab: "today",
     timelineFilter: "all",
+    timelineSearch: "",
+    timelineLimit: HISTORY_PAGE_SIZE,
     profile: null,
     schedules: [],
     events: [],
@@ -1519,41 +1522,94 @@
 
   function renderTimeline() {
     const events = filteredTimelineEvents();
+    const visibleEvents = events.slice(0, state.timelineLimit);
+    const groups = groupTimelineEvents(visibleEvents);
+    const totalRecords = state.events.length;
 
     return `
-      <div class="stack">
-        <section class="panel">
+      <div class="stack history-view">
+        <section class="panel history-controls">
           <div class="panel-body">
-            <h2>History</h2>
+            <div class="history-heading">
+              <div>
+                <p class="eyebrow">Sawyer's record</p>
+                <h2>History</h2>
+              </div>
+              <span class="status-pill">${totalRecords} total</span>
+            </div>
+
+            <form id="history-search-form" class="history-search" role="search">
+              <input
+                name="query"
+                type="search"
+                aria-label="Search history"
+                placeholder="Search seizures, notes, results..."
+                value="${escapeHtml(state.timelineSearch)}"
+              />
+              <button class="btn secondary small" type="submit">Search</button>
+              ${state.timelineSearch ? `<button class="btn ghost small" data-action="clear-history-search" type="button">Clear</button>` : ""}
+            </form>
+
             <div class="filters">
               ${TIMELINE_FILTERS.map((filter) => `
-                <button class="btn small ${state.timelineFilter === filter.id ? "primary" : "secondary"}" data-filter="${filter.id}">
-                  ${escapeHtml(filter.label)}
+                <button class="history-filter ${state.timelineFilter === filter.id ? "active" : ""}" data-filter="${filter.id}" type="button">
+                  <span>${escapeHtml(filter.label)}</span>
+                  <small>${timelineFilterCount(filter.id)}</small>
                 </button>
               `).join("")}
             </div>
           </div>
         </section>
-        ${events.length ? `<div class="timeline-list">${events.map(renderTimelineItem).join("")}</div>` : `<div class="empty">No records in this view yet.</div>`}
+
+        ${
+          groups.length
+            ? `<div class="history-groups">${groups.map(renderTimelineGroup).join("")}</div>`
+            : `<div class="empty">No records match this view.</div>`
+        }
+
+        ${
+          events.length > visibleEvents.length
+            ? `<button class="btn secondary history-more" data-action="history-more" type="button">Load ${Math.min(HISTORY_PAGE_SIZE, events.length - visibleEvents.length)} older records</button>`
+            : events.length
+              ? `<p class="history-end">Showing all ${events.length} matching record${events.length === 1 ? "" : "s"}.</p>`
+              : ""
+        }
       </div>
+    `;
+  }
+
+  function renderTimelineGroup(group) {
+    return `
+      <section class="history-day">
+        <header class="history-day-heading">
+          <h3>${escapeHtml(formatHistoryDate(group.date))}</h3>
+          <span>${group.events.length} record${group.events.length === 1 ? "" : "s"}</span>
+        </header>
+        <div class="timeline-list">
+          ${group.events.map(renderTimelineItem).join("")}
+        </div>
+      </section>
     `;
   }
 
   function renderTimelineItem(event) {
     return `
-      <article class="timeline-item ${escapeHtml(event.type)}">
-        <div class="timeline-head">
-          <div>
+      <details class="timeline-item ${escapeHtml(event.type)}">
+        <summary>
+          <span class="timeline-marker" aria-hidden="true"></span>
+          <span class="timeline-summary-copy">
             <strong>${escapeHtml(eventTitle(event))}</strong>
-            <div class="timeline-meta">${escapeHtml(formatEventDateTime(event))}</div>
-          </div>
+            <span class="timeline-meta">${escapeHtml(formatEventTime(event))}</span>
+          </span>
+        </summary>
+        <div class="timeline-item-body">
+          ${eventDetail(event)}
           <div class="timeline-actions">
             ${event.type === "seizure" ? `<button class="btn secondary small" data-edit-seizure="${escapeHtml(event.id)}">Edit</button>` : ""}
             <button class="btn ghost small" data-delete-event="${escapeHtml(event.id)}">Delete</button>
           </div>
         </div>
-        ${eventDetail(event)}
-      </article>
+      </details>
     `;
   }
 
@@ -1880,6 +1936,7 @@
     document.querySelectorAll("[data-filter]").forEach((button) => {
       button.addEventListener("click", () => {
         state.timelineFilter = button.dataset.filter;
+        state.timelineLimit = HISTORY_PAGE_SIZE;
         render();
       });
     });
@@ -1948,6 +2005,7 @@
     document.querySelector("#vet-form")?.addEventListener("submit", saveVetVisit);
     document.querySelector("#blood-test-form")?.addEventListener("submit", saveBloodTest);
     document.querySelector("#vet-document-form")?.addEventListener("submit", uploadVetDocument);
+    document.querySelector("#history-search-form")?.addEventListener("submit", searchHistory);
     document.querySelector("#setup-form")?.addEventListener("submit", saveSetup);
     document.querySelector("#sync-config-form")?.addEventListener("submit", saveSyncConfig);
     document.querySelector("#access-form")?.addEventListener("submit", saveAccessCode);
@@ -2102,6 +2160,25 @@
     if (action === "sign-out") signOut();
     if (action === "reset-data") resetData();
     if (action === "cancel-seizure-edit") cancelSeizureEdit();
+    if (action === "clear-history-search") {
+      state.timelineSearch = "";
+      state.timelineLimit = HISTORY_PAGE_SIZE;
+      render();
+    }
+    if (action === "history-more") {
+      const restoreScroll = captureContentScroll();
+      state.timelineLimit += HISTORY_PAGE_SIZE;
+      render();
+      restoreScroll();
+    }
+  }
+
+  function searchHistory(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    state.timelineSearch = String(form.get("query") || "").trim();
+    state.timelineLimit = HISTORY_PAGE_SIZE;
+    render();
   }
 
   async function syncAfterLocalChange() {
@@ -3428,9 +3505,52 @@
   }
 
   function filteredTimelineEvents() {
+    const query = state.timelineSearch.trim().toLowerCase();
     return state.events
       .filter((event) => state.timelineFilter === "all" || event.type === state.timelineFilter)
+      .filter((event) => !query || timelineSearchText(event).includes(query))
       .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt));
+  }
+
+  function timelineSearchText(event) {
+    return [
+      eventTitle(event),
+      formatEventDateTime(event),
+      event.medicationName,
+      event.title,
+      event.body,
+      event.reason,
+      event.clinic,
+      event.plan,
+      event.panel,
+      event.results,
+      event.notes,
+      event.trigger,
+      ...(event.symptoms || [])
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+  }
+
+  function timelineFilterCount(filterId) {
+    if (filterId === "all") return state.events.length;
+    return state.events.filter((event) => event.type === filterId).length;
+  }
+
+  function groupTimelineEvents(events) {
+    const groups = [];
+    events.forEach((event) => {
+      const date = new Date(event.occurredAt);
+      const dayKey = localDateKey(date);
+      let group = groups.find((item) => item.dayKey === dayKey);
+      if (!group) {
+        group = { dayKey, date, events: [] };
+        groups.push(group);
+      }
+      group.events.push(event);
+    });
+    return groups;
   }
 
   function eventTitle(event) {
@@ -3675,6 +3795,15 @@
       weekday: "short",
       month: "short",
       day: "numeric"
+    });
+  }
+
+  function formatHistoryDate(date) {
+    return date.toLocaleDateString(undefined, {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric"
     });
   }
 
