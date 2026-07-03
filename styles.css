@@ -548,29 +548,114 @@ p {
 }
 
 .home-insight {
-  display: flex;
+  display: grid;
   min-width: 0;
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 14px;
+  gap: 10px;
   padding: 16px;
   background:
     linear-gradient(135deg, rgba(220, 245, 241, 0.48), rgba(255, 241, 201, 0.32)),
     var(--glass);
+  touch-action: pan-y;
 }
 
-.home-insight > div {
-  min-width: min(100%, 220px);
-  flex: 1 1 220px;
+.home-insight-topline {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-insight-topline .eyebrow {
+  margin: 0;
+}
+
+.home-insight-copy {
+  min-height: 94px;
+}
+
+.home-insight-copy .subtle {
+  margin: 0;
+}
+
+.home-insight-copy.changing {
+  animation: insight-reveal 240ms ease-out;
+}
+
+@keyframes insight-reveal {
+  from {
+    transform: translateX(8px);
+    opacity: 0.35;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 .home-insight h2 {
   margin-bottom: 5px;
 }
 
-.home-insight .btn {
-  flex: 0 0 auto;
+.home-insight-controls {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.insight-arrow {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(31, 138, 131, 0.14);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--teal);
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.insight-dots {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.insight-dots button {
+  width: 7px;
+  min-width: 7px;
+  height: 7px;
+  min-height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(31, 138, 131, 0.2);
+}
+
+.insight-dots button.active {
+  width: 18px;
+  background: var(--teal);
+  border-radius: 999px;
+}
+
+.insight-counter {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-insight-copy.changing {
+    animation: none;
+  }
 }
 
 .month-strip-wrap {

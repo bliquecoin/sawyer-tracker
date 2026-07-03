@@ -52,6 +52,9 @@
     aiBusy: false,
     aiInsight: null,
     aiError: "",
+    homeInsightIndex: 0,
+    homeInsightSignature: "",
+    homeInsightTimer: null,
     vetDocuments: [],
     documentsBusy: false,
     documentsMessage: "",
@@ -847,6 +850,7 @@
     `;
 
     bindUi();
+    startHomeInsightRotation();
     centerSelectedDayPill();
   }
 
@@ -1037,16 +1041,41 @@
   }
 
   function renderHomeInsight(summary) {
-    const insight = buildHomeInsight(summary);
+    const insights = buildHomeInsights(summary);
+    const signature = insights.map((insight) => `${insight.title}:${insight.body}`).join("|");
+    if (signature !== state.homeInsightSignature) {
+      state.homeInsightSignature = signature;
+      state.homeInsightIndex = 0;
+    }
+    state.homeInsightIndex = clamp(state.homeInsightIndex, 0, Math.max(0, insights.length - 1));
+    const insight = insights[state.homeInsightIndex];
 
     return `
-      <section class="home-insight glass-panel">
-        <div>
-          <p class="eyebrow">Insight</p>
-          <h2>${escapeHtml(insight.title)}</h2>
-          <p class="subtle">${escapeHtml(insight.body)}</p>
+      <section class="home-insight glass-panel" data-home-insight aria-roledescription="carousel" aria-label="Dynamic insights">
+        <div class="home-insight-topline">
+          <p class="eyebrow">Live insight</p>
+          <button class="btn ghost small" data-tab="insights" type="button">More</button>
         </div>
-        <button class="btn ghost small" data-tab="insights" type="button">More</button>
+        <div class="home-insight-copy" aria-live="polite">
+          <h2 data-home-insight-title>${escapeHtml(insight.title)}</h2>
+          <p class="subtle" data-home-insight-body>${escapeHtml(insight.body)}</p>
+        </div>
+        <div class="home-insight-controls">
+          <button class="insight-arrow" data-insight-direction="-1" type="button" aria-label="Previous insight">←</button>
+          <div class="insight-dots" aria-label="Choose insight">
+            ${insights.map((item, index) => `
+              <button
+                class="${index === state.homeInsightIndex ? "active" : ""}"
+                data-insight-index="${index}"
+                type="button"
+                aria-label="Insight ${index + 1}: ${escapeHtml(item.title)}"
+                aria-current="${index === state.homeInsightIndex ? "true" : "false"}"
+              ></button>
+            `).join("")}
+          </div>
+          <button class="insight-arrow" data-insight-direction="1" type="button" aria-label="Next insight">→</button>
+          <span class="insight-counter" data-insight-counter>${state.homeInsightIndex + 1} of ${insights.length}</span>
+        </div>
       </section>
     `;
   }
@@ -2000,6 +2029,44 @@
       });
     });
 
+    document.querySelectorAll("[data-insight-direction]").forEach((button) => {
+      button.addEventListener("click", () => {
+        showHomeInsight(state.homeInsightIndex + Number(button.dataset.insightDirection || 0));
+      });
+    });
+
+    document.querySelectorAll("[data-insight-index]").forEach((button) => {
+      button.addEventListener("click", () => {
+        showHomeInsight(Number(button.dataset.insightIndex || 0));
+      });
+    });
+
+    const homeInsight = document.querySelector("[data-home-insight]");
+    if (homeInsight) {
+      let touchStartX = 0;
+      let touchStartY = 0;
+      homeInsight.addEventListener(
+        "touchstart",
+        (event) => {
+          touchStartX = event.touches[0]?.clientX || 0;
+          touchStartY = event.touches[0]?.clientY || 0;
+        },
+        { passive: true }
+      );
+      homeInsight.addEventListener(
+        "touchend",
+        (event) => {
+          const touch = event.changedTouches[0];
+          if (!touch) return;
+          const deltaX = touch.clientX - touchStartX;
+          const deltaY = touch.clientY - touchStartY;
+          if (Math.abs(deltaX) < 45 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+          showHomeInsight(state.homeInsightIndex + (deltaX < 0 ? 1 : -1));
+        },
+        { passive: true }
+      );
+    }
+
     document.querySelector("#seizure-form")?.addEventListener("submit", saveSeizure);
     document.querySelector("#note-form")?.addEventListener("submit", saveNote);
     document.querySelector("#vet-form")?.addEventListener("submit", saveVetVisit);
@@ -2033,6 +2100,54 @@
       if (!strip || !active) return;
       strip.scrollLeft = active.offsetLeft - strip.clientWidth / 2 + active.clientWidth / 2;
     });
+  }
+
+  function showHomeInsight(index, options = {}) {
+    const container = document.querySelector("[data-home-insight]");
+    if (!container) return;
+    const insights = buildHomeInsights(getSummary());
+    if (!insights.length) return;
+
+    const signature = insights.map((insight) => `${insight.title}:${insight.body}`).join("|");
+    if (signature !== state.homeInsightSignature) {
+      state.homeInsightSignature = signature;
+      index = 0;
+    }
+
+    state.homeInsightIndex = ((index % insights.length) + insights.length) % insights.length;
+    const insight = insights[state.homeInsightIndex];
+    const copy = container.querySelector(".home-insight-copy");
+    const title = container.querySelector("[data-home-insight-title]");
+    const body = container.querySelector("[data-home-insight-body]");
+    const counter = container.querySelector("[data-insight-counter]");
+    if (title) title.textContent = insight.title;
+    if (body) body.textContent = insight.body;
+    if (counter) counter.textContent = `${state.homeInsightIndex + 1} of ${insights.length}`;
+    if (copy) {
+      copy.classList.remove("changing");
+      void copy.offsetWidth;
+      copy.classList.add("changing");
+    }
+
+    container.querySelectorAll("[data-insight-index]").forEach((button) => {
+      const active = Number(button.dataset.insightIndex) === state.homeInsightIndex;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-current", active ? "true" : "false");
+    });
+
+    if (options.restart !== false) startHomeInsightRotation();
+  }
+
+  function startHomeInsightRotation() {
+    clearInterval(state.homeInsightTimer);
+    state.homeInsightTimer = null;
+    if (state.activeTab !== "today" || !document.querySelector("[data-home-insight]")) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+    if (buildHomeInsights(getSummary()).length < 2) return;
+
+    state.homeInsightTimer = setInterval(() => {
+      if (!document.hidden) showHomeInsight(state.homeInsightIndex + 1, { restart: false });
+    }, 10000);
   }
 
   function renderPreservingContentScroll() {
@@ -3320,6 +3435,24 @@
         : `${milestone.value - (summary.daysSinceLast || 0)} days until the next ${milestone.value}-day seizure-free milestone.`
     });
 
+    if (gaps.length && summary.daysSinceLast !== null) {
+      const completedAverage = mean(gaps.map((gap) => gap.days));
+      const completedLongest = Math.max(...gaps.map((gap) => gap.days));
+      const currentInterval = summary.daysSinceLast;
+      if (currentInterval > completedLongest) {
+        insights.push({
+          title: "Longest current interval",
+          body: `${currentInterval} days have passed since the last logged seizure. That is ${round1(currentInterval - completedLongest)} days beyond Sawyer's longest completed gap in this record.`
+        });
+      } else if (Math.abs(currentInterval - completedAverage) >= 1) {
+        const difference = Math.abs(currentInterval - completedAverage);
+        insights.push({
+          title: "Current interval",
+          body: `${currentInterval} days have passed since the last logged seizure, ${round1(difference)} days ${currentInterval >= completedAverage ? "longer" : "shorter"} than the historical average gap of ${round1(completedAverage)} days.`
+        });
+      }
+    }
+
     if (gaps.length >= 2) {
       const recent = gaps.at(-1).days;
       const previousAverage = mean(gaps.slice(0, -1).map((gap) => gap.days));
@@ -3328,6 +3461,25 @@
         title: "Recent spacing",
         body: `The latest seizure gap was ${round1(recent)} days. Previous gaps averaged ${round1(previousAverage)} days, so the latest logged gap is ${direction}.`
       });
+    }
+
+    if (seizures.length >= 3) {
+      const now = Date.now();
+      const thirtyDays = 30 * 86400000;
+      const recentCount = seizures.filter((event) => {
+        const time = new Date(event.occurredAt).getTime();
+        return time <= now && time > now - thirtyDays;
+      }).length;
+      const previousCount = seizures.filter((event) => {
+        const time = new Date(event.occurredAt).getTime();
+        return time <= now - thirtyDays && time > now - 2 * thirtyDays;
+      }).length;
+      if (recentCount !== previousCount && recentCount + previousCount > 0) {
+        insights.push({
+          title: "30-day frequency",
+          body: `${recentCount} seizure${recentCount === 1 ? "" : "s"} were logged in the most recent 30 days, compared with ${previousCount} in the preceding 30 days.`
+        });
+      }
     }
 
     const missedNearSeizures = countSeizuresNearMissedDose(seizures);
@@ -3347,6 +3499,20 @@
         title: "Time of day",
         body: `${timeBucket.label} is the most common logged window so far, with ${timeBucket.count} seizure${timeBucket.count === 1 ? "" : "s"}.`
       });
+    }
+
+    const severityValues = seizures
+      .map((event) => Number(event.severity))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (severityValues.length >= 5) {
+      const recentSeverity = mean(severityValues.slice(-3));
+      const earlierSeverity = mean(severityValues.slice(0, -3));
+      if (Math.abs(recentSeverity - earlierSeverity) >= 0.4) {
+        insights.push({
+          title: "Logged severity trend",
+          body: `The latest three seizures average severity ${round1(recentSeverity)}, compared with ${round1(earlierSeverity)} across earlier records.`
+        });
+      }
     }
 
     if (latestBlood) {
@@ -3375,43 +3541,49 @@
     return insights;
   }
 
-  function buildHomeInsight(summary) {
+  function buildHomeInsights(summary) {
     const insights = buildInsights(summary).filter((insight) => insight.title !== "Vet wording");
     const latestBlood = latestEventOfType("blood_test");
-    const latestVet = latestEventOfType("vet_visit");
     const clusterInsight = insights.find((insight) => insight.title === "Cluster pattern detected");
+    const ordered = [];
 
-    if (clusterInsight) return clusterInsight;
+    if (clusterInsight) ordered.push(clusterInsight);
 
     if (latestBlood?.phenobarbitalLevel || latestBlood?.bromideLevel) {
       const levels = [
         latestBlood.phenobarbitalLevel ? `phenobarbital ${latestBlood.phenobarbitalLevel}` : "",
         latestBlood.bromideLevel ? `bromide ${latestBlood.bromideLevel}` : ""
       ].filter(Boolean);
-      return {
+      ordered.push({
         title: "Blood result saved",
         body: `${latestBlood.panel || "Latest blood test"} includes ${levels.join(" and ")}. Compare this with future seizure spacing in Stats.`
-      };
+      });
     }
 
-    if (latestBlood) {
-      return {
-        title: "Blood test logged",
-        body: `${latestBlood.panel || "Latest blood test"} is saved from ${formatDateShort(new Date(latestBlood.occurredAt))}. Add future results to compare against seizure spacing.`
-      };
+    insights.forEach((insight) => {
+      if (insight === clusterInsight) return;
+      if (
+        (latestBlood?.phenobarbitalLevel || latestBlood?.bromideLevel) &&
+        insight.title === "Latest blood test"
+      ) {
+        return;
+      }
+      ordered.push(insight);
+    });
+
+    if (!ordered.length) {
+      ordered.push({
+        title: "Start building a pattern",
+        body: `${state.profile?.name || "Sawyer"}'s medication plan is tracked automatically. Add seizure, vet, and blood-test records as they happen.`
+      });
     }
 
-    if (latestVet) {
-      return {
-        title: "Vet visit logged",
-        body: `${latestVet.reason || "Latest vet visit"} is saved from ${formatDateShort(new Date(latestVet.occurredAt))}${latestVet.plan ? " with plan notes attached." : "."}`
-      };
-    }
-
-    return insights[0] || {
-      title: "Start building a pattern",
-      body: `${state.profile?.name || "Sawyer"}'s medication plan is tracked automatically. Add seizure, vet, and blood-test records as they happen.`
-    };
+    return ordered
+      .filter(
+        (insight, index, all) =>
+          all.findIndex((candidate) => candidate.title === insight.title && candidate.body === insight.body) === index
+      )
+      .slice(0, 8);
   }
 
   function latestEventOfType(type) {
