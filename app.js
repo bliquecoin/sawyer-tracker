@@ -43,6 +43,7 @@
     toastTimer: null,
     installPrompt: null,
     supabaseClient: null,
+    supabaseFingerprint: "",
     supabaseSession: null,
     householdAccessHash: readHouseholdAccessHash(),
     accessVerified: false,
@@ -347,12 +348,22 @@
   async function initSupabase() {
     if (!hasSupabaseConfig()) {
       state.supabaseClient = null;
+      state.supabaseFingerprint = "";
       state.supabaseSession = null;
       return null;
     }
 
     try {
       await loadSupabaseLibrary();
+      const fingerprint = [
+        state.settings.supabaseUrl,
+        state.settings.supabaseAnonKey,
+        state.householdAccessHash
+      ].join("|");
+      if (state.supabaseClient && state.supabaseFingerprint === fingerprint) {
+        return state.supabaseClient;
+      }
+
       state.supabaseClient = window.supabase.createClient(
         state.settings.supabaseUrl,
         state.settings.supabaseAnonKey,
@@ -367,6 +378,7 @@
           }
         }
       );
+      state.supabaseFingerprint = fingerprint;
 
       if (startedFromAuthRedirect) {
         await handleAuthRedirect(state.supabaseClient);
@@ -693,6 +705,7 @@
     state.householdAccessHash = hash;
     state.accessVerified = false;
     state.supabaseClient = null;
+    state.supabaseFingerprint = "";
     try {
       if (hash) {
         localStorage.setItem(ACCESS_KEY_STORAGE, hash);
