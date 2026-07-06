@@ -10,7 +10,7 @@
   const HISTORY_PAGE_SIZE = 30;
   const SYNC_PAGE_SIZE = 500;
   const SYNC_UPLOAD_BATCH_SIZE = 200;
-  const SUPABASE_JS_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+  const SUPABASE_JS_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.0";
   const FALLBACK_APP_URL = "https://bliquecoin.github.io/sawyer-tracker/";
   const ACCESS_KEY_STORAGE = "sawyer-household-access-key-hash";
   const ACCESS_HEADER = "x-sawyer-access-key";
@@ -1852,7 +1852,8 @@
 
         <section class="panel">
           <div class="panel-body">
-            <h2>Reminders</h2>
+            <h2>In-app reminders</h2>
+            <p class="subtle">These reminders can appear while Sawyer Tracker is open. iPhone may pause them after the app is closed.</p>
             <div class="metric-row">
               <div class="metric">
                 <span>Status</span>
@@ -1947,21 +1948,24 @@
           <p class="subtle sync-message">${escapeHtml(sourceMessage)}</p>
           ${syncMessage ? `<p class="subtle sync-message">${escapeHtml(syncMessage)}</p>` : ""}
 
-          <form id="sync-config-form" class="form-grid sync-form">
-            <div class="field">
-              <label for="supabase-url">Project URL</label>
-              <input id="supabase-url" name="supabaseUrl" inputmode="url" value="${escapeHtml(state.settings?.supabaseUrl || "")}" placeholder="https://your-project.supabase.co" />
-            </div>
-            <div class="field">
-              <label for="supabase-anon-key">Publishable key</label>
-              <input id="supabase-anon-key" name="supabaseAnonKey" value="${escapeHtml(state.settings?.supabaseAnonKey || "")}" placeholder="sb_publishable_..." />
-            </div>
-            <div class="field">
-              <label for="supabase-household-id">Household ID</label>
-              <input id="supabase-household-id" name="supabaseHouseholdId" value="${escapeHtml(state.settings?.supabaseHouseholdId || "")}" placeholder="Created by the Supabase setup SQL" />
-            </div>
-            <button class="btn primary" type="submit">Save Sync Setup</button>
-          </form>
+          <details class="sync-advanced">
+            <summary>Advanced connection settings</summary>
+            <form id="sync-config-form" class="form-grid sync-form">
+              <div class="field">
+                <label for="supabase-url">Project URL</label>
+                <input id="supabase-url" name="supabaseUrl" inputmode="url" value="${escapeHtml(state.settings?.supabaseUrl || "")}" placeholder="https://your-project.supabase.co" />
+              </div>
+              <div class="field">
+                <label for="supabase-anon-key">Publishable key</label>
+                <input id="supabase-anon-key" name="supabaseAnonKey" value="${escapeHtml(state.settings?.supabaseAnonKey || "")}" placeholder="sb_publishable_..." />
+              </div>
+              <div class="field">
+                <label for="supabase-household-id">Household ID</label>
+                <input id="supabase-household-id" name="supabaseHouseholdId" value="${escapeHtml(state.settings?.supabaseHouseholdId || "")}" placeholder="Created by the Supabase setup SQL" />
+              </div>
+              <button class="btn primary" type="submit">Save Sync Setup</button>
+            </form>
+          </details>
 
           ${
             storedAccess

@@ -93,9 +93,17 @@
       const button = document.querySelector("#reset-button");
 
       async function clearTrackerCache() {
-        statusNode.textContent = "Clearing Safari cache...";
-
         try {
+          const pendingCount = await countPendingCloudRecords();
+          if (
+            pendingCount > 0 &&
+            !confirm(`${pendingCount} cached record${pendingCount === 1 ? "" : "s"} may not be confirmed in Supabase. Clear this device cache anyway?`)
+          ) {
+            statusNode.textContent = "Reset cancelled.";
+            return;
+          }
+
+          statusNode.textContent = "Clearing Safari cache...";
           if ("serviceWorker" in navigator) {
             const registrations = await navigator.serviceWorker.getRegistrations();
             await Promise.all(registrations.map((registration) => registration.unregister()));
@@ -138,8 +146,41 @@
         }
       }
 
+      async function countPendingCloudRecords() {
+        if (!("indexedDB" in window)) return 0;
+        return new Promise((resolve) => {
+          const request = indexedDB.open("sawyer-care-tracker");
+          request.onerror = () => resolve(0);
+          request.onsuccess = () => {
+            const db = request.result;
+            const storeNames = ["profile", "schedules", "events"].filter((name) => db.objectStoreNames.contains(name));
+            if (!storeNames.length) {
+              db.close();
+              resolve(0);
+              return;
+            }
+
+            let pending = 0;
+            const transaction = db.transaction(storeNames, "readonly");
+            storeNames.forEach((name) => {
+              const records = transaction.objectStore(name).getAll();
+              records.onsuccess = () => {
+                pending += (records.result || []).filter((record) => record.syncStatus !== "synced").length;
+              };
+            });
+            transaction.oncomplete = () => {
+              db.close();
+              resolve(pending);
+            };
+            transaction.onerror = () => {
+              db.close();
+              resolve(0);
+            };
+          };
+        });
+      }
+
       button.addEventListener("click", clearTrackerCache);
-      clearTrackerCache();
     </script>
   </body>
 </html>
