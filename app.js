@@ -63,6 +63,8 @@
     homeInsightIndex: 0,
     homeInsightSignature: "",
     homeInsightTimer: null,
+    statsInsightIndex: 0,
+    statsInsightSignature: "",
     vetDocuments: [],
     documentsBusy: false,
     documentsMessage: "",
@@ -1812,6 +1814,13 @@
 
   function renderInsights(summary) {
     const insights = buildInsights(summary);
+    const insightSignature = insights.map((insight) => `${insight.title}:${insight.body}`).join("|");
+    if (insightSignature !== state.statsInsightSignature) {
+      state.statsInsightSignature = insightSignature;
+      state.statsInsightIndex = 0;
+    }
+    state.statsInsightIndex = clamp(state.statsInsightIndex, 0, Math.max(0, insights.length - 1));
+    const activeInsight = insights[state.statsInsightIndex];
     const monthly = getMonthlySeizureCounts();
     const max = Math.max(...monthly.map((item) => item.count), 1);
 
@@ -1837,16 +1846,51 @@
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel observations-panel" data-stats-insight aria-roledescription="carousel" aria-label="Tracking observations">
           <div class="panel-body">
-            <h2>Observations</h2>
-            <div class="insight-list">
-              ${insights.map((insight) => `
-                <article class="insight">
-                  <strong>${escapeHtml(insight.title)}</strong>
-                  <p class="subtle">${escapeHtml(insight.body)}</p>
-                </article>
-              `).join("")}
+            <div class="observations-heading">
+              <div>
+                <p class="eyebrow">Pattern review</p>
+                <h2>Observations</h2>
+              </div>
+              <span class="observation-count">${insights.length} available</span>
+            </div>
+            <div class="stats-observation-copy" aria-live="polite">
+              <span class="observation-kicker" data-stats-insight-kicker>
+                Observation ${String(state.statsInsightIndex + 1).padStart(2, "0")}
+              </span>
+              <h3 data-stats-insight-title>${escapeHtml(activeInsight.title)}</h3>
+              <p class="subtle" data-stats-insight-body>${escapeHtml(activeInsight.body)}</p>
+            </div>
+            <div class="stats-insight-controls">
+              <button
+                class="insight-arrow"
+                data-stats-insight-direction="-1"
+                type="button"
+                aria-label="Previous observation"
+                ${insights.length < 2 ? "disabled" : ""}
+              >←</button>
+              <div class="insight-dots" aria-label="Choose observation">
+                ${insights.map((insight, index) => `
+                  <button
+                    class="${index === state.statsInsightIndex ? "active" : ""}"
+                    data-stats-insight-index="${index}"
+                    type="button"
+                    aria-label="Observation ${index + 1}: ${escapeHtml(insight.title)}"
+                    aria-current="${index === state.statsInsightIndex ? "true" : "false"}"
+                  ></button>
+                `).join("")}
+              </div>
+              <button
+                class="insight-arrow"
+                data-stats-insight-direction="1"
+                type="button"
+                aria-label="Next observation"
+                ${insights.length < 2 ? "disabled" : ""}
+              >→</button>
+              <span class="insight-counter" data-stats-insight-counter>
+                ${state.statsInsightIndex + 1} of ${insights.length}
+              </span>
             </div>
           </div>
         </section>
@@ -2231,6 +2275,18 @@
       });
     });
 
+    document.querySelectorAll("[data-stats-insight-direction]").forEach((button) => {
+      button.addEventListener("click", () => {
+        showStatsInsight(state.statsInsightIndex + Number(button.dataset.statsInsightDirection || 0));
+      });
+    });
+
+    document.querySelectorAll("[data-stats-insight-index]").forEach((button) => {
+      button.addEventListener("click", () => {
+        showStatsInsight(Number(button.dataset.statsInsightIndex || 0));
+      });
+    });
+
     const homeInsight = document.querySelector("[data-home-insight]");
     if (homeInsight) {
       let touchStartX = 0;
@@ -2252,6 +2308,32 @@
           const deltaY = touch.clientY - touchStartY;
           if (Math.abs(deltaX) < 45 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
           showHomeInsight(state.homeInsightIndex + (deltaX < 0 ? 1 : -1));
+        },
+        { passive: true }
+      );
+    }
+
+    const statsInsight = document.querySelector("[data-stats-insight]");
+    if (statsInsight) {
+      let touchStartX = 0;
+      let touchStartY = 0;
+      statsInsight.addEventListener(
+        "touchstart",
+        (event) => {
+          touchStartX = event.touches[0]?.clientX || 0;
+          touchStartY = event.touches[0]?.clientY || 0;
+        },
+        { passive: true }
+      );
+      statsInsight.addEventListener(
+        "touchend",
+        (event) => {
+          const touch = event.changedTouches[0];
+          if (!touch) return;
+          const deltaX = touch.clientX - touchStartX;
+          const deltaY = touch.clientY - touchStartY;
+          if (Math.abs(deltaX) < 45 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+          showStatsInsight(state.statsInsightIndex + (deltaX < 0 ? 1 : -1));
         },
         { passive: true }
       );
@@ -2338,6 +2420,42 @@
     state.homeInsightTimer = setInterval(() => {
       if (!document.hidden) showHomeInsight(state.homeInsightIndex + 1, { restart: false });
     }, 10000);
+  }
+
+  function showStatsInsight(index) {
+    const container = document.querySelector("[data-stats-insight]");
+    if (!container) return;
+    const insights = buildInsights(getSummary());
+    if (!insights.length) return;
+
+    const signature = insights.map((insight) => `${insight.title}:${insight.body}`).join("|");
+    if (signature !== state.statsInsightSignature) {
+      state.statsInsightSignature = signature;
+      index = 0;
+    }
+
+    state.statsInsightIndex = ((index % insights.length) + insights.length) % insights.length;
+    const insight = insights[state.statsInsightIndex];
+    const copy = container.querySelector(".stats-observation-copy");
+    const kicker = container.querySelector("[data-stats-insight-kicker]");
+    const title = container.querySelector("[data-stats-insight-title]");
+    const body = container.querySelector("[data-stats-insight-body]");
+    const counter = container.querySelector("[data-stats-insight-counter]");
+    if (kicker) kicker.textContent = `Observation ${String(state.statsInsightIndex + 1).padStart(2, "0")}`;
+    if (title) title.textContent = insight.title;
+    if (body) body.textContent = insight.body;
+    if (counter) counter.textContent = `${state.statsInsightIndex + 1} of ${insights.length}`;
+    if (copy) {
+      copy.classList.remove("changing");
+      void copy.offsetWidth;
+      copy.classList.add("changing");
+    }
+
+    container.querySelectorAll("[data-stats-insight-index]").forEach((button) => {
+      const active = Number(button.dataset.statsInsightIndex) === state.statsInsightIndex;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-current", active ? "true" : "false");
+    });
   }
 
   function renderPreservingContentScroll() {

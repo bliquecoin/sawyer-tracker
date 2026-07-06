@@ -727,7 +727,8 @@ p {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .home-insight-copy.changing {
+  .home-insight-copy.changing,
+  .stats-observation-copy.changing {
     animation: none;
   }
 }
@@ -2129,6 +2130,101 @@ input[type="file"]::file-selector-button {
 .insight-list {
   display: grid;
   gap: 10px;
+}
+
+.observations-panel {
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.observations-panel .panel-body {
+  display: grid;
+  gap: 12px;
+}
+
+.observations-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.observations-heading .eyebrow,
+.observations-heading h2 {
+  margin: 0;
+}
+
+.observations-heading h2 {
+  margin-top: 2px;
+}
+
+.observation-count {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 1px solid rgba(31, 138, 131, 0.12);
+  border-radius: 999px;
+  background: rgba(220, 245, 241, 0.56);
+  color: var(--teal);
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.stats-observation-copy {
+  position: relative;
+  display: grid;
+  min-height: 142px;
+  align-content: start;
+  gap: 5px;
+  padding: 16px 16px 16px 20px;
+  overflow: hidden;
+  border: 1px solid rgba(31, 138, 131, 0.12);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(220, 245, 241, 0.52), rgba(255, 255, 255, 0.7) 64%, rgba(255, 241, 201, 0.32));
+}
+
+.stats-observation-copy::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: linear-gradient(180deg, var(--teal), var(--brand));
+}
+
+.stats-observation-copy.changing {
+  animation: insight-reveal 240ms ease-out;
+}
+
+.observation-kicker {
+  color: var(--teal);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.stats-observation-copy h3 {
+  margin: 2px 0 0;
+  font-size: 1.05rem;
+}
+
+.stats-observation-copy .subtle {
+  margin: 0;
+  line-height: 1.48;
+}
+
+.stats-insight-controls {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.stats-insight-controls .insight-arrow:disabled {
+  opacity: 0.35;
 }
 
 .insight {
