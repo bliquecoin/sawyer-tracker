@@ -2337,6 +2337,17 @@ html.ios-browser .toast {
   margin-top: 12px;
 }
 
+.sync-advanced {
+  margin-top: 14px;
+}
+
+.sync-advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
 .install-banner {
   display: none;
 }

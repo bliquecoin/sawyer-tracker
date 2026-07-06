@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.110.0";
 
 type CareEvent = {
   id?: string;
@@ -55,6 +55,15 @@ Deno.serve(async (req: Request) => {
         }
       }
     );
+
+    const { data: household, error: householdError } = await supabase
+      .from("sawyer_households")
+      .select("id")
+      .eq("id", householdId)
+      .maybeSingle();
+    if (householdError || !household) {
+      return json({ message: "Household access was not authorized." }, 403);
+    }
 
     const [{ data: eventRows, error: eventError }, { data: dogRows }] = await Promise.all([
       supabase

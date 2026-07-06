@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#ffffff" />
     <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://udlgabqdepersvsrqkzj.supabase.co wss://udlgabqdepersvsrqkzj.supabase.co; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <meta
       name="description"
       content="A private shared Supabase seizure, medication, and supplement tracker for Sawyer."
     />
@@ -12,10 +16,10 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./assets/icons/favicon-64.png" sizes="64x64" type="image/png" />
     <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=50" />
+    <link rel="stylesheet" href="./styles.css?v=51" />
   </head>
   <body>
-    <div id="app" class="app-shell" aria-live="polite">
+    <div id="app" class="app-shell">
       <main class="loading-screen">
         <div class="mark" aria-hidden="true">
           <img src="./assets/icons/icon-192.png" alt="" />
@@ -27,7 +31,7 @@
     <template id="file-input-template">
       <input type="file" accept="application/json,.json" />
     </template>
-    <script src="./config.js?v=50"></script>
-    <script src="./app.js?v=50" defer></script>
+    <script src="./config.js?v=51"></script>
+    <script src="./app.js?v=51" defer></script>
   </body>
 </html>
