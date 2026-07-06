@@ -11,6 +11,7 @@
   const SYNC_PAGE_SIZE = 500;
   const SYNC_UPLOAD_BATCH_SIZE = 200;
   const SUPABASE_JS_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.0";
+  const FFLATE_JS_URL = "https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js";
   const FALLBACK_APP_URL = "https://bliquecoin.github.io/sawyer-tracker/";
   const ACCESS_KEY_STORAGE = "sawyer-household-access-key-hash";
   const ACCESS_HEADER = "x-sawyer-access-key";
@@ -63,6 +64,8 @@
     vetDocuments: [],
     documentsBusy: false,
     documentsMessage: "",
+    backupBusy: false,
+    backupMessage: "",
     selectedDayKey: localDateKey(new Date()),
     pullDistance: 0,
     pullRefreshing: false,
@@ -350,6 +353,31 @@
       script.onerror = () => reject(new Error("Supabase library could not be loaded."));
       document.head.appendChild(script);
     });
+  }
+
+  async function loadFflateLibrary() {
+    if (window.fflate?.zipSync && window.fflate?.unzipSync) return window.fflate;
+
+    await new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${FFLATE_JS_URL}"]`);
+      if (existing) {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", reject, { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = FFLATE_JS_URL;
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("Backup tools could not be loaded."));
+      document.head.appendChild(script);
+    });
+
+    if (!window.fflate?.zipSync || !window.fflate?.unzipSync) {
+      throw new Error("Backup tools could not be initialized.");
+    }
+    return window.fflate;
   }
 
   async function initSupabase() {
@@ -1935,10 +1963,12 @@
           <div class="panel-body">
             <h2>Backup</h2>
             <p class="subtle">Last backup: ${escapeHtml(lastBackup)}</p>
+            <p class="subtle">Complete backups include every cloud record, deletion marker and private vet PDF.</p>
+            ${state.backupMessage ? `<p class="subtle sync-message">${escapeHtml(state.backupMessage)}</p>` : ""}
             <div class="button-row">
-              <button class="btn primary" data-action="export-json">Export Backup</button>
-              <button class="btn secondary" data-action="import-json">Import Backup</button>
-              <button class="btn secondary" data-action="export-csv">Export CSV</button>
+              <button class="btn primary" data-action="export-json" ${state.backupBusy ? "disabled" : ""}>${state.backupBusy ? "Working..." : "Download Complete Backup"}</button>
+              <button class="btn secondary" data-action="import-json" ${state.backupBusy ? "disabled" : ""}>Restore Backup</button>
+              <button class="btn secondary" data-action="export-csv" ${state.backupBusy ? "disabled" : ""}>Export CSV</button>
             </div>
           </div>
         </section>
@@ -4156,60 +4186,293 @@
     return [dose, times].filter(Boolean).join(" · ");
   }
 
-  function exportJson() {
-    const payload = {
-      app: "sawyer-tracker",
-      version: 1,
-      exportedAt: nowIso(),
-      profile: state.profile,
-      settings: state.settings,
-      schedules: state.schedules,
-      events: state.events
-    };
+  async function exportJson() {
+    if (!canSaveCloudRecord() || state.backupBusy) return;
+    const restoreScroll = captureContentScroll();
+    state.backupBusy = true;
+    state.backupMessage = "Reading all records from Supabase...";
+    render();
+    restoreScroll();
 
-    downloadBlob(
-      JSON.stringify(payload, null, 2),
-      `sawyer-tracker-backup-${localDateKey(new Date())}.json`,
-      "application/json"
-    );
+    try {
+      const fflate = await loadFflateLibrary();
+      const client = await requireSupabaseSession();
+      const householdId = state.settings.supabaseHouseholdId;
+      await syncWithSupabase({ silent: true });
 
-    dbPut("settings", {
-      ...state.settings,
-      lastBackupAt: nowIso(),
-      updatedAt: nowIso(),
-      syncStatus: "local"
-    }).then(hydrate);
-    showToast("Backup exported.");
+      const [dogs, schedules, events, documents] = await Promise.all([
+        fetchAllRemoteRows(client, householdId, SUPABASE_TABLES.dogs),
+        fetchAllRemoteRows(client, householdId, SUPABASE_TABLES.schedules),
+        fetchAllRemoteRows(client, householdId, SUPABASE_TABLES.events),
+        fetchAllVetDocumentRows(client, householdId)
+      ]);
+
+      const exportedAt = nowIso();
+      const data = {
+        app: "sawyer-tracker",
+        version: 2,
+        exportedAt,
+        householdId,
+        tables: { dogs, schedules, events, documents }
+      };
+      const archive = {};
+      const manifestFiles = [];
+      const dataBytes = fflate.strToU8(JSON.stringify(data, null, 2));
+      archive["data.json"] = dataBytes;
+      manifestFiles.push(await backupFileManifest("data.json", dataBytes, "application/json"));
+
+      for (let index = 0; index < documents.length; index += 1) {
+        const document = documents[index];
+        state.backupMessage = `Downloading vet PDF ${index + 1} of ${documents.length}...`;
+        render();
+        restoreScroll();
+        const { url } = await invokeVetDocumentAction("create-view-url", { documentId: document.id });
+        if (!url) throw new Error(`A secure link could not be created for ${document.file_name}.`);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Could not download ${document.file_name}.`);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const path = `vet-documents/${document.id}/${sanitizeBackupFileName(document.file_name)}`;
+        archive[path] = bytes;
+        manifestFiles.push(
+          await backupFileManifest(path, bytes, "application/pdf", document.id)
+        );
+      }
+
+      const manifest = {
+        app: "sawyer-tracker",
+        formatVersion: 2,
+        exportedAt,
+        householdId,
+        counts: {
+          dogs: dogs.length,
+          schedules: schedules.length,
+          events: events.length,
+          documents: documents.length
+        },
+        files: manifestFiles
+      };
+      archive["manifest.json"] = fflate.strToU8(JSON.stringify(manifest, null, 2));
+      state.backupMessage = "Creating backup ZIP...";
+      render();
+      restoreScroll();
+
+      const zip = fflate.zipSync(archive, { level: 6 });
+      downloadBlob(
+        zip,
+        `sawyer-tracker-complete-backup-${localDateKey(new Date())}.zip`,
+        "application/zip"
+      );
+      await updateSettings({ lastBackupAt: exportedAt });
+      state.backupMessage = `Complete backup downloaded: ${events.length} records and ${documents.length} PDFs.`;
+      showToast("Complete backup downloaded.");
+    } catch (error) {
+      state.backupMessage = error.message || "Complete backup failed.";
+      showToast(state.backupMessage);
+    } finally {
+      state.backupBusy = false;
+      render();
+      restoreScroll();
+    }
   }
 
   function importJson() {
+    if (!canSaveCloudRecord() || state.backupBusy) return;
     const template = document.querySelector("#file-input-template");
     const input = template.content.firstElementChild.cloneNode();
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       if (!file) return;
 
+      const restoreScroll = captureContentScroll();
+      state.backupBusy = true;
+      state.backupMessage = "Validating backup...";
+      render();
+      restoreScroll();
       try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        if (data.app !== "sawyer-tracker") throw new Error("Invalid backup");
-
-        await dbClear("profile");
-        await dbClear("settings");
-        await dbClear("schedules");
-        await dbClear("events");
-        await dbPut("profile", { ...data.profile, syncStatus: "local" });
-        await dbPut("settings", { ...DEFAULT_SETTINGS, ...(data.settings || {}), syncStatus: "local" });
-        await dbBulkPut("schedules", (data.schedules || []).map((item) => ({ ...item, syncStatus: "local" })));
-        await dbBulkPut("events", (data.events || []).map((item) => ({ ...item, syncStatus: "local" })));
-        await hydrate();
-        render();
-        showToast("Backup imported.");
+        await restoreCompleteBackup(file, restoreScroll);
       } catch (error) {
-        showToast("That backup could not be imported.");
+        state.backupMessage = error.message || "That backup could not be restored.";
+        showToast(state.backupMessage);
+      } finally {
+        state.backupBusy = false;
+        render();
+        restoreScroll();
       }
     });
     input.click();
+  }
+
+  async function restoreCompleteBackup(file, restoreScroll) {
+    const fflate = await loadFflateLibrary();
+    const archive = fflate.unzipSync(new Uint8Array(await file.arrayBuffer()));
+    const manifestBytes = archive["manifest.json"];
+    const dataBytes = archive["data.json"];
+    if (!manifestBytes || !dataBytes) throw new Error("This is not a complete Sawyer Tracker backup.");
+
+    const manifest = JSON.parse(fflate.strFromU8(manifestBytes));
+    const data = JSON.parse(fflate.strFromU8(dataBytes));
+    if (
+      manifest.app !== "sawyer-tracker" ||
+      manifest.formatVersion !== 2 ||
+      data.app !== "sawyer-tracker" ||
+      data.version !== 2
+    ) {
+      throw new Error("This backup version is not supported.");
+    }
+    if (
+      manifest.householdId !== state.settings.supabaseHouseholdId ||
+      data.householdId !== state.settings.supabaseHouseholdId
+    ) {
+      throw new Error("This backup belongs to a different household.");
+    }
+
+    for (const entry of manifest.files || []) {
+      const bytes = archive[entry.path];
+      if (!bytes) throw new Error(`Backup file is missing: ${entry.path}`);
+      if (bytes.length !== entry.size || (await sha256HexBytes(bytes)) !== entry.sha256) {
+        throw new Error(`Backup integrity check failed: ${entry.path}`);
+      }
+    }
+
+    const tables = data.tables || {};
+    const dogs = Array.isArray(tables.dogs) ? tables.dogs : [];
+    const schedules = Array.isArray(tables.schedules) ? tables.schedules : [];
+    const events = Array.isArray(tables.events) ? tables.events : [];
+    const documents = Array.isArray(tables.documents) ? tables.documents : [];
+    const expectedCounts = manifest.counts || {};
+    if (
+      expectedCounts.dogs !== dogs.length ||
+      expectedCounts.schedules !== schedules.length ||
+      expectedCounts.events !== events.length ||
+      expectedCounts.documents !== documents.length
+    ) {
+      throw new Error("Backup record counts do not match the manifest.");
+    }
+    const confirmed = confirm(
+      `Restore ${events.length} records, ${schedules.length} schedules and ${documents.length} vet PDF${documents.length === 1 ? "" : "s"} from this backup? Matching cloud records will be replaced; records created later and not in the backup will remain.`
+    );
+    if (!confirmed) {
+      state.backupMessage = "Restore cancelled.";
+      return;
+    }
+
+    const client = await requireSupabaseSession();
+    const householdId = state.settings.supabaseHouseholdId;
+    const restoreTime = nowIso();
+    state.backupMessage = "Restoring cloud records...";
+    render();
+    restoreScroll();
+    await restoreCloudTable(client, SUPABASE_TABLES.dogs, householdId, dogs, restoreTime);
+    await restoreCloudTable(client, SUPABASE_TABLES.schedules, householdId, schedules, restoreTime);
+    await restoreCloudTable(client, SUPABASE_TABLES.events, householdId, events, restoreTime);
+
+    for (let index = 0; index < documents.length; index += 1) {
+      const document = documents[index];
+      const entry = (manifest.files || []).find((item) => item.documentId === document.id);
+      if (!entry || !archive[entry.path]) {
+        throw new Error(`The PDF for ${document.file_name || document.id} is missing.`);
+      }
+      state.backupMessage = `Restoring vet PDF ${index + 1} of ${documents.length}...`;
+      render();
+      restoreScroll();
+      await restoreVetDocument(client, document, archive[entry.path]);
+    }
+
+    await syncWithSupabase({ silent: true });
+    await loadVetDocuments({ silent: true });
+    state.backupMessage = `Restore complete: ${events.length} records and ${documents.length} PDFs verified.`;
+    showToast("Backup restored to Supabase.");
+  }
+
+  async function restoreCloudTable(client, tableName, householdId, rows, restoreTime) {
+    for (let index = 0; index < rows.length; index += SYNC_UPLOAD_BATCH_SIZE) {
+      const batch = rows.slice(index, index + SYNC_UPLOAD_BATCH_SIZE).map((row) => ({
+        household_id: householdId,
+        id: row.id,
+        dog_id: row.dog_id || DOG_ID,
+        payload: {
+          ...(row.payload || {}),
+          updatedAt: restoreTime,
+          syncStatus: "synced"
+        },
+        updated_at: restoreTime,
+        deleted_at: row.deleted_at || null
+      }));
+      if (!batch.length) continue;
+      const { error } = await client
+        .from(tableName)
+        .upsert(batch, { onConflict: "household_id,id" });
+      if (error) throw error;
+    }
+  }
+
+  async function restoreVetDocument(client, document, bytes) {
+    const session = await invokeVetDocumentAction("create-restore-upload", {
+      documentId: document.id,
+      fileName: document.file_name,
+      sizeBytes: bytes.length
+    });
+    const { error } = await client.storage
+      .from(VET_DOCUMENT_BUCKET)
+      .uploadToSignedUrl(
+        session.storagePath,
+        session.token,
+        new Blob([bytes], { type: "application/pdf" }),
+        { contentType: "application/pdf", upsert: true }
+      );
+    if (error) throw error;
+
+    await invokeVetDocumentAction("finalize-restore", {
+      ...session,
+      fileName: document.file_name,
+      sizeBytes: bytes.length,
+      category: document.category,
+      documentDate: document.document_date || "",
+      notes: document.notes || "",
+      createdAt: document.created_at || ""
+    });
+  }
+
+  async function fetchAllVetDocumentRows(client, householdId) {
+    const rows = [];
+    for (let from = 0; ; from += SYNC_PAGE_SIZE) {
+      const { data, error } = await client
+        .from(SUPABASE_TABLES.documents)
+        .select("*")
+        .eq("household_id", householdId)
+        .order("id", { ascending: true })
+        .range(from, from + SYNC_PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = data || [];
+      rows.push(...page);
+      if (page.length < SYNC_PAGE_SIZE) break;
+    }
+    return rows;
+  }
+
+  async function backupFileManifest(path, bytes, contentType, documentId = "") {
+    return {
+      path,
+      contentType,
+      size: bytes.length,
+      sha256: await sha256HexBytes(bytes),
+      ...(documentId ? { documentId } : {})
+    };
+  }
+
+  async function sha256HexBytes(bytes) {
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  function sanitizeBackupFileName(value) {
+    return String(value || "Vet document.pdf")
+      .replace(/[^a-z0-9._ -]+/gi, "_")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 160) || "Vet document.pdf";
   }
 
   function exportCsv() {

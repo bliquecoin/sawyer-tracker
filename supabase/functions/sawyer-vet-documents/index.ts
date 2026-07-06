@@ -25,7 +25,7 @@ Deno.serve(async (req: Request) => {
       auth: { persistSession: false }
     });
 
-    if (action === "create-upload") {
+    if (action === "create-upload" || action === "create-restore-upload") {
       const fileName = cleanFileName(body.fileName);
       const sizeBytes = Number(body.sizeBytes || 0);
       if (!fileName.toLowerCase().endsWith(".pdf")) {
@@ -35,11 +35,15 @@ Deno.serve(async (req: Request) => {
         return json({ message: "PDFs must be 20 MB or smaller." }, 400);
       }
 
-      const documentId = crypto.randomUUID();
+      const restoring = action === "create-restore-upload";
+      const documentId = restoring ? String(body.documentId || "").trim() : crypto.randomUUID();
+      if (restoring && !isUuid(documentId)) {
+        return json({ message: "Invalid restore document." }, 400);
+      }
       const storagePath = `${householdId}/${documentId}/${documentId}.pdf`;
       const { data, error } = await admin.storage
         .from(BUCKET)
-        .createSignedUploadUrl(storagePath, { upsert: false });
+        .createSignedUploadUrl(storagePath, { upsert: restoring });
       if (error) throw error;
 
       return json({
@@ -49,7 +53,8 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    if (action === "finalize-upload") {
+    if (action === "finalize-upload" || action === "finalize-restore") {
+      const restoring = action === "finalize-restore";
       const documentId = String(body.documentId || "").trim();
       const storagePath = String(body.storagePath || "").trim();
       const expectedPath = `${householdId}/${documentId}/${documentId}.pdf`;
@@ -75,6 +80,8 @@ Deno.serve(async (req: Request) => {
       );
       const notes = String(body.notes || "").trim().slice(0, 2000);
       const timestamp = new Date().toISOString();
+      const createdAt =
+        restoring && isTimestamp(body.createdAt) ? String(body.createdAt) : timestamp;
 
       const { data, error } = await admin
         .from("sawyer_vet_documents")
@@ -90,7 +97,7 @@ Deno.serve(async (req: Request) => {
             category,
             document_date: documentDate,
             notes,
-            created_at: timestamp,
+            created_at: createdAt,
             updated_at: timestamp
           },
           { onConflict: "household_id,id" }
@@ -217,6 +224,11 @@ function isUuid(value: string) {
 
 function isDate(value: unknown) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
+function isTimestamp(value: unknown) {
+  const timestamp = Date.parse(String(value || ""));
+  return Number.isFinite(timestamp);
 }
 
 function json(body: unknown, status = 200) {
