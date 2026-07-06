@@ -33,6 +33,8 @@
   ];
   const app = document.querySelector("#app");
   const externalConfig = window.SAWYER_SUPABASE_CONFIG || {};
+  const CORE = window.SawyerTrackerCore;
+  if (!CORE) throw new Error("Sawyer Tracker core could not be loaded.");
 
   const state = {
     activeTab: "today",
@@ -51,7 +53,7 @@
     householdAccessHash: readHouseholdAccessHash(),
     accessVerified: false,
     syncBusy: false,
-    syncPromise: null,
+    syncFlight: CORE.createSingleFlight(),
     syncMessage: "",
     syncTimer: null,
     storageUnavailable: false,
@@ -336,6 +338,7 @@
   }
 
   async function loadSupabaseLibrary() {
+    if (typeof externalConfig.clientFactory === "function") return true;
     if (window.supabase?.createClient) return true;
 
     return new Promise((resolve, reject) => {
@@ -399,7 +402,8 @@
         return state.supabaseClient;
       }
 
-      state.supabaseClient = window.supabase.createClient(
+      const createClient = externalConfig.clientFactory || window.supabase.createClient;
+      state.supabaseClient = createClient(
         state.settings.supabaseUrl,
         state.settings.supabaseAnonKey,
         {
@@ -3223,15 +3227,7 @@
   }
 
   async function syncWithSupabase(options = {}) {
-    if (state.syncPromise) return state.syncPromise;
-
-    const promise = runSupabaseSync(options);
-    state.syncPromise = promise;
-    try {
-      return await promise;
-    } finally {
-      if (state.syncPromise === promise) state.syncPromise = null;
-    }
+    return state.syncFlight.run(() => runSupabaseSync(options));
   }
 
   async function runSupabaseSync(options = {}) {
@@ -3345,33 +3341,27 @@
 
   async function syncStore({ client, householdId, storeName, tableName, localRecords }) {
     const remoteRows = await fetchAllRemoteRows(client, householdId, tableName);
-    const remoteMap = new Map(remoteRows.map((row) => [row.id, row]));
-    const localMap = new Map(localRecords.filter(Boolean).map((record) => [record.id, record]));
+    const planOptions = {
+      toLocal: remotePayloadToLocal,
+      isNewer,
+      preferRemote: (local, remote) => shouldPreferRemoteSeed(storeName, local, remote)
+    };
+    const downloadPlan = CORE.buildSyncPlan(localRecords, remoteRows, planOptions);
     let downloaded = 0;
 
-    for (const row of remoteRows) {
-      const local = localMap.get(row.id);
-      const remoteRecord = remotePayloadToLocal(row);
-      if (!local || isNewer(remoteRecord, local) || shouldPreferRemoteSeed(storeName, local, remoteRecord)) {
-        await dbPut(storeName, remoteRecord);
-        downloaded += 1;
-      }
+    for (const remoteRecord of downloadPlan.downloads) {
+      await dbPut(storeName, remoteRecord);
+      downloaded += 1;
     }
 
     const refreshedLocalRecords =
       storeName === "profile"
         ? [await dbGet("profile", DOG_ID)].filter(Boolean)
         : await dbGetAll(storeName);
-    const uploads = refreshedLocalRecords.filter((record) => {
-      const remote = remoteMap.get(record.id);
-      if (!remote) return true;
-      if (shouldPreferRemoteSeed(storeName, record, remotePayloadToLocal(remote))) return false;
-      return isNewer(record, remotePayloadToLocal(remote));
-    });
+    const uploads = CORE.buildSyncPlan(refreshedLocalRecords, remoteRows, planOptions).uploads;
 
     if (uploads.length) {
-      for (let index = 0; index < uploads.length; index += SYNC_UPLOAD_BATCH_SIZE) {
-        const batch = uploads.slice(index, index + SYNC_UPLOAD_BATCH_SIZE);
+      for (const batch of CORE.chunk(uploads, SYNC_UPLOAD_BATCH_SIZE)) {
         const rows = batch.map((record) => localToRemoteRow(householdId, record));
         const { error: upsertError } = await client
           .from(tableName)
@@ -3392,21 +3382,7 @@
   }
 
   async function fetchAllRemoteRows(client, householdId, tableName) {
-    const rows = [];
-    for (let from = 0; ; from += SYNC_PAGE_SIZE) {
-      const { data, error } = await client
-        .from(tableName)
-        .select("id,dog_id,payload,updated_at,deleted_at")
-        .eq("household_id", householdId)
-        .order("id", { ascending: true })
-        .range(from, from + SYNC_PAGE_SIZE - 1);
-      if (error) throw error;
-
-      const page = data || [];
-      rows.push(...page);
-      if (page.length < SYNC_PAGE_SIZE) break;
-    }
-    return rows;
+    return CORE.fetchAllRemoteRows(client, householdId, tableName, SYNC_PAGE_SIZE);
   }
 
   function localToRemoteRow(householdId, record) {
@@ -3647,39 +3623,11 @@
   }
 
   function automaticClusterIds(seizures) {
-    const ids = new Set();
-    const active = seizures
-      .filter((event) => event.type === "seizure" && !event.deletedAt)
-      .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
-
-    for (let firstIndex = 0; firstIndex < active.length; firstIndex += 1) {
-      for (let secondIndex = firstIndex + 1; secondIndex < active.length; secondIndex += 1) {
-        const first = active[firstIndex];
-        const second = active[secondIndex];
-        if (seizuresShareClusterWindow(first, second)) {
-          ids.add(first.id);
-          ids.add(second.id);
-        }
-
-        if (
-          first.timeKnown !== false &&
-          second.timeKnown !== false &&
-          new Date(second.occurredAt).getTime() - new Date(first.occurredAt).getTime() >= CLUSTER_WINDOW_MS
-        ) {
-          break;
-        }
-      }
-    }
-
-    return ids;
+    return CORE.automaticClusterIds(seizures, CLUSTER_WINDOW_MS);
   }
 
   function seizuresShareClusterWindow(first, second) {
-    if (first.timeKnown === false || second.timeKnown === false) {
-      return eventDayKey(first) === eventDayKey(second);
-    }
-    const difference = Math.abs(new Date(second.occurredAt).getTime() - new Date(first.occurredAt).getTime());
-    return difference < CLUSTER_WINDOW_MS;
+    return CORE.seizuresShareClusterWindow(first, second, CLUSTER_WINDOW_MS);
   }
 
   function isAutomaticCluster(event, seizures = state.events) {
@@ -3971,48 +3919,16 @@
   }
 
   function countSeizuresNearMissedDose(seizures) {
-    const doseEvents = state.events.filter((event) => event.type === "dose");
-    let total = 0;
-
-    seizures.filter((seizure) => seizure.timeKnown !== false).forEach((seizure) => {
-      const seizureTime = new Date(seizure.occurredAt).getTime();
-      const nearby = doseEvents.some((dose) => {
-        const dueAt = new Date(dose.dueAt || dose.occurredAt).getTime();
-        const occurredAt = new Date(dose.occurredAt).getTime();
-        const wasLate = dose.status === "given" && occurredAt - dueAt > OVERDUE_MINUTES * 60000;
-        const wasMissed = dose.status === "missed";
-        return (wasLate || wasMissed) && seizureTime - dueAt >= 0 && seizureTime - dueAt <= 86400000;
-      });
-      if (nearby) total += 1;
-    });
-
-    return { total };
+    return {
+      total: CORE.countSeizuresNearDoseException(state.events, seizures, OVERDUE_MINUTES)
+    };
   }
 
   function buildMctInsight(seizures, gaps) {
-    const mctSchedule = state.schedules.find((schedule) => schedule.id === "supp-mct-c8-c10");
-    const knownRegimenDates = state.events
-      .filter(
-        (event) =>
-          event.type === "regimen_change" &&
-          event.scheduleId === "supp-mct-c8-c10" &&
-          event.effectiveDateKnown &&
-          event.effectiveFrom
-      )
-      .map((event) => event.effectiveFrom);
-    if (mctSchedule?.effectiveFrom) knownRegimenDates.push(mctSchedule.effectiveFrom);
-    const firstMctDate = knownRegimenDates.sort()[0];
-
-    if (!firstMctDate || gaps.length < 3) return null;
-
-    const firstMctTime = localTimeToDate(firstMctDate, "00:00").getTime();
-    const before = gaps.filter((gap) => new Date(gap.to.occurredAt).getTime() < firstMctTime).map((gap) => gap.days);
-    const after = gaps.filter((gap) => new Date(gap.from.occurredAt).getTime() >= firstMctTime).map((gap) => gap.days);
-
-    if (before.length < 1 || after.length < 1) return null;
-
-    const beforeAvg = mean(before);
-    const afterAvg = mean(after);
+    const metrics = CORE.mctInsightMetrics(state.events, state.schedules, gaps);
+    if (!metrics) return null;
+    const beforeAvg = metrics.beforeAverage;
+    const afterAvg = metrics.afterAverage;
     const direction = afterAvg >= beforeAvg ? "longer" : "shorter";
 
     return {
@@ -4334,20 +4250,12 @@
       }
     }
 
-    const tables = data.tables || {};
-    const dogs = Array.isArray(tables.dogs) ? tables.dogs : [];
-    const schedules = Array.isArray(tables.schedules) ? tables.schedules : [];
-    const events = Array.isArray(tables.events) ? tables.events : [];
-    const documents = Array.isArray(tables.documents) ? tables.documents : [];
-    const expectedCounts = manifest.counts || {};
-    if (
-      expectedCounts.dogs !== dogs.length ||
-      expectedCounts.schedules !== schedules.length ||
-      expectedCounts.events !== events.length ||
-      expectedCounts.documents !== documents.length
-    ) {
-      throw new Error("Backup record counts do not match the manifest.");
-    }
+    const { dogs, schedules, events, documents } = CORE.validateBackupEnvelope(
+      manifest,
+      data,
+      archive,
+      state.settings.supabaseHouseholdId
+    );
     const confirmed = confirm(
       `Restore ${events.length} records, ${schedules.length} schedules and ${documents.length} vet PDF${documents.length === 1 ? "" : "s"} from this backup? Matching cloud records will be replaced; records created later and not in the backup will remain.`
     );
@@ -4385,8 +4293,8 @@
   }
 
   async function restoreCloudTable(client, tableName, householdId, rows, restoreTime) {
-    for (let index = 0; index < rows.length; index += SYNC_UPLOAD_BATCH_SIZE) {
-      const batch = rows.slice(index, index + SYNC_UPLOAD_BATCH_SIZE).map((row) => ({
+    for (const sourceBatch of CORE.chunk(rows, SYNC_UPLOAD_BATCH_SIZE)) {
+      const batch = sourceBatch.map((row) => ({
         household_id: householdId,
         id: row.id,
         dog_id: row.dog_id || DOG_ID,
@@ -4556,7 +4464,7 @@
   }
 
   function localDateKey(date) {
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    return CORE.localDateKey(date);
   }
 
   function toDateInputValue(date) {
