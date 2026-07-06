@@ -8,6 +8,8 @@
   const OVERDUE_MINUTES = 45;
   const CLUSTER_WINDOW_MS = 24 * 60 * 60 * 1000;
   const HISTORY_PAGE_SIZE = 30;
+  const SYNC_PAGE_SIZE = 500;
+  const SYNC_UPLOAD_BATCH_SIZE = 200;
   const SUPABASE_JS_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
   const FALLBACK_APP_URL = "https://bliquecoin.github.io/sawyer-tracker/";
   const ACCESS_KEY_STORAGE = "sawyer-household-access-key-hash";
@@ -3172,17 +3174,13 @@
   }
 
   async function syncStore({ client, householdId, storeName, tableName, localRecords }) {
-    const { data: remoteRows, error: selectError } = await client
-      .from(tableName)
-      .select("id,dog_id,payload,updated_at,deleted_at")
-      .eq("household_id", householdId);
-    if (selectError) throw selectError;
-
-    const remoteMap = new Map((remoteRows || []).map((row) => [row.id, row]));
+    const remoteRows = await fetchAllRemoteRows(client, householdId, tableName);
+    const remoteMap = new Map(remoteRows.map((row) => [row.id, row]));
+    const localMap = new Map(localRecords.filter(Boolean).map((record) => [record.id, record]));
     let downloaded = 0;
 
-    for (const row of remoteRows || []) {
-      const local = localRecords.find((record) => record?.id === row.id);
+    for (const row of remoteRows) {
+      const local = localMap.get(row.id);
       const remoteRecord = remotePayloadToLocal(row);
       if (!local || isNewer(remoteRecord, local) || shouldPreferRemoteSeed(storeName, local, remoteRecord)) {
         await dbPut(storeName, remoteRecord);
@@ -3202,11 +3200,14 @@
     });
 
     if (uploads.length) {
-      const rows = uploads.map((record) => localToRemoteRow(householdId, record));
-      const { error: upsertError } = await client
-        .from(tableName)
-        .upsert(rows, { onConflict: "household_id,id" });
-      if (upsertError) throw upsertError;
+      for (let index = 0; index < uploads.length; index += SYNC_UPLOAD_BATCH_SIZE) {
+        const batch = uploads.slice(index, index + SYNC_UPLOAD_BATCH_SIZE);
+        const rows = batch.map((record) => localToRemoteRow(householdId, record));
+        const { error: upsertError } = await client
+          .from(tableName)
+          .upsert(rows, { onConflict: "household_id,id" });
+        if (upsertError) throw upsertError;
+      }
 
       await dbBulkPut(
         storeName,
@@ -3218,6 +3219,24 @@
     }
 
     return { uploaded: uploads.length, downloaded };
+  }
+
+  async function fetchAllRemoteRows(client, householdId, tableName) {
+    const rows = [];
+    for (let from = 0; ; from += SYNC_PAGE_SIZE) {
+      const { data, error } = await client
+        .from(tableName)
+        .select("id,dog_id,payload,updated_at,deleted_at")
+        .eq("household_id", householdId)
+        .order("id", { ascending: true })
+        .range(from, from + SYNC_PAGE_SIZE - 1);
+      if (error) throw error;
+
+      const page = data || [];
+      rows.push(...page);
+      if (page.length < SYNC_PAGE_SIZE) break;
+    }
+    return rows;
   }
 
   function localToRemoteRow(householdId, record) {
