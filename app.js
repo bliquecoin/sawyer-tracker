@@ -45,7 +45,9 @@
     supabaseClient: null,
     supabaseSession: null,
     householdAccessHash: readHouseholdAccessHash(),
+    accessVerified: false,
     syncBusy: false,
+    syncPromise: null,
     syncMessage: "",
     syncTimer: null,
     storageUnavailable: false,
@@ -205,9 +207,9 @@
     attachGlobalListeners();
     await safeHydrate();
     await initSupabase();
-    if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
-      await syncWithSupabase({ silent: true });
-      await loadVetDocuments({ silent: true });
+    if (state.settings?.syncEnabled && hasStoredAccess() && navigator.onLine) {
+      await syncWithSupabase({ silent: true }).catch(() => {});
+      if (isSignedIn()) await loadVetDocuments({ silent: true });
     }
     render();
     startReminderLoop();
@@ -279,6 +281,10 @@
       if (!document.hidden) {
         refreshApp({ silent: true }).catch(() => safeHydrate().then(render).then(checkReminders));
       }
+    });
+
+    window.addEventListener("online", () => {
+      queueBackgroundSync();
     });
   }
 
@@ -369,6 +375,7 @@
       const { data, error } = await state.supabaseClient.auth.getSession();
       if (error) throw error;
       state.supabaseSession = data.session;
+      if (data.session?.user) state.accessVerified = true;
       if (startedFromAuthRedirect && data.session?.user) {
         state.syncMessage = "Supabase connected on this version of Sawyer Tracker.";
       }
@@ -388,6 +395,7 @@
       if (!state.supabaseClient.__sawyerAuthBound) {
         state.supabaseClient.auth.onAuthStateChange(async (_event, session) => {
           state.supabaseSession = session;
+          state.accessVerified = Boolean(session?.user);
           if (session?.user?.email) {
             cleanAuthRedirectUrl();
             await updateSettings({
@@ -397,7 +405,7 @@
               lastSyncMessage: "Supabase connected. Syncing shared records..."
             });
             if (state.settings?.syncEnabled && navigator.onLine) {
-              await syncWithSupabase({ silent: true });
+              await syncWithSupabase({ silent: true }).catch(() => {});
             }
           }
           render();
@@ -418,14 +426,24 @@
     if (!client) throw new Error("Add Supabase settings first.");
 
     if (state.householdAccessHash) {
-      await verifyHouseholdAccess(client);
-      return client;
+      try {
+        await verifyHouseholdAccess(client);
+        state.accessVerified = true;
+        return client;
+      } catch (error) {
+        state.accessVerified = false;
+        if (/does not match Sawyer's household/i.test(String(error?.message || ""))) {
+          writeHouseholdAccessHash("");
+        }
+        throw error;
+      }
     }
 
     const { data, error } = await client.auth.getSession();
     if (error) throw error;
     state.supabaseSession = data.session;
     if (!data.session) throw new Error("Enter the household access code before syncing.");
+    state.accessVerified = true;
 
     return client;
   }
@@ -673,6 +691,7 @@
 
   function writeHouseholdAccessHash(hash) {
     state.householdAccessHash = hash;
+    state.accessVerified = false;
     state.supabaseClient = null;
     try {
       if (hash) {
@@ -736,6 +755,10 @@
   }
 
   function isSignedIn() {
+    return Boolean(state.supabaseSession?.user || (state.householdAccessHash && state.accessVerified));
+  }
+
+  function hasStoredAccess() {
     return Boolean(state.supabaseSession?.user || state.householdAccessHash);
   }
 
@@ -974,7 +997,7 @@
   }
 
   function shouldShowLoginScreen() {
-    return hasSupabaseConfig() && !isSignedIn();
+    return hasSupabaseConfig() && !hasStoredAccess();
   }
 
   function renderEmergencySyncBanner() {
@@ -1864,6 +1887,7 @@
   function renderCloudSync() {
     const configured = hasSupabaseConfig();
     const signedIn = isSignedIn();
+    const storedAccess = hasStoredAccess();
     const lastSync = state.settings?.lastSyncAt
       ? formatDateTime(new Date(state.settings.lastSyncAt))
       : "Never";
@@ -1873,13 +1897,19 @@
         ? navigator.onLine
           ? "Cloud connected"
           : "Offline"
+        : storedAccess
+          ? navigator.onLine
+            ? "Access not verified"
+            : "Offline"
         : configured
           ? "Needs access code"
           : "Not set up";
     const syncMessage = state.syncMessage || state.settings?.lastSyncMessage || "";
     const sourceMessage = signedIn
       ? "Supabase is the shared source of truth. This device only keeps a cache so the app opens quickly."
-      : "Enter Sawyer's household access code before logging records. New entries are saved only when Supabase is connected.";
+      : storedAccess
+        ? "This device has a saved access code, but Supabase has not verified it yet."
+        : "Enter Sawyer's household access code before logging records. New entries are saved only when Supabase is connected.";
 
     return `
       <section class="panel">
@@ -1919,7 +1949,7 @@
           </form>
 
           ${
-            signedIn
+            storedAccess
               ? `
                 <div class="button-row sync-actions">
                   <button class="btn primary" data-action="sync-now" ${state.syncBusy ? "disabled" : ""}>Sync Now</button>
@@ -2285,17 +2315,23 @@
   async function refreshApp(options = {}) {
     await safeHydrate();
     await initSupabase();
-    if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
-      await syncWithSupabase({ silent: true });
-      await loadVetDocuments({ silent: true });
+    try {
+      if (state.settings?.syncEnabled && hasStoredAccess() && navigator.onLine) {
+        const result = await syncWithSupabase({ silent: true });
+        await loadVetDocuments({ silent: true });
+        render();
+        if (!options.silent) showToast(result.message);
+      } else {
+        render();
+        if (!options.silent) {
+          showToast(hasStoredAccess() ? "Internet is required to refresh Supabase." : "This device is not connected to Supabase yet.");
+        }
+      }
+    } catch (error) {
       render();
-    } else {
-      render();
+      if (!options.silent) showToast(error.message || "Supabase refresh failed.");
     }
     checkReminders();
-    if (!options.silent) {
-      showToast(isSignedIn() ? "Synced with Supabase." : "This device is not connected to Supabase yet.");
-    }
   }
 
   async function handleAction(action) {
@@ -2340,28 +2376,35 @@
     render();
   }
 
-  async function syncAfterLocalChange() {
-    if (state.settings?.syncEnabled && isSignedIn() && navigator.onLine) {
-      await syncWithSupabase({ silent: true });
-      return;
-    }
-    throw new Error(cloudSaveBlockMessage());
+  async function persistEventMutation(record) {
+    const records = await dbGetAll("events");
+    const nextById = new Map(records.map((item) => [item.id, item]));
+    nextById.set(record.id, record);
+    const nextRecords = Array.from(nextById.values());
+    const clusterUpdates = buildAutomaticClusterUpdates(nextRecords);
+    const writesById = new Map([[record.id, record]]);
+    clusterUpdates.forEach((item) => writesById.set(item.id, item));
+    return persistCloudRecords({
+      storeName: "events",
+      tableName: SUPABASE_TABLES.events,
+      records: Array.from(writesById.values())
+    });
   }
 
   function cloudSaveBlockMessage() {
     if (!hasSupabaseConfig()) return "Supabase is not configured yet.";
     if (!state.settings?.syncEnabled) return "Supabase sync is not enabled yet.";
-    if (!isSignedIn()) return "Enter the household access code before saving Sawyer's records.";
+    if (!hasStoredAccess()) return "Enter the household access code before saving Sawyer's records.";
     if (!navigator.onLine) return "Internet is required before saving Sawyer's records.";
     return "Supabase is not ready yet.";
   }
 
   function canSaveCloudRecord() {
-    if (hasSupabaseConfig() && state.settings?.syncEnabled && isSignedIn() && navigator.onLine) return true;
+    if (hasSupabaseConfig() && state.settings?.syncEnabled && hasStoredAccess() && navigator.onLine) return true;
     const message = cloudSaveBlockMessage();
     state.syncMessage = message;
     showToast(message);
-    if (!isSignedIn()) render();
+    if (!hasStoredAccess()) render();
     return false;
   }
 
@@ -2394,34 +2437,41 @@
       syncStatus: "local"
     };
 
-    await dbPut("events", event);
-    await hydrate();
-    await syncAfterLocalChange();
-    render();
-    restoreScroll();
-    showToast(`${entry.schedule.name} marked ${status}.`);
+    try {
+      await persistEventMutation(event);
+      await hydrate();
+      render();
+      restoreScroll();
+      showToast(`${entry.schedule.name} marked ${status}.`);
+    } catch (error) {
+      reportCloudSaveFailure(error);
+      restoreScroll();
+    }
   }
 
   async function removeEvent(id, message) {
     if (!canSaveCloudRecord()) return;
     const restoreScroll = captureContentScroll();
     const existing = await dbGet("events", id);
-    if (existing) {
+    if (!existing) return;
+
+    try {
       const timestamp = nowIso();
-      await dbPut("events", {
+      await persistEventMutation({
         ...existing,
         deletedAt: timestamp,
         updatedAt: timestamp,
         syncStatus: "local"
       });
+      if (state.editingSeizureId === id) state.editingSeizureId = "";
+      await hydrate();
+      render();
+      restoreScroll();
+      showToast(message);
+    } catch (error) {
+      reportCloudSaveFailure(error);
+      restoreScroll();
     }
-    if (state.editingSeizureId === id) state.editingSeizureId = "";
-    await refreshAutomaticClusterFlags();
-    await hydrate();
-    await syncAfterLocalChange();
-    render();
-    restoreScroll();
-    showToast(message);
   }
 
   async function editSeizure(id) {
@@ -2477,21 +2527,24 @@
       syncStatus: "local"
     };
 
-    await dbPut("events", record);
-    await refreshAutomaticClusterFlags();
-    if (existing) state.editingSeizureId = "";
-    await hydrate();
-    const clusterDetected = isAutomaticCluster(record);
-    await syncAfterLocalChange();
-    state.activeTab = "today";
-    render();
-    showToast(
-      clusterDetected
-        ? `${existing ? "Seizure updated" : "Seizure saved"}. Multiple seizures were logged within 24 hours.`
-        : existing
-          ? "Seizure updated."
-          : "Seizure saved."
-    );
+    try {
+      await persistEventMutation(record);
+      if (existing) state.editingSeizureId = "";
+      await hydrate();
+      const savedRecord = state.events.find((item) => item.id === record.id) || record;
+      const clusterDetected = isAutomaticCluster(savedRecord);
+      state.activeTab = "today";
+      render();
+      showToast(
+        clusterDetected
+          ? `${existing ? "Seizure updated" : "Seizure saved"}. Multiple seizures were logged within 24 hours.`
+          : existing
+            ? "Seizure updated."
+            : "Seizure saved."
+      );
+    } catch (error) {
+      reportCloudSaveFailure(error);
+    }
   }
 
   async function saveNote(event) {
@@ -2503,7 +2556,7 @@
     if (!body) return;
     const timestamp = nowIso();
 
-    await dbPut("events", {
+    const record = {
       id: uid(),
       dogId: DOG_ID,
       type: "note",
@@ -2514,13 +2567,17 @@
       createdAt: timestamp,
       updatedAt: timestamp,
       syncStatus: "local"
-    });
+    };
 
-    await hydrate();
-    await syncAfterLocalChange();
-    state.activeTab = "today";
-    render();
-    showToast("Note saved.");
+    try {
+      await persistEventMutation(record);
+      await hydrate();
+      state.activeTab = "today";
+      render();
+      showToast("Note saved.");
+    } catch (error) {
+      reportCloudSaveFailure(error);
+    }
   }
 
   async function saveVetVisit(event) {
@@ -2532,7 +2589,7 @@
     const occurredAt = new Date(`${date}T${time}`);
     const timestamp = nowIso();
 
-    await dbPut("events", {
+    const record = {
       id: uid(),
       dogId: DOG_ID,
       type: "vet_visit",
@@ -2545,13 +2602,17 @@
       createdAt: timestamp,
       updatedAt: timestamp,
       syncStatus: "local"
-    });
+    };
 
-    await hydrate();
-    await syncAfterLocalChange();
-    state.activeTab = "today";
-    render();
-    showToast("Vet visit saved.");
+    try {
+      await persistEventMutation(record);
+      await hydrate();
+      state.activeTab = "today";
+      render();
+      showToast("Vet visit saved.");
+    } catch (error) {
+      reportCloudSaveFailure(error);
+    }
   }
 
   async function saveBloodTest(event) {
@@ -2563,7 +2624,7 @@
     const occurredAt = new Date(`${date}T${time}`);
     const timestamp = nowIso();
 
-    await dbPut("events", {
+    const record = {
       id: uid(),
       dogId: DOG_ID,
       type: "blood_test",
@@ -2577,13 +2638,17 @@
       createdAt: timestamp,
       updatedAt: timestamp,
       syncStatus: "local"
-    });
+    };
 
-    await hydrate();
-    await syncAfterLocalChange();
-    state.activeTab = "today";
-    render();
-    showToast("Blood test saved.");
+    try {
+      await persistEventMutation(record);
+      await hydrate();
+      state.activeTab = "today";
+      render();
+      showToast("Blood test saved.");
+    } catch (error) {
+      reportCloudSaveFailure(error);
+    }
   }
 
   async function loadVetDocuments(options = {}) {
@@ -2758,12 +2823,12 @@
     const dogName = String(form.get("dogName") || "Sawyer").trim() || "Sawyer";
     const changeNotes = [];
 
-    await dbPut("profile", {
+    const updatedProfile = {
       ...state.profile,
       name: dogName,
       updatedAt: timestamp,
       syncStatus: "local"
-    });
+    };
 
     const updatedSchedules = state.schedules.map((schedule) => ({
       ...schedule,
@@ -2794,10 +2859,8 @@
       });
     });
 
-    await dbBulkPut("schedules", updatedSchedules);
-
-    if (changeNotes.length) {
-      await dbPut("events", {
+    const changeEvent = changeNotes.length
+      ? {
         id: uid(),
         dogId: DOG_ID,
         type: "note",
@@ -2808,13 +2871,27 @@
         createdAt: timestamp,
         updatedAt: timestamp,
         syncStatus: "local"
-      });
-    }
+      }
+      : null;
 
-    await hydrate();
-    await syncAfterLocalChange();
-    render();
-    showToast("Setup saved.");
+    try {
+      await persistCloudRecords({
+        storeName: "profile",
+        tableName: SUPABASE_TABLES.dogs,
+        records: [updatedProfile]
+      });
+      await persistCloudRecords({
+        storeName: "schedules",
+        tableName: SUPABASE_TABLES.schedules,
+        records: updatedSchedules
+      });
+      if (changeEvent) await persistEventMutation(changeEvent);
+      await hydrate();
+      render();
+      showToast("Setup saved.");
+    } catch (error) {
+      reportCloudSaveFailure(error);
+    }
   }
 
   async function saveSyncConfig(event) {
@@ -2850,7 +2927,7 @@
       const hash = await sha256Hex(accessCode);
       writeHouseholdAccessHash(hash);
       await initSupabase();
-      await syncWithSupabase({ silent: true, throwOnError: true });
+      await syncWithSupabase({ silent: true });
       await loadVetDocuments({ silent: true });
       await updateSettings({
         currentUserEmail: "",
@@ -2953,7 +3030,7 @@
   }
 
   function queueBackgroundSync() {
-    if (!state.settings?.syncEnabled || !isSignedIn() || !navigator.onLine) return;
+    if (!state.settings?.syncEnabled || !hasStoredAccess() || !navigator.onLine) return;
     clearTimeout(state.syncTimer);
     state.syncTimer = setTimeout(() => {
       syncWithSupabase({ silent: true }).catch(() => {});
@@ -2961,7 +3038,18 @@
   }
 
   async function syncWithSupabase(options = {}) {
-    if (state.syncBusy) return;
+    if (state.syncPromise) return state.syncPromise;
+
+    const promise = runSupabaseSync(options);
+    state.syncPromise = promise;
+    try {
+      return await promise;
+    } finally {
+      if (state.syncPromise === promise) state.syncPromise = null;
+    }
+  }
+
+  async function runSupabaseSync(options = {}) {
     const silent = Boolean(options.silent);
 
     try {
@@ -3026,14 +3114,48 @@
       await initSupabase();
       state.syncMessage = message;
       if (!silent) showToast(message);
+      return { ok: true, uploaded, downloaded, message };
     } catch (error) {
       state.syncMessage = error.message || "Sync failed.";
       if (!silent) showToast(state.syncMessage);
-      if (options.throwOnError) throw error;
+      throw error;
     } finally {
       state.syncBusy = false;
       if (!silent) render();
     }
+  }
+
+  async function persistCloudRecords({ storeName, tableName, records }) {
+    if (!records.length) return [];
+    if (!navigator.onLine) throw new Error("Internet is required before saving Sawyer's records.");
+
+    const client = await requireSupabaseSession();
+    const householdId = state.settings?.supabaseHouseholdId;
+    if (!householdId) throw new Error("Sawyer's household is not configured.");
+
+    const rows = records.map((record) => localToRemoteRow(householdId, record));
+    const { data, error } = await client
+      .from(tableName)
+      .upsert(rows, { onConflict: "household_id,id" })
+      .select("id,updated_at,deleted_at");
+    if (error) throw error;
+    if ((data || []).length !== rows.length) {
+      throw new Error("Supabase did not confirm every record. Nothing was marked as saved on this device.");
+    }
+
+    const confirmed = records.map((record) => ({
+      ...record,
+      syncStatus: "synced"
+    }));
+    await dbBulkPut(storeName, confirmed);
+    state.accessVerified = true;
+    return confirmed;
+  }
+
+  function reportCloudSaveFailure(error) {
+    const detail = error?.message || "Supabase did not confirm this change.";
+    state.syncMessage = `Not saved: ${detail}`;
+    showToast(state.syncMessage);
   }
 
   async function syncStore({ client, householdId, storeName, tableName, localRecords }) {
@@ -3365,9 +3487,15 @@
 
   async function refreshAutomaticClusterFlags() {
     const records = await dbGetAll("events");
+    const updates = buildAutomaticClusterUpdates(records);
+    if (updates.length) await dbBulkPut("events", updates);
+    return updates.length;
+  }
+
+  function buildAutomaticClusterUpdates(records) {
     const clusteredIds = automaticClusterIds(records);
     const timestamp = nowIso();
-    const updates = records
+    return records
       .filter((record) => record.type === "seizure" && !record.deletedAt)
       .filter(
         (record) =>
@@ -3381,9 +3509,6 @@
         updatedAt: timestamp,
         syncStatus: "local"
       }));
-
-    if (updates.length) await dbBulkPut("events", updates);
-    return updates.length;
   }
 
   function getSummary() {
