@@ -2327,6 +2327,29 @@ html.ios-browser .toast {
   text-overflow: ellipsis;
 }
 
+.setup-effective-date {
+  margin-top: 10px;
+}
+
+.lab-level {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.lab-level legend {
+  margin-bottom: 8px;
+  color: var(--ink);
+  font-weight: 850;
+}
+
+.lab-level-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+}
+
 .danger-zone {
   border-color: rgba(177, 66, 58, 0.28);
 }
@@ -2417,6 +2440,14 @@ html.ios-browser .toast {
 }
 
 @media (max-width: 430px) {
+  .lab-level-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lab-level-grid .field:last-child {
+    grid-column: 1 / -1;
+  }
+
   .grid.date-time-grid {
     grid-template-columns: 1fr;
   }

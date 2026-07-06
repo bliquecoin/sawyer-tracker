@@ -67,6 +67,7 @@
     pullDistance: 0,
     pullRefreshing: false,
     editingSeizureId: "",
+    editingRecordId: "",
     severity: 3
   };
   const startedFromAuthRedirect = isAuthRedirectUrl();
@@ -113,6 +114,7 @@
       name: "Epibrom",
       dose: "",
       unit: "",
+      effectiveFrom: "",
       active: true,
       times: [
         { id: "morning", label: "Morning", time: "07:00" },
@@ -129,6 +131,7 @@
       name: "Phenomav",
       dose: "",
       unit: "",
+      effectiveFrom: "",
       active: true,
       times: [
         { id: "morning", label: "Morning", time: "07:00" },
@@ -145,6 +148,7 @@
       name: "MCT oil C8/C10",
       dose: "",
       unit: "",
+      effectiveFrom: "",
       active: true,
       times: [{ id: "daily", label: "Daily", time: "08:00" }],
       createdAt: nowIso(),
@@ -181,7 +185,8 @@
     { id: "dose", label: "Doses" },
     { id: "note", label: "Notes" },
     { id: "vet_visit", label: "Vet" },
-    { id: "blood_test", label: "Blood" }
+    { id: "blood_test", label: "Blood" },
+    { id: "regimen_change", label: "Regimen" }
   ];
 
   function setRuntimeClasses() {
@@ -1305,6 +1310,14 @@
     const localTime = toTimeInputValue(seizureDate);
     const timeKnown = editingSeizure ? editingSeizure.timeKnown !== false : false;
     const selectedSeverity = editingSeizure?.severity || state.severity;
+    const editingRecord = state.events.find(
+      (event) =>
+        event.id === state.editingRecordId &&
+        ["note", "vet_visit", "blood_test"].includes(event.type)
+    );
+    const recordDate = editingRecord ? new Date(editingRecord.occurredAt) : now;
+    const recordLocalDate = toDateInputValue(recordDate);
+    const recordLocalTime = toTimeInputValue(recordDate);
 
     return `
       <div class="stack desktop-two">
@@ -1439,7 +1452,7 @@
             </div>
 
             <div class="record-accordions">
-              <details class="record-disclosure" data-record-disclosure>
+              <details class="record-disclosure" data-record-disclosure ${editingRecord?.type === "note" ? "open" : ""}>
                 <summary>
                   <span>
                     <strong>Care note</strong>
@@ -1447,19 +1460,23 @@
                   </span>
                 </summary>
                 <form id="note-form" class="form-grid record-form">
+                  <input type="hidden" name="id" value="${escapeHtml(editingRecord?.type === "note" ? editingRecord.id : "")}" />
                   <div class="field">
                     <label for="note-title">Title</label>
-                    <input id="note-title" name="title" placeholder="Appetite, behaviour, vet call" />
+                    <input id="note-title" name="title" value="${escapeHtml(editingRecord?.type === "note" ? editingRecord.title || "" : "")}" placeholder="Appetite, behaviour, vet call" />
                   </div>
                   <div class="field">
                     <label for="note-body">Note</label>
-                    <textarea id="note-body" name="body" required></textarea>
+                    <textarea id="note-body" name="body" required>${escapeHtml(editingRecord?.type === "note" ? editingRecord.body || "" : "")}</textarea>
                   </div>
-                  <button class="btn primary" type="submit">Save Note</button>
+                  <div class="button-row">
+                    <button class="btn primary" type="submit">${editingRecord?.type === "note" ? "Update Note" : "Save Note"}</button>
+                    ${editingRecord?.type === "note" ? `<button class="btn secondary" data-action="cancel-record-edit" type="button">Cancel</button>` : ""}
+                  </div>
                 </form>
               </details>
 
-              <details class="record-disclosure" data-record-disclosure>
+              <details class="record-disclosure" data-record-disclosure ${editingRecord?.type === "vet_visit" ? "open" : ""}>
                 <summary>
                   <span>
                     <strong>Vet visit</strong>
@@ -1467,37 +1484,41 @@
                   </span>
                 </summary>
                 <form id="vet-form" class="form-grid record-form">
+                  <input type="hidden" name="id" value="${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.id : "")}" />
                   <div class="grid two date-time-grid">
                     <div class="field">
                       <label for="vet-date">Date</label>
-                      ${renderDateInput("vet-date", "date", localDate, true)}
+                      ${renderDateInput("vet-date", "date", editingRecord?.type === "vet_visit" ? recordLocalDate : localDate, true)}
                     </div>
                     <div class="field">
                       <label for="vet-time">Time</label>
-                      ${renderTimeInput("vet-time", "time", localTime)}
+                      ${renderTimeInput("vet-time", "time", editingRecord?.type === "vet_visit" ? recordLocalTime : localTime)}
                     </div>
                   </div>
                   <div class="field">
                     <label for="vet-clinic">Clinic or vet</label>
-                    <input id="vet-clinic" name="clinic" placeholder="Vet name or clinic" />
+                    <input id="vet-clinic" name="clinic" value="${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.clinic || "" : "")}" placeholder="Vet name or clinic" />
                   </div>
                   <div class="field">
                     <label for="vet-reason">Reason</label>
-                    <input id="vet-reason" name="reason" placeholder="Checkup, seizure review, medication review" required />
+                    <input id="vet-reason" name="reason" value="${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.reason || "" : "")}" placeholder="Checkup, seizure review, medication review" required />
                   </div>
                   <div class="field">
                     <label for="vet-weight">Weight</label>
-                    <input id="vet-weight" name="weight" placeholder="Example: 24.8 kg" />
+                    <input id="vet-weight" name="weight" value="${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.weight || "" : "")}" placeholder="Example: 24.8 kg" />
                   </div>
                   <div class="field">
                     <label for="vet-plan">Plan / medication changes</label>
-                    <textarea id="vet-plan" name="plan" placeholder="Next steps, dosage changes, follow-up date"></textarea>
+                    <textarea id="vet-plan" name="plan" placeholder="Next steps, dosage changes, follow-up date">${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.plan || "" : "")}</textarea>
                   </div>
-                  <button class="btn primary" type="submit">Save Vet Visit</button>
+                  <div class="button-row">
+                    <button class="btn primary" type="submit">${editingRecord?.type === "vet_visit" ? "Update Vet Visit" : "Save Vet Visit"}</button>
+                    ${editingRecord?.type === "vet_visit" ? `<button class="btn secondary" data-action="cancel-record-edit" type="button">Cancel</button>` : ""}
+                  </div>
                 </form>
               </details>
 
-              <details class="record-disclosure" data-record-disclosure>
+              <details class="record-disclosure" data-record-disclosure ${editingRecord?.type === "blood_test" ? "open" : ""}>
                 <summary>
                   <span>
                     <strong>Blood test</strong>
@@ -1505,39 +1526,49 @@
                   </span>
                 </summary>
                 <form id="blood-test-form" class="form-grid record-form">
+                  <input type="hidden" name="id" value="${escapeHtml(editingRecord?.type === "blood_test" ? editingRecord.id : "")}" />
                   <div class="grid two date-time-grid">
                     <div class="field">
                       <label for="blood-date">Date</label>
-                      ${renderDateInput("blood-date", "date", localDate, true)}
+                      ${renderDateInput("blood-date", "date", editingRecord?.type === "blood_test" ? recordLocalDate : localDate, true)}
                     </div>
                     <div class="field">
                       <label for="blood-time">Time</label>
-                      ${renderTimeInput("blood-time", "time", localTime)}
+                      ${renderTimeInput("blood-time", "time", editingRecord?.type === "blood_test" ? recordLocalTime : localTime)}
                     </div>
                   </div>
                   <div class="field">
                     <label for="blood-panel">Test / panel</label>
-                    <input id="blood-panel" name="panel" placeholder="Phenobarbital level, bromide level, liver panel" required />
+                    <input id="blood-panel" name="panel" value="${escapeHtml(editingRecord?.type === "blood_test" ? editingRecord.panel || "" : "")}" placeholder="Phenobarbital level, bromide level, liver panel" required />
                   </div>
-                  <div class="grid two">
-                    <div class="field">
-                      <label for="blood-phenobarbital">Phenobarbital</label>
-                      <input id="blood-phenobarbital" name="phenobarbitalLevel" placeholder="Value and units" />
-                    </div>
-                    <div class="field">
-                      <label for="blood-bromide">Bromide</label>
-                      <input id="blood-bromide" name="bromideLevel" placeholder="Value and units" />
-                    </div>
-                  </div>
+                  ${renderLabLevelFields("Phenobarbital", "phenobarbital", editingRecord?.type === "blood_test" ? editingRecord.phenobarbital : null)}
+                  ${renderLabLevelFields("Bromide", "bromide", editingRecord?.type === "blood_test" ? editingRecord.bromide : null)}
+                  ${
+                    editingRecord?.type === "blood_test" &&
+                    !editingRecord.phenobarbital &&
+                    editingRecord.phenobarbitalLevel
+                      ? `<p class="subtle">Legacy phenobarbital entry: ${escapeHtml(editingRecord.phenobarbitalLevel)}</p>`
+                      : ""
+                  }
+                  ${
+                    editingRecord?.type === "blood_test" &&
+                    !editingRecord.bromide &&
+                    editingRecord.bromideLevel
+                      ? `<p class="subtle">Legacy bromide entry: ${escapeHtml(editingRecord.bromideLevel)}</p>`
+                      : ""
+                  }
                   <div class="field">
                     <label for="blood-results">Results</label>
-                    <textarea id="blood-results" name="results" placeholder="Paste key results or lab notes"></textarea>
+                    <textarea id="blood-results" name="results" placeholder="Paste key results or lab notes">${escapeHtml(editingRecord?.type === "blood_test" ? editingRecord.results || "" : "")}</textarea>
                   </div>
                   <div class="field">
                     <label for="blood-notes">Notes</label>
-                    <textarea id="blood-notes" name="notes" placeholder="Vet interpretation, recheck timing, changes"></textarea>
+                    <textarea id="blood-notes" name="notes" placeholder="Vet interpretation, recheck timing, changes">${escapeHtml(editingRecord?.type === "blood_test" ? editingRecord.notes || "" : "")}</textarea>
                   </div>
-                  <button class="btn primary" type="submit">Save Blood Test</button>
+                  <div class="button-row">
+                    <button class="btn primary" type="submit">${editingRecord?.type === "blood_test" ? "Update Blood Test" : "Save Blood Test"}</button>
+                    ${editingRecord?.type === "blood_test" ? `<button class="btn secondary" data-action="cancel-record-edit" type="button">Cancel</button>` : ""}
+                  </div>
                 </form>
               </details>
             </div>
@@ -1608,6 +1639,28 @@
           }
         </div>
       </section>
+    `;
+  }
+
+  function renderLabLevelFields(label, prefix, level) {
+    return `
+      <fieldset class="lab-level">
+        <legend>${escapeHtml(label)}</legend>
+        <div class="lab-level-grid">
+          <div class="field">
+            <label for="blood-${prefix}-value">Value</label>
+            <input id="blood-${prefix}-value" name="${prefix}Value" type="number" inputmode="decimal" step="any" value="${escapeHtml(level?.value ?? "")}" placeholder="Number" />
+          </div>
+          <div class="field">
+            <label for="blood-${prefix}-unit">Unit</label>
+            <input id="blood-${prefix}-unit" name="${prefix}Unit" value="${escapeHtml(level?.unit || "")}" placeholder="mg/L" />
+          </div>
+          <div class="field">
+            <label for="blood-${prefix}-range">Target range</label>
+            <input id="blood-${prefix}-range" name="${prefix}ReferenceRange" value="${escapeHtml(level?.referenceRange || "")}" placeholder="Vet or lab range" />
+          </div>
+        </div>
+      </fieldset>
     `;
   }
 
@@ -1717,6 +1770,7 @@
           ${eventDetail(event)}
           <div class="timeline-actions">
             ${event.type === "seizure" ? `<button class="btn secondary small" data-edit-seizure="${escapeHtml(event.id)}">Edit</button>` : ""}
+            ${["note", "vet_visit", "blood_test"].includes(event.type) ? `<button class="btn secondary small" data-edit-record="${escapeHtml(event.id)}">Edit</button>` : ""}
             <button class="btn ghost small" data-delete-event="${escapeHtml(event.id)}">Delete</button>
           </div>
         </div>
@@ -1999,6 +2053,11 @@
               <input id="${schedule.id}-unit" name="${schedule.id}:unit" value="${escapeHtml(schedule.unit || "")}" placeholder="mg, ml, capsules" />
             </div>
           </div>
+          <div class="field setup-effective-date">
+            <label for="${schedule.id}-effective-from">Current regimen effective from</label>
+            ${renderDateInput(`${schedule.id}-effective-from`, `${schedule.id}:effectiveFrom`, schedule.effectiveFrom || "")}
+            <small class="field-help">Leave blank when the start date is unknown.</small>
+          </div>
           <div class="setup-list" style="margin-top: 10px;">
             ${schedule.times.map((time) => `
               <div class="setup-row">
@@ -2053,6 +2112,10 @@
 
     document.querySelectorAll("[data-edit-seizure]").forEach((button) => {
       button.addEventListener("click", () => editSeizure(button.dataset.editSeizure));
+    });
+
+    document.querySelectorAll("[data-edit-record]").forEach((button) => {
+      button.addEventListener("click", () => editRecord(button.dataset.editRecord));
     });
 
     document.querySelectorAll("[data-filter]").forEach((button) => {
@@ -2374,6 +2437,7 @@
     if (action === "sign-out") signOut();
     if (action === "reset-data") resetData();
     if (action === "cancel-seizure-edit") cancelSeizureEdit();
+    if (action === "cancel-record-edit") cancelRecordEdit();
     if (action === "clear-history-search") {
       state.timelineSearch = "";
       state.timelineLimit = HISTORY_PAGE_SIZE;
@@ -2483,6 +2547,7 @@
         syncStatus: "local"
       });
       if (state.editingSeizureId === id) state.editingSeizureId = "";
+      if (state.editingRecordId === id) state.editingRecordId = "";
       await hydrate();
       render();
       restoreScroll();
@@ -2501,6 +2566,7 @@
     }
 
     state.editingSeizureId = existing.id;
+    state.editingRecordId = "";
     state.severity = existing.severity || 3;
     state.activeTab = "log";
     render();
@@ -2509,6 +2575,25 @@
 
   function cancelSeizureEdit() {
     state.editingSeizureId = "";
+    render();
+  }
+
+  function editRecord(id) {
+    const record = state.events.find(
+      (event) => event.id === id && ["note", "vet_visit", "blood_test"].includes(event.type)
+    );
+    if (!record) {
+      showToast("That record could not be opened.");
+      return;
+    }
+    state.editingRecordId = id;
+    state.editingSeizureId = "";
+    state.activeTab = "log";
+    render();
+  }
+
+  function cancelRecordEdit() {
+    state.editingRecordId = "";
     render();
   }
 
@@ -2570,20 +2655,22 @@
     event.preventDefault();
     if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
+    const existingId = String(form.get("id") || "").trim();
+    const existing = existingId ? await dbGet("events", existingId) : null;
     const title = String(form.get("title") || "Care note").trim() || "Care note";
     const body = String(form.get("body") || "").trim();
     if (!body) return;
     const timestamp = nowIso();
 
     const record = {
-      id: uid(),
+      id: existing?.id || uid(),
       dogId: DOG_ID,
       type: "note",
-      dayKey: localDateKey(new Date()),
-      occurredAt: timestamp,
+      dayKey: existing?.dayKey || localDateKey(new Date()),
+      occurredAt: existing?.occurredAt || timestamp,
       title,
       body,
-      createdAt: timestamp,
+      createdAt: existing?.createdAt || timestamp,
       updatedAt: timestamp,
       syncStatus: "local"
     };
@@ -2591,9 +2678,10 @@
     try {
       await persistEventMutation(record);
       await hydrate();
+      if (existing) state.editingRecordId = "";
       state.activeTab = "today";
       render();
-      showToast("Note saved.");
+      showToast(existing ? "Note updated." : "Note saved.");
     } catch (error) {
       reportCloudSaveFailure(error);
     }
@@ -2603,13 +2691,15 @@
     event.preventDefault();
     if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
+    const existingId = String(form.get("id") || "").trim();
+    const existing = existingId ? await dbGet("events", existingId) : null;
     const date = String(form.get("date") || toDateInputValue(new Date()));
     const time = String(form.get("time") || "12:00");
     const occurredAt = new Date(`${date}T${time}`);
     const timestamp = nowIso();
 
     const record = {
-      id: uid(),
+      id: existing?.id || uid(),
       dogId: DOG_ID,
       type: "vet_visit",
       dayKey: localDateKey(occurredAt),
@@ -2618,7 +2708,7 @@
       reason: String(form.get("reason") || "Vet visit").trim() || "Vet visit",
       weight: String(form.get("weight") || "").trim(),
       plan: String(form.get("plan") || "").trim(),
-      createdAt: timestamp,
+      createdAt: existing?.createdAt || timestamp,
       updatedAt: timestamp,
       syncStatus: "local"
     };
@@ -2626,9 +2716,10 @@
     try {
       await persistEventMutation(record);
       await hydrate();
+      if (existing) state.editingRecordId = "";
       state.activeTab = "today";
       render();
-      showToast("Vet visit saved.");
+      showToast(existing ? "Vet visit updated." : "Vet visit saved.");
     } catch (error) {
       reportCloudSaveFailure(error);
     }
@@ -2638,23 +2729,29 @@
     event.preventDefault();
     if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
+    const existingId = String(form.get("id") || "").trim();
+    const existing = existingId ? await dbGet("events", existingId) : null;
     const date = String(form.get("date") || toDateInputValue(new Date()));
     const time = String(form.get("time") || "12:00");
     const occurredAt = new Date(`${date}T${time}`);
     const timestamp = nowIso();
+    const phenobarbital = readLabLevel(form, "phenobarbital");
+    const bromide = readLabLevel(form, "bromide");
 
     const record = {
-      id: uid(),
+      id: existing?.id || uid(),
       dogId: DOG_ID,
       type: "blood_test",
       dayKey: localDateKey(occurredAt),
       occurredAt: occurredAt.toISOString(),
       panel: String(form.get("panel") || "Blood test").trim() || "Blood test",
-      phenobarbitalLevel: String(form.get("phenobarbitalLevel") || "").trim(),
-      bromideLevel: String(form.get("bromideLevel") || "").trim(),
+      phenobarbital,
+      bromide,
+      phenobarbitalLevel: phenobarbital ? formatLabLevel(phenobarbital) : existing?.phenobarbitalLevel || "",
+      bromideLevel: bromide ? formatLabLevel(bromide) : existing?.bromideLevel || "",
       results: String(form.get("results") || "").trim(),
       notes: String(form.get("notes") || "").trim(),
-      createdAt: timestamp,
+      createdAt: existing?.createdAt || timestamp,
       updatedAt: timestamp,
       syncStatus: "local"
     };
@@ -2662,12 +2759,32 @@
     try {
       await persistEventMutation(record);
       await hydrate();
+      if (existing) state.editingRecordId = "";
       state.activeTab = "today";
       render();
-      showToast("Blood test saved.");
+      showToast(existing ? "Blood test updated." : "Blood test saved.");
     } catch (error) {
       reportCloudSaveFailure(error);
     }
+  }
+
+  function readLabLevel(form, prefix) {
+    const rawValue = String(form.get(`${prefix}Value`) || "").trim();
+    if (!rawValue) return null;
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return null;
+    return {
+      value,
+      unit: String(form.get(`${prefix}Unit`) || "").trim(),
+      referenceRange: String(form.get(`${prefix}ReferenceRange`) || "").trim()
+    };
+  }
+
+  function formatLabLevel(level) {
+    if (!level || !Number.isFinite(Number(level.value))) return "";
+    return [String(level.value), level.unit || "", level.referenceRange ? `(target ${level.referenceRange})` : ""]
+      .filter(Boolean)
+      .join(" ");
   }
 
   async function loadVetDocuments(options = {}) {
@@ -2840,7 +2957,7 @@
     const form = new FormData(event.currentTarget);
     const timestamp = nowIso();
     const dogName = String(form.get("dogName") || "Sawyer").trim() || "Sawyer";
-    const changeNotes = [];
+    const regimenChanges = [];
 
     const updatedProfile = {
       ...state.profile,
@@ -2853,6 +2970,7 @@
       ...schedule,
       dose: String(form.get(`${schedule.id}:dose`) || "").trim(),
       unit: String(form.get(`${schedule.id}:unit`) || "").trim(),
+      effectiveFrom: String(form.get(`${schedule.id}:effectiveFrom`) || "").trim(),
       times: schedule.times.map((time) => ({
         ...time,
         label: String(form.get(`${schedule.id}:${time.id}:label`) || time.label).trim() || time.label,
@@ -2865,33 +2983,32 @@
     updatedSchedules.forEach((updated) => {
       const original = state.schedules.find((schedule) => schedule.id === updated.id);
       if (!original) return;
-      const originalDose = [original.dose, original.unit].filter(Boolean).join(" ") || "no dose set";
-      const updatedDose = [updated.dose, updated.unit].filter(Boolean).join(" ") || "no dose set";
-      if (originalDose !== updatedDose) {
-        changeNotes.push(`${updated.name} dose changed from ${originalDose} to ${updatedDose}`);
-      }
-      updated.times.forEach((time) => {
-        const originalTime = original.times.find((item) => item.id === time.id);
-        if (originalTime && originalTime.time !== time.time) {
-          changeNotes.push(`${updated.name} ${time.label} time changed from ${originalTime.time} to ${time.time}`);
-        }
-      });
-    });
+      const previous = scheduleRegimenSnapshot(original);
+      const next = scheduleRegimenSnapshot(updated);
+      if (JSON.stringify(previous) === JSON.stringify(next)) return;
 
-    const changeEvent = changeNotes.length
-      ? {
+      const effectiveDate = updated.effectiveFrom || localDateKey(new Date());
+      const occurredAt = updated.effectiveFrom
+        ? localTimeToDate(updated.effectiveFrom, "12:00").toISOString()
+        : timestamp;
+      regimenChanges.push({
         id: uid(),
         dogId: DOG_ID,
-        type: "note",
-        dayKey: localDateKey(new Date()),
-        occurredAt: timestamp,
-        title: "Care setup updated",
-        body: changeNotes.join(". "),
+        type: "regimen_change",
+        scheduleId: updated.id,
+        medicationName: updated.name,
+        kind: updated.kind,
+        effectiveFrom: updated.effectiveFrom || "",
+        effectiveDateKnown: Boolean(updated.effectiveFrom),
+        previous,
+        next,
+        dayKey: effectiveDate,
+        occurredAt,
         createdAt: timestamp,
         updatedAt: timestamp,
         syncStatus: "local"
-      }
-      : null;
+      });
+    });
 
     try {
       await persistCloudRecords({
@@ -2904,13 +3021,32 @@
         tableName: SUPABASE_TABLES.schedules,
         records: updatedSchedules
       });
-      if (changeEvent) await persistEventMutation(changeEvent);
+      if (regimenChanges.length) {
+        await persistCloudRecords({
+          storeName: "events",
+          tableName: SUPABASE_TABLES.events,
+          records: regimenChanges
+        });
+      }
       await hydrate();
       render();
       showToast("Setup saved.");
     } catch (error) {
       reportCloudSaveFailure(error);
     }
+  }
+
+  function scheduleRegimenSnapshot(schedule) {
+    return {
+      dose: schedule.dose || "",
+      unit: schedule.unit || "",
+      effectiveFrom: schedule.effectiveFrom || "",
+      times: (schedule.times || []).map((time) => ({
+        id: time.id,
+        label: time.label,
+        time: time.time
+      }))
+    };
   }
 
   async function saveSyncConfig(event) {
@@ -3824,13 +3960,22 @@
   }
 
   function buildMctInsight(seizures, gaps) {
-    const firstMct = state.events
-      .filter((event) => event.type === "dose" && event.scheduleId === "supp-mct-c8-c10" && event.status === "given")
-      .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt))[0];
+    const mctSchedule = state.schedules.find((schedule) => schedule.id === "supp-mct-c8-c10");
+    const knownRegimenDates = state.events
+      .filter(
+        (event) =>
+          event.type === "regimen_change" &&
+          event.scheduleId === "supp-mct-c8-c10" &&
+          event.effectiveDateKnown &&
+          event.effectiveFrom
+      )
+      .map((event) => event.effectiveFrom);
+    if (mctSchedule?.effectiveFrom) knownRegimenDates.push(mctSchedule.effectiveFrom);
+    const firstMctDate = knownRegimenDates.sort()[0];
 
-    if (!firstMct || gaps.length < 3) return null;
+    if (!firstMctDate || gaps.length < 3) return null;
 
-    const firstMctTime = new Date(firstMct.occurredAt).getTime();
+    const firstMctTime = localTimeToDate(firstMctDate, "00:00").getTime();
     const before = gaps.filter((gap) => new Date(gap.to.occurredAt).getTime() < firstMctTime).map((gap) => gap.days);
     const after = gaps.filter((gap) => new Date(gap.from.occurredAt).getTime() >= firstMctTime).map((gap) => gap.days);
 
@@ -3842,7 +3987,7 @@
 
     return {
       title: "MCT oil context",
-      body: `Logged seizure gaps average ${round1(beforeAvg)} days before the first MCT oil record and ${round1(afterAvg)} days after. The after-MCT logged gaps are ${direction} so far.`
+      body: `Logged seizure gaps average ${round1(beforeAvg)} days before the recorded MCT regimen start and ${round1(afterAvg)} days after. The after-MCT logged gaps are ${direction} so far.`
     };
   }
 
@@ -3903,6 +4048,7 @@
       event.results,
       event.notes,
       event.trigger,
+      event.type === "regimen_change" ? formatRegimenSummary(event.next) : "",
       ...(event.symptoms || [])
     ]
       .filter(Boolean)
@@ -3936,6 +4082,7 @@
     if (event.type === "note") return event.title || "Care note";
     if (event.type === "vet_visit") return `Vet visit · ${event.reason || event.clinic || "Checkup"}`;
     if (event.type === "blood_test") return `Blood test · ${event.panel || "Results"}`;
+    if (event.type === "regimen_change") return `Regimen change · ${event.medicationName || "Medication"}`;
     return capitalize(event.type || "Record");
   }
 
@@ -3974,15 +4121,39 @@
 
     if (event.type === "blood_test") {
       const parts = [
-        event.phenobarbitalLevel ? `Phenobarbital: ${event.phenobarbitalLevel}` : "",
-        event.bromideLevel ? `Bromide: ${event.bromideLevel}` : "",
+        formatLabLevel(event.phenobarbital) || event.phenobarbitalLevel
+          ? `Phenobarbital: ${formatLabLevel(event.phenobarbital) || event.phenobarbitalLevel}`
+          : "",
+        formatLabLevel(event.bromide) || event.bromideLevel
+          ? `Bromide: ${formatLabLevel(event.bromide) || event.bromideLevel}`
+          : "",
         event.results ? `Results: ${event.results}` : "",
         event.notes ? `Notes: ${event.notes}` : ""
       ].filter(Boolean);
       return parts.map((part) => `<p class="subtle">${escapeHtml(part)}</p>`).join("");
     }
 
+    if (event.type === "regimen_change") {
+      const parts = [
+        `Previous: ${formatRegimenSummary(event.previous)}`,
+        `New: ${formatRegimenSummary(event.next)}`,
+        event.effectiveDateKnown && event.effectiveFrom
+          ? `Effective from: ${formatDateShort(localTimeToDate(event.effectiveFrom, "12:00"))}`
+          : "Effective date was not recorded"
+      ];
+      return parts.map((part) => `<p class="subtle">${escapeHtml(part)}</p>`).join("");
+    }
+
     return "";
+  }
+
+  function formatRegimenSummary(regimen) {
+    if (!regimen) return "not recorded";
+    const dose = [regimen.dose, regimen.unit].filter(Boolean).join(" ") || "dose not set";
+    const times = (regimen.times || [])
+      .map((time) => `${time.label || "Dose"} ${formatTimeInputValue(time.time || "")}`)
+      .join(", ");
+    return [dose, times].filter(Boolean).join(" · ");
   }
 
   function exportJson() {
