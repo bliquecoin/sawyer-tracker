@@ -186,11 +186,17 @@ test("household login, navigation, records, and mobile layout work together", as
   }
 
   await page.getByRole("button", { name: /Stats/i }).last().click();
-  const observations = page.locator("[data-stats-insight]");
-  await expect(observations).toBeVisible();
-  await expect(observations.locator("[data-stats-insight-counter]")).toHaveText("1 of 1");
-  const observationsHeight = await observations.evaluate((element) => element.getBoundingClientRect().height);
-  expect(observationsHeight).toBeLessThan(360);
+  const statsPanel = page.locator(".stats-month-panel");
+  await expect(statsPanel).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tap a month" })).toBeVisible();
+  await page.locator("[data-stats-range='12']").click();
+  await expect(page.locator("[data-stats-range='12']")).toHaveAttribute("aria-pressed", "true");
+  const monthRows = page.locator("[data-stats-month]");
+  await expect(monthRows).toHaveCount(12);
+  await monthRows.first().click();
+  await expect(monthRows.first()).toHaveAttribute("aria-pressed", "true");
+  const statsPanelHeight = await statsPanel.evaluate((element) => element.getBoundingClientRect().height);
+  expect(statsPanelHeight).toBeLessThan(760);
 
   await page.getByRole("button", { name: /Log/i }).last().click();
   const noteDetails = page.locator("details.record-disclosure").filter({ hasText: "Care note" });
