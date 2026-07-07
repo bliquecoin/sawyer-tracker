@@ -65,6 +65,8 @@
     homeInsightTimer: null,
     statsInsightIndex: 0,
     statsInsightSignature: "",
+    statsSelectedMonthKey: "",
+    statsRange: "6",
     vetDocuments: [],
     documentsBusy: false,
     documentsMessage: "",
@@ -1813,106 +1815,223 @@
   }
 
   function renderInsights(summary) {
-    const insights = buildInsights(summary);
-    const insightSignature = insights.map((insight) => `${insight.title}:${insight.body}`).join("|");
-    if (insightSignature !== state.statsInsightSignature) {
-      state.statsInsightSignature = insightSignature;
-      state.statsInsightIndex = 0;
-    }
-    state.statsInsightIndex = clamp(state.statsInsightIndex, 0, Math.max(0, insights.length - 1));
-    const activeInsight = insights[state.statsInsightIndex];
-    const monthly = getMonthlySeizureCounts();
+    const monthly = getStatsMonthlyData(state.statsRange);
+    const selectedMonth = getSelectedStatsMonth(monthly);
     const max = Math.max(...monthly.map((item) => item.count), 1);
+    const patternCards = buildStatsPatternCards(summary, selectedMonth, monthly);
 
     return `
       <div class="stack">
-        <section class="panel">
+        <section class="panel stats-hero-panel">
           <div class="panel-body">
-            <h2>Insights</h2>
-            <div class="metric-row">
+            <div class="stats-hero-heading">
+              <div>
+                <p class="eyebrow">Pattern dashboard</p>
+                <h2>Sawyer's stats</h2>
+              </div>
+              <span>${escapeHtml(selectedMonth.fullLabel)}</span>
+            </div>
+            <div class="metric-row stats-metrics">
               <div class="metric">
-                <span>This month</span>
-                <strong>${summary.thisMonthSeizures}</strong>
+                <span>Seizures</span>
+                <strong>${summary.totalSeizures}</strong>
+              </div>
+              <div class="metric">
+                <span>Current gap</span>
+                <strong>${summary.daysSinceLast === null ? "--" : `${summary.daysSinceLast}d`}</strong>
+              </div>
+              <div class="metric">
+                <span>Average gap</span>
+                <strong>${summary.averageGapText}</strong>
               </div>
               <div class="metric">
                 <span>Longest gap</span>
                 <strong>${summary.longestGapText}</strong>
               </div>
-              <div class="metric">
-                <span>Avg duration</span>
-                <strong>${summary.averageDurationText}</strong>
-              </div>
             </div>
           </div>
         </section>
 
-        <section class="panel observations-panel" data-stats-insight aria-roledescription="carousel" aria-label="Tracking observations">
+        <section class="panel stats-month-panel">
           <div class="panel-body">
-            <div class="observations-heading">
+            <div class="stats-panel-heading">
               <div>
-                <p class="eyebrow">Pattern review</p>
-                <h2>Observations</h2>
+                <p class="eyebrow">Seizures by month</p>
+                <h2>Tap a month</h2>
               </div>
-              <span class="observation-count">${insights.length} available</span>
-            </div>
-            <div class="stats-observation-copy" aria-live="polite">
-              <span class="observation-kicker" data-stats-insight-kicker>
-                Observation ${String(state.statsInsightIndex + 1).padStart(2, "0")}
-              </span>
-              <h3 data-stats-insight-title>${escapeHtml(activeInsight.title)}</h3>
-              <p class="subtle" data-stats-insight-body>${escapeHtml(activeInsight.body)}</p>
-            </div>
-            <div class="stats-insight-controls">
-              <button
-                class="insight-arrow"
-                data-stats-insight-direction="-1"
-                type="button"
-                aria-label="Previous observation"
-                ${insights.length < 2 ? "disabled" : ""}
-              >←</button>
-              <div class="insight-dots" aria-label="Choose observation">
-                ${insights.map((insight, index) => `
+              <div class="stats-range-control" aria-label="Choose stats range">
+                ${[
+                  ["6", "6M"],
+                  ["12", "12M"],
+                  ["all", "All"]
+                ].map(([value, label]) => `
                   <button
-                    class="${index === state.statsInsightIndex ? "active" : ""}"
-                    data-stats-insight-index="${index}"
+                    class="${state.statsRange === value ? "active" : ""}"
+                    data-stats-range="${escapeHtml(value)}"
                     type="button"
-                    aria-label="Observation ${index + 1}: ${escapeHtml(insight.title)}"
-                    aria-current="${index === state.statsInsightIndex ? "true" : "false"}"
-                  ></button>
+                    aria-pressed="${state.statsRange === value ? "true" : "false"}"
+                  >${escapeHtml(label)}</button>
                 `).join("")}
               </div>
-              <button
-                class="insight-arrow"
-                data-stats-insight-direction="1"
-                type="button"
-                aria-label="Next observation"
-                ${insights.length < 2 ? "disabled" : ""}
-              >→</button>
-              <span class="insight-counter" data-stats-insight-counter>
-                ${state.statsInsightIndex + 1} of ${insights.length}
-              </span>
             </div>
+            <div class="stats-month-chart" aria-label="Monthly seizure counts">
+              ${monthly.map((item, index) => `
+                <button
+                  class="stats-month-bar ${item.key === selectedMonth.key ? "active" : ""}"
+                  data-stats-month="${escapeHtml(item.key)}"
+                  type="button"
+                  aria-pressed="${item.key === selectedMonth.key ? "true" : "false"}"
+                  aria-label="${escapeHtml(`${item.fullLabel}: ${item.count} seizure${item.count === 1 ? "" : "s"}`)}"
+                >
+                  <span class="stats-month-count">${item.count}</span>
+                  <span class="stats-month-track" aria-hidden="true">
+                    <span class="stats-month-fill" style="height: ${(item.count / max) * 100}%"></span>
+                  </span>
+                  <span class="stats-month-name">${escapeHtml(item.label)}</span>
+                  <span class="stats-month-delta ${item.delta > 0 ? "up" : item.delta < 0 ? "down" : ""}">
+                    ${index === 0 ? "base" : formatSignedDelta(item.delta)}
+                  </span>
+                </button>
+              `).join("")}
+            </div>
+            ${renderSelectedStatsMonth(selectedMonth)}
           </div>
+        </section>
+
+        <section class="stats-pattern-grid" aria-label="Pattern breakdown">
+          ${patternCards.map((card) => `
+            <article class="stats-pattern-card ${escapeHtml(card.tone || "")}">
+              <span>${escapeHtml(card.label)}</span>
+              <strong>${escapeHtml(card.value)}</strong>
+              <p>${escapeHtml(card.body)}</p>
+            </article>
+          `).join("")}
         </section>
 
         ${renderAiInsightPanel()}
-
-        <section class="panel">
-          <div class="panel-body">
-            <h2>Seizures by Month</h2>
-            <div class="bar-chart">
-              ${monthly.map((item) => `
-                <div class="bar-row">
-                  <span>${escapeHtml(item.label)}</span>
-                  <div class="bar-track"><div class="bar-fill" style="width: ${(item.count / max) * 100}%"></div></div>
-                  <strong>${item.count}</strong>
-                </div>
-              `).join("")}
-            </div>
-          </div>
-        </section>
       </div>
     `;
+  }
+
+  function renderSelectedStatsMonth(month) {
+    return `
+      <div class="stats-month-detail" data-stats-month-detail>
+        <div>
+          <span class="detail-kicker">${escapeHtml(month.fullLabel)}</span>
+          <h3>${month.count ? `${month.count} seizure${month.count === 1 ? "" : "s"} logged` : "No seizures logged"}</h3>
+          <p class="subtle">${escapeHtml(month.summary)}</p>
+        </div>
+        <div class="stats-detail-grid">
+          <div>
+            <span>Severity</span>
+            <strong>${month.averageSeverityText}</strong>
+          </div>
+          <div>
+            <span>Duration</span>
+            <strong>${month.averageDurationText}</strong>
+          </div>
+          <div>
+            <span>Clusters</span>
+            <strong>${month.clusterCount}</strong>
+          </div>
+          <div>
+            <span>Usual time</span>
+            <strong>${escapeHtml(month.timeWindowText)}</strong>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function buildStatsPatternCards(summary, selectedMonth, months) {
+    const seizures = getSeizuresAsc();
+    const gaps = getSeizureGaps(seizures);
+    const latestBlood = latestEventOfType("blood_test");
+    const latestVet = latestEventOfType("vet_visit");
+    const previousMonth = months[months.findIndex((item) => item.key === selectedMonth.key) - 1];
+    const cards = [];
+
+    cards.push({
+      label: "Selected month",
+      value: `${selectedMonth.count}`,
+      body: previousMonth
+        ? formatMonthDeltaSentence(selectedMonth.count - previousMonth.count, previousMonth.fullLabel)
+        : `${selectedMonth.fullLabel} is the first month in this view.`,
+      tone: selectedMonth.count ? "warm" : "calm"
+    });
+
+    if (summary.daysSinceLast === null) {
+      cards.push({
+        label: "Current gap",
+        value: "--",
+        body: "Log Sawyer's first seizure to start tracking seizure-free spacing.",
+        tone: "calm"
+      });
+    } else {
+      const averageGap = gaps.length ? mean(gaps.map((gap) => gap.days)) : null;
+      cards.push({
+        label: "Current gap",
+        value: `${summary.daysSinceLast} days`,
+        body: averageGap
+          ? `${round1(Math.abs(summary.daysSinceLast - averageGap))} days ${summary.daysSinceLast >= averageGap ? "above" : "below"} the completed-gap average.`
+          : "A second seizure log will unlock gap comparisons.",
+        tone: summary.daysSinceLast >= (averageGap || 0) ? "positive" : "warm"
+      });
+    }
+
+    cards.push({
+      label: "Cluster watch",
+      value: `${selectedMonth.clusterCount}`,
+      body: selectedMonth.clusterCount
+        ? `${selectedMonth.clusterCount} seizure${selectedMonth.clusterCount === 1 ? " was" : "s were"} flagged as part of a 24-hour cluster in ${selectedMonth.fullLabel}.`
+        : `No cluster flags inside ${selectedMonth.fullLabel}.`,
+      tone: selectedMonth.clusterCount ? "alert" : "positive"
+    });
+
+    const missedNearSeizures = countSeizuresNearMissedDose(seizures);
+    cards.push({
+      label: "Dose context",
+      value: `${missedNearSeizures.total}`,
+      body: missedNearSeizures.total
+        ? `Logged seizure${missedNearSeizures.total === 1 ? "" : "s"} occurred within 24 hours after a missed or late dose record.`
+        : "No logged seizures are currently near a missed or late dose record.",
+      tone: missedNearSeizures.total ? "warm" : "positive"
+    });
+
+    if (latestBlood || latestVet) {
+      const latest = [latestBlood, latestVet]
+        .filter(Boolean)
+        .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0];
+      cards.push({
+        label: "Medical context",
+        value: latest.type === "blood_test" ? "Blood" : "Vet",
+        body: `${eventTitle(latest)} was saved on ${formatDateShort(new Date(latest.occurredAt))}. Compare it against month changes here.`,
+        tone: "calm"
+      });
+    }
+
+    return cards.slice(0, 5);
+  }
+
+  function getSelectedStatsMonth(months) {
+    if (!months.length) return null;
+    const selected = months.find((item) => item.key === state.statsSelectedMonthKey);
+    if (selected) return selected;
+    const latestWithSeizure = [...months].reverse().find((item) => item.count > 0);
+    const fallback = latestWithSeizure || months.at(-1);
+    state.statsSelectedMonthKey = fallback.key;
+    return fallback;
+  }
+
+  function formatSignedDelta(value) {
+    if (value > 0) return `+${value}`;
+    return String(value);
+  }
+
+  function formatMonthDeltaSentence(value, comparisonLabel) {
+    if (value > 0) return `${value} more than ${comparisonLabel}.`;
+    if (value < 0) return `${Math.abs(value)} fewer than ${comparisonLabel}.`;
+    return `No change from ${comparisonLabel}.`;
   }
 
   function renderAiInsightPanel() {
@@ -2284,6 +2403,21 @@
     document.querySelectorAll("[data-stats-insight-index]").forEach((button) => {
       button.addEventListener("click", () => {
         showStatsInsight(Number(button.dataset.statsInsightIndex || 0));
+      });
+    });
+
+    document.querySelectorAll("[data-stats-range]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.statsRange = button.dataset.statsRange || "6";
+        state.statsSelectedMonthKey = "";
+        renderPreservingContentScroll();
+      });
+    });
+
+    document.querySelectorAll("[data-stats-month]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.statsSelectedMonthKey = button.dataset.statsMonth || "";
+        renderPreservingContentScroll();
       });
     });
 
@@ -4074,20 +4208,67 @@
   }
 
   function getMonthlySeizureCounts() {
+    return getStatsMonthlyData("6");
+  }
+
+  function getStatsMonthlyData(range = "6") {
     const now = new Date();
+    const seizures = getSeizuresAsc();
+    const numericRange = Number(range);
+    let monthCount = Number.isFinite(numericRange) ? numericRange : 6;
+    if (range === "all" && seizures.length) {
+      const first = new Date(seizures[0].occurredAt);
+      monthCount =
+        (now.getFullYear() - first.getFullYear()) * 12 +
+        (now.getMonth() - first.getMonth()) +
+        1;
+    }
+    monthCount = clamp(monthCount, 1, 120);
     const months = [];
 
-    for (let index = 5; index >= 0; index -= 1) {
+    for (let index = monthCount - 1; index >= 0; index -= 1) {
       const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
       const key = `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
+      const monthSeizures = seizures.filter((event) => eventDayKey(event).startsWith(key));
+      const severityValues = monthSeizures
+        .map((event) => Number(event.severity))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const durationValues = monthSeizures
+        .map((event) => Number(event.durationSeconds))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const timeWindow = mostCommonSeizureTime(monthSeizures);
       months.push({
         key,
         label: date.toLocaleDateString(undefined, { month: "short" }),
-        count: state.events.filter((event) => event.type === "seizure" && eventDayKey(event).startsWith(key)).length
+        yearLabel: date.toLocaleDateString(undefined, { year: "numeric" }),
+        fullLabel: date.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+        count: monthSeizures.length,
+        delta: 0,
+        averageSeverityText: severityValues.length ? round1(mean(severityValues)).toString() : "--",
+        averageDurationText: durationValues.length ? formatDuration(Math.round(mean(durationValues))) : "--",
+        clusterCount: monthSeizures.filter((event) => event.cluster).length,
+        timeWindowText: timeWindow ? timeWindow.label : "--",
+        summary: describeStatsMonth(date, monthSeizures)
       });
     }
 
+    months.forEach((item, index) => {
+      item.delta = index === 0 ? 0 : item.count - months[index - 1].count;
+    });
+
     return months;
+  }
+
+  function describeStatsMonth(date, seizures) {
+    if (!seizures.length) {
+      return `No seizures were logged in ${date.toLocaleDateString(undefined, { month: "long", year: "numeric" })}.`;
+    }
+    const first = seizures[0];
+    const last = seizures.at(-1);
+    if (seizures.length === 1) {
+      return `One seizure was logged on ${formatDateShort(new Date(first.occurredAt))}.`;
+    }
+    return `${seizures.length} seizures were logged between ${formatDateShort(new Date(first.occurredAt))} and ${formatDateShort(new Date(last.occurredAt))}.`;
   }
 
   function filteredTimelineEvents() {
