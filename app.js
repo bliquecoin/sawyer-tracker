@@ -990,9 +990,12 @@
           </div>
 
           <div class="stat-glass-grid" aria-label="Tracking statistics">
-            <article class="stat-card featured">
+            <article class="stat-card featured milestone-card">
               <span>Seizure-free</span>
-              <strong>${summary.daysSinceLast ?? "--"}</strong>
+              <div class="stat-value-row">
+                <strong>${summary.daysSinceLast ?? "--"}</strong>
+                ${renderMilestoneTrophies(summary.daysSinceLast)}
+              </div>
               <small>${summary.daysSinceLast === 1 ? "day" : "days"}</small>
             </article>
             <article class="stat-card">
@@ -1040,6 +1043,25 @@
     if (summary.daysSinceLast === 0) return "You logged a seizure today. Keep notes gentle and specific.";
     if (summary.daysSinceLast === 1) return `${name} is 1 day seizure-free.`;
     return `${name} is ${summary.daysSinceLast} days seizure-free.`;
+  }
+
+  function renderMilestoneTrophies(daysSinceLast) {
+    if (!Number.isFinite(daysSinceLast)) return "";
+    const milestones = [10, 20, 30, 50, 75, 100, 150, 200, 365];
+    const reached = milestones.filter((value) => daysSinceLast >= value).slice(-3);
+    if (!reached.length) return "";
+    const label = `Seizure-free milestones reached: ${reached.map((value) => `${value} days`).join(", ")}`;
+    return `
+      <span class="milestone-trophies" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+        ${reached.map((value) => `
+          <span class="pixel-icon pixel-trophy" data-milestone="${value}" aria-hidden="true"></span>
+        `).join("")}
+      </span>
+    `;
+  }
+
+  function renderPixelIcon(type) {
+    return `<span class="pixel-icon pixel-${escapeHtml(type)}" aria-hidden="true"></span>`;
   }
 
   function timeOfDayGreeting(date) {
@@ -1169,7 +1191,10 @@
         <div class="trend-section monthly-outlook-section">
           <div class="trend-copy">
             <p class="eyebrow">Monthly outlook</p>
-            <h2>Seizures by month</h2>
+            <div class="pixel-heading-row">
+              <h2>Seizures by month</h2>
+              ${renderPixelIcon("calendar")}
+            </div>
             <p class="subtle">${escapeHtml(`${trendText} Showing ${trendRangeLabel}.`)}</p>
           </div>
           <div class="stats-range-control home-trend-range-control" aria-label="Choose homepage seizure trend range">
