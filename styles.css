@@ -494,16 +494,16 @@ p {
   min-height: 174px;
   overflow: hidden;
   padding: 16px;
-  border-color: rgba(255, 117, 132, 0.38);
+  border-color: rgba(255, 83, 102, 0.44);
   background:
-    radial-gradient(circle at 86% 16%, rgba(255, 179, 50, 0.22), transparent 34%),
-    radial-gradient(circle at 16% 12%, rgba(255, 117, 132, 0.26), transparent 40%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(255, 224, 229, 0.62)),
+    radial-gradient(circle at 84% 15%, rgba(255, 183, 75, 0.44), transparent 36%),
+    radial-gradient(circle at 12% 10%, rgba(255, 71, 95, 0.36), transparent 42%),
+    linear-gradient(145deg, rgba(255, 250, 250, 0.86), rgba(255, 202, 211, 0.72)),
     var(--glass);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
     inset 0 -18px 34px rgba(255, 255, 255, 0.36),
-    0 18px 40px rgba(255, 117, 132, 0.18);
+    0 18px 42px rgba(255, 83, 102, 0.22);
 }
 
 .seizure-free-card::before {
@@ -514,21 +514,21 @@ p {
   border-radius: 18px;
   background:
     linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent),
-    radial-gradient(circle at 50% 92%, rgba(255, 117, 132, 0.18), transparent 46%);
+    radial-gradient(circle at 50% 92%, rgba(255, 71, 95, 0.24), transparent 46%);
   opacity: 0.72;
 }
 
 .seizure-free-card.calm-streak {
-  border-color: rgba(255, 117, 132, 0.34);
+  border-color: rgba(255, 83, 102, 0.44);
   background:
-    radial-gradient(circle at 86% 16%, rgba(255, 179, 50, 0.24), transparent 34%),
-    radial-gradient(circle at 12% 16%, rgba(255, 117, 132, 0.22), transparent 42%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(255, 230, 232, 0.64)),
+    radial-gradient(circle at 84% 15%, rgba(255, 183, 75, 0.48), transparent 36%),
+    radial-gradient(circle at 12% 14%, rgba(255, 71, 95, 0.34), transparent 42%),
+    linear-gradient(145deg, rgba(255, 250, 250, 0.88), rgba(255, 207, 214, 0.74)),
     var(--glass);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
     inset 0 -18px 34px rgba(255, 255, 255, 0.36),
-    0 18px 40px rgba(255, 117, 132, 0.18);
+    0 18px 42px rgba(255, 83, 102, 0.22);
 }
 
 .seizure-free-header {
@@ -557,7 +557,7 @@ p {
 }
 
 .seizure-free-card.calm-streak .seizure-free-header em {
-  color: #d94c5e;
+  color: #d9364e;
 }
 
 .stat-value-row {
@@ -607,11 +607,11 @@ p {
 
 .seizure-free-card .stat-value-row strong {
   color: var(--ink);
-  text-shadow: 0 7px 22px rgba(255, 117, 132, 0.18);
+  text-shadow: 0 7px 22px rgba(255, 83, 102, 0.2);
 }
 
 .seizure-free-card.calm-streak .stat-value-row strong {
-  text-shadow: 0 7px 22px rgba(255, 117, 132, 0.2);
+  text-shadow: 0 7px 22px rgba(255, 83, 102, 0.22);
 }
 
 .seizure-free-unit {
@@ -642,13 +642,13 @@ p {
   inset: 0 auto 0 0;
   width: var(--streak-progress);
   border-radius: inherit;
-  background: linear-gradient(90deg, #ff7584, #ffb332);
-  box-shadow: 0 0 16px rgba(255, 117, 132, 0.34);
+  background: linear-gradient(90deg, #ff3356, #ffb332);
+  box-shadow: 0 0 16px rgba(255, 83, 102, 0.36);
 }
 
 .seizure-free-card.calm-streak .streak-progress > span::before {
-  background: linear-gradient(90deg, #ff7584, #ffb332);
-  box-shadow: 0 0 16px rgba(255, 117, 132, 0.32);
+  background: linear-gradient(90deg, #ff3356, #ffb332);
+  box-shadow: 0 0 16px rgba(255, 83, 102, 0.34);
 }
 
 .streak-progress small {
@@ -661,8 +661,8 @@ p {
   flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: center;
-  gap: 3px;
-  max-width: 54px;
+  gap: 4px;
+  max-width: 58px;
   padding: 0 0 4px;
 }
 
@@ -687,18 +687,6 @@ p {
     -12px 14px rgba(255, 107, 87, 0.58);
 }
 
-.sparkle-two {
-  right: 52px;
-  bottom: 28px;
-  background: var(--brand);
-  transform: scale(0.78);
-  box-shadow:
-    0 -6px rgba(255, 179, 50, 0.9),
-    0 6px rgba(255, 179, 50, 0.9),
-    -6px 0 rgba(255, 179, 50, 0.9),
-    6px 0 rgba(255, 179, 50, 0.9);
-}
-
 .pixel-icon {
   position: relative;
   display: inline-block;
@@ -709,51 +697,92 @@ p {
 }
 
 .pixel-heart {
-  width: 14px;
-  height: 14px;
+  width: 20px;
+  height: 20px;
   animation: heart-bob 1.8s ease-in-out infinite;
   animation-delay: calc(var(--heart-index) * 0.14s);
-  filter: drop-shadow(0 4px 5px rgba(217, 76, 94, 0.18));
+  filter: drop-shadow(0 4px 5px rgba(217, 54, 78, 0.18));
 }
 
 .pixel-heart::before {
   content: "";
   position: absolute;
-  top: 1px;
-  left: 1px;
+  top: 0;
+  left: 0;
   width: 2px;
   height: 2px;
   background: transparent;
   box-shadow:
-    2px 0 #ff7584,
-    8px 0 #ff7584,
-    0 2px #ff7584,
-    2px 2px #ff4f68,
-    4px 2px #ff4f68,
-    6px 2px #ff4f68,
-    8px 2px #ff4f68,
-    10px 2px #ff7584,
-    0 4px #ff4f68,
-    2px 4px #ff4f68,
-    4px 4px #ff3657,
-    6px 4px #ff3657,
-    8px 4px #ff4f68,
-    10px 4px #ff4f68,
-    2px 6px #ff4f68,
-    4px 6px #ff3657,
-    6px 6px #ff3657,
-    8px 6px #ff4f68,
-    4px 8px #ff4f68,
-    6px 8px #ff4f68,
-    6px 10px #ff7584;
+    4px 0 #050505,
+    6px 0 #050505,
+    12px 0 #050505,
+    14px 0 #050505,
+    2px 2px #050505,
+    4px 2px #f00510,
+    6px 2px #f00510,
+    8px 2px #050505,
+    10px 2px #050505,
+    12px 2px #f00510,
+    14px 2px #f00510,
+    16px 2px #050505,
+    0 4px #050505,
+    2px 4px #f00510,
+    4px 4px #ffffff,
+    6px 4px #f00510,
+    8px 4px #e0000b,
+    10px 4px #d0000a,
+    12px 4px #f00510,
+    14px 4px #f00510,
+    16px 4px #e0000b,
+    18px 4px #050505,
+    0 6px #050505,
+    2px 6px #f00510,
+    4px 6px #ffffff,
+    6px 6px #f00510,
+    8px 6px #f00510,
+    10px 6px #e0000b,
+    12px 6px #f00510,
+    14px 6px #f00510,
+    16px 6px #d0000a,
+    18px 6px #050505,
+    0 8px #050505,
+    2px 8px #f00510,
+    4px 8px #f00510,
+    6px 8px #f00510,
+    8px 8px #f00510,
+    10px 8px #e0000b,
+    12px 8px #d0000a,
+    14px 8px #d0000a,
+    16px 8px #d0000a,
+    18px 8px #050505,
+    2px 10px #050505,
+    4px 10px #f00510,
+    6px 10px #f00510,
+    8px 10px #f00510,
+    10px 10px #e0000b,
+    12px 10px #d0000a,
+    14px 10px #d0000a,
+    16px 10px #050505,
+    4px 12px #050505,
+    6px 12px #f00510,
+    8px 12px #e0000b,
+    10px 12px #d0000a,
+    12px 12px #d0000a,
+    14px 12px #050505,
+    6px 14px #050505,
+    8px 14px #e0000b,
+    10px 14px #d0000a,
+    12px 14px #050505,
+    8px 16px #050505,
+    10px 16px #050505;
 }
 
 .heart-count {
   padding: 2px 4px;
-  border: 1px solid rgba(255, 117, 132, 0.18);
+  border: 1px solid rgba(255, 83, 102, 0.18);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.68);
-  color: #d94c5e;
+  color: #d9364e;
   font-size: 0.56rem;
   font-weight: 950;
   line-height: 1;

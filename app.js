@@ -991,7 +991,6 @@
           <div class="stat-glass-grid" aria-label="Tracking statistics">
             <article class="stat-card featured milestone-card seizure-free-card ${summary.daysSinceLast > 0 ? "calm-streak" : "watch-day"}">
               <i class="pixel-sparkle sparkle-one" aria-hidden="true"></i>
-              <i class="pixel-sparkle sparkle-two" aria-hidden="true"></i>
               <div class="seizure-free-header">
                 <span>Seizure-free</span>
                 <em>${summary.daysSinceLast > 0 ? "Calm" : "Care"}</em>
