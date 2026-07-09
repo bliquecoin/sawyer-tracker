@@ -63,6 +63,7 @@
     homeInsightIndex: 0,
     homeInsightSignature: "",
     homeInsightTimer: null,
+    homeTrendRange: "6",
     homeSelectedMonthKey: "",
     statsInsightIndex: 0,
     statsInsightSignature: "",
@@ -1095,7 +1096,7 @@
   }
 
   function renderSeizureTrend(summary) {
-    const monthly = getStatsMonthlyData("6");
+    const monthly = getStatsMonthlyData(state.homeTrendRange);
     const selectedMonth = getSelectedHomeMonth(monthly);
     const previousMonth = monthly[monthly.findIndex((item) => item.key === selectedMonth.key) - 1];
     const max = Math.max(...monthly.map((item) => item.count), 1);
@@ -1116,6 +1117,8 @@
       const y = topPad + plotHeight - (item.count / max) * plotHeight;
       return { ...item, x, y };
     });
+    const labelStep = Math.max(1, Math.ceil(monthly.length / 6));
+    const trendRangeLabel = state.homeTrendRange === "all" ? "all recorded months" : `the last ${state.homeTrendRange} months`;
     const path = points
       .map((point, index) => `${index === 0 ? "M" : "L"} ${round1(point.x)} ${round1(point.y)}`)
       .join(" ");
@@ -1143,7 +1146,7 @@
                 <linearGradient id="trendLineGradient" x1="0" x2="1" y1="0" y2="0">
                   <stop offset="0%" stop-color="#ff8a5f"></stop>
                   <stop offset="52%" stop-color="#ff6b57"></stop>
-                  <stop offset="100%" stop-color="#c74e96"></stop>
+                  <stop offset="100%" stop-color="#d94c3c"></stop>
                 </linearGradient>
               </defs>
               <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.25}" y2="${topPad + plotHeight * 0.25}"></line>
@@ -1151,12 +1154,12 @@
               <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.75}" y2="${topPad + plotHeight * 0.75}"></line>
               <path class="trend-area" d="${areaPath}"></path>
               <path class="trend-line" d="${path}"></path>
-              ${points.map((point) => `
+              ${points.map((point, index) => `
                 <g>
                   <rect class="trend-bar" x="${round1(point.x - 10)}" y="${round1(topPad + plotHeight - (point.count / max) * plotHeight)}" width="20" height="${round1((point.count / max) * plotHeight)}" rx="10"></rect>
                   <circle class="trend-dot" cx="${round1(point.x)}" cy="${round1(point.y)}" r="${point.count ? 4.5 : 3.5}"></circle>
                   <text class="trend-count" x="${round1(point.x)}" y="${round1(Math.max(10, point.y - 8))}">${point.count}</text>
-                  <text class="trend-label" x="${round1(point.x)}" y="${chartHeight - 5}">${escapeHtml(point.label)}</text>
+                  ${(index === 0 || index === points.length - 1 || index % labelStep === 0) ? `<text class="trend-label" x="${round1(point.x)}" y="${chartHeight - 5}">${escapeHtml(point.label)}</text>` : ""}
                 </g>
               `).join("")}
             </svg>
@@ -1167,9 +1170,23 @@
           <div class="trend-copy">
             <p class="eyebrow">Monthly outlook</p>
             <h2>Seizures by month</h2>
-            <p class="subtle">${escapeHtml(trendText)}</p>
+            <p class="subtle">${escapeHtml(`${trendText} Showing ${trendRangeLabel}.`)}</p>
           </div>
-          <div class="home-month-chart" aria-label="Seizures over the last six months">
+          <div class="stats-range-control home-trend-range-control" aria-label="Choose homepage seizure trend range">
+            ${[
+              ["6", "6M"],
+              ["12", "12M"],
+              ["all", "All"]
+            ].map(([value, label]) => `
+              <button
+                class="${state.homeTrendRange === value ? "active" : ""}"
+                data-home-trend-range="${escapeHtml(value)}"
+                type="button"
+                aria-pressed="${state.homeTrendRange === value ? "true" : "false"}"
+              >${escapeHtml(label)}</button>
+            `).join("")}
+          </div>
+          <div class="home-month-chart" aria-label="Monthly seizure counts for ${escapeHtml(trendRangeLabel)}">
             ${monthly.map((item, index) => `
               <button
                 class="home-month-bar ${item.key === selectedMonth.key ? "active" : ""}"
@@ -2469,6 +2486,14 @@
     document.querySelectorAll("[data-stats-month]").forEach((button) => {
       button.addEventListener("click", () => {
         state.statsSelectedMonthKey = button.dataset.statsMonth || "";
+        renderPreservingContentScroll();
+      });
+    });
+
+    document.querySelectorAll("[data-home-trend-range]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.homeTrendRange = button.dataset.homeTrendRange || "6";
+        state.homeSelectedMonthKey = "";
         renderPreservingContentScroll();
       });
     });
