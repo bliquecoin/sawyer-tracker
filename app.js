@@ -1149,9 +1149,12 @@
     return `
       <section class="trend-card glass-panel">
         <div class="trend-topline">
-          <div class="trend-copy">
-            <p class="eyebrow">Seizure trend</p>
-            <h2>At a glance</h2>
+          <div class="pixel-heading-lockup trend-copy">
+            ${renderPixelIcon("trend")}
+            <div>
+              <p class="eyebrow">Seizure trend</p>
+              <h2>At a glance</h2>
+            </div>
             <p class="subtle">${summary.totalSeizures ? `${summary.totalSeizures} seizure${summary.totalSeizures === 1 ? "" : "s"} tracked across your timeline.` : "Your graph will build as seizures are logged."}</p>
           </div>
           <button class="btn ghost small" data-tab="insights" type="button">Stats</button>
@@ -1189,11 +1192,11 @@
         </div>
 
         <div class="trend-section monthly-outlook-section">
-          <div class="trend-copy">
-            <p class="eyebrow">Monthly outlook</p>
-            <div class="pixel-heading-row">
+          <div class="pixel-heading-lockup trend-copy">
+            ${renderPixelIcon("calendar")}
+            <div>
+              <p class="eyebrow">Monthly outlook</p>
               <h2>Seizures by month</h2>
-              ${renderPixelIcon("calendar")}
             </div>
             <p class="subtle">${escapeHtml(`${trendText} Showing ${trendRangeLabel}.`)}</p>
           </div>
