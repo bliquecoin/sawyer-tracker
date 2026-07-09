@@ -544,12 +544,23 @@ p {
 
 .trend-card {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   padding: 16px;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.36)),
     radial-gradient(ellipse at 24% 0%, rgba(255, 138, 95, 0.16), transparent 48%),
     radial-gradient(ellipse at 94% 16%, rgba(31, 138, 131, 0.1), transparent 42%),
+    var(--glass);
+}
+
+.monthly-outlook-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.34)),
+    radial-gradient(ellipse at 18% 0%, rgba(245, 239, 255, 0.52), transparent 50%),
+    radial-gradient(ellipse at 88% 18%, rgba(255, 180, 95, 0.14), transparent 42%),
     var(--glass);
 }
 

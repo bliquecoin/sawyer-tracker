@@ -168,6 +168,8 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
+  await expect(page.locator(".trend-chart")).toBeVisible();
+  await expect(page.locator(".day-browser")).toHaveCount(0);
   await expect(page.locator(".home-month-chart")).toBeVisible();
   const homeMonthButtons = page.locator("[data-home-stats-month]");
   await expect(homeMonthButtons).toHaveCount(6);
