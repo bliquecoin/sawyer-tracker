@@ -1099,61 +1099,42 @@
   }
 
   function renderSeizureTrend(summary) {
-    const monthly = getMonthlySeizureCounts();
+    const monthly = getStatsMonthlyData("6");
+    const selectedMonth = [...monthly].reverse().find((item) => item.count > 0) || monthly.at(-1);
+    const previousMonth = monthly[monthly.findIndex((item) => item.key === selectedMonth.key) - 1];
     const max = Math.max(...monthly.map((item) => item.count), 1);
-    const chartWidth = 300;
-    const chartHeight = 116;
-    const leftPad = 16;
-    const rightPad = 16;
-    const bottomPad = 24;
-    const topPad = 14;
-    const plotWidth = chartWidth - leftPad - rightPad;
-    const plotHeight = chartHeight - topPad - bottomPad;
-    const step = plotWidth / Math.max(monthly.length - 1, 1);
-    const points = monthly.map((item, index) => {
-      const x = leftPad + step * index;
-      const y = topPad + plotHeight - (item.count / max) * plotHeight;
-      return { ...item, x, y };
-    });
-    const path = points
-      .map((point, index) => `${index === 0 ? "M" : "L"} ${round1(point.x)} ${round1(point.y)}`)
-      .join(" ");
-    const areaPath = `${path} L ${round1(points.at(-1).x)} ${chartHeight - bottomPad} L ${round1(points[0].x)} ${chartHeight - bottomPad} Z`;
+    const trendText = selectedMonth.count
+      ? `${selectedMonth.count} seizure${selectedMonth.count === 1 ? "" : "s"} in ${selectedMonth.fullLabel}${previousMonth ? `, ${formatMonthDeltaPhrase(selectedMonth.count - previousMonth.count, previousMonth.fullLabel)}.` : "."}`
+      : `No seizures logged in ${selectedMonth.fullLabel}.`;
 
     return `
       <section class="trend-card glass-panel">
-        <div class="trend-copy">
-          <p class="eyebrow">Seizure trend</p>
-          <h2>At a glance</h2>
-          <p class="subtle">${summary.totalSeizures ? `${summary.totalSeizures} seizure${summary.totalSeizures === 1 ? "" : "s"} tracked across your timeline.` : "Your graph will build as seizures are logged."}</p>
+        <div class="trend-topline">
+          <div class="trend-copy">
+            <p class="eyebrow">Monthly outlook</p>
+            <h2>Seizures by month</h2>
+            <p class="subtle">${summary.totalSeizures ? escapeHtml(trendText) : "This chart will build as seizures are logged."}</p>
+          </div>
+          <button class="btn ghost small" data-tab="insights" type="button">Stats</button>
         </div>
-        <div class="trend-chart" aria-label="Seizures over the last six months">
-          <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Monthly seizure trend">
-            <defs>
-              <linearGradient id="trendAreaGradient" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stop-color="rgba(255, 107, 87, 0.28)"></stop>
-                <stop offset="100%" stop-color="rgba(255, 107, 87, 0.02)"></stop>
-              </linearGradient>
-              <linearGradient id="trendLineGradient" x1="0" x2="1" y1="0" y2="0">
-                <stop offset="0%" stop-color="#ff8a5f"></stop>
-                <stop offset="52%" stop-color="#ff6b57"></stop>
-                <stop offset="100%" stop-color="#c74e96"></stop>
-              </linearGradient>
-            </defs>
-            <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.25}" y2="${topPad + plotHeight * 0.25}"></line>
-            <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.5}" y2="${topPad + plotHeight * 0.5}"></line>
-            <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.75}" y2="${topPad + plotHeight * 0.75}"></line>
-            <path class="trend-area" d="${areaPath}"></path>
-            <path class="trend-line" d="${path}"></path>
-            ${points.map((point) => `
-              <g>
-                <rect class="trend-bar" x="${round1(point.x - 10)}" y="${round1(topPad + plotHeight - (point.count / max) * plotHeight)}" width="20" height="${round1((point.count / max) * plotHeight)}" rx="10"></rect>
-                <circle class="trend-dot" cx="${round1(point.x)}" cy="${round1(point.y)}" r="${point.count ? 4.5 : 3.5}"></circle>
-                <text class="trend-count" x="${round1(point.x)}" y="${round1(Math.max(10, point.y - 8))}">${point.count}</text>
-                <text class="trend-label" x="${round1(point.x)}" y="${chartHeight - 5}">${escapeHtml(point.label)}</text>
-              </g>
-            `).join("")}
-          </svg>
+        <div class="home-month-chart" aria-label="Seizures over the last six months">
+          ${monthly.map((item, index) => `
+            <button
+              class="home-month-bar ${item.key === selectedMonth.key ? "active" : ""}"
+              data-home-stats-month="${escapeHtml(item.key)}"
+              type="button"
+              aria-label="${escapeHtml(`${item.fullLabel}: ${item.count} seizure${item.count === 1 ? "" : "s"}. Open Stats.`)}"
+            >
+              <span class="home-month-count">${item.count}</span>
+              <span class="home-month-track" aria-hidden="true">
+                <span class="home-month-fill" style="height: ${(item.count / max) * 100}%"></span>
+              </span>
+              <span class="home-month-name">${escapeHtml(item.label)}</span>
+              <span class="home-month-delta ${item.delta > 0 ? "up" : item.delta < 0 ? "down" : ""}">
+                ${index === 0 ? "base" : formatSignedDelta(item.delta)}
+              </span>
+            </button>
+          `).join("")}
         </div>
       </section>
     `;
@@ -2034,6 +2015,12 @@
     return `No change from ${comparisonLabel}.`;
   }
 
+  function formatMonthDeltaPhrase(value, comparisonLabel) {
+    if (value > 0) return `${value} more than ${comparisonLabel}`;
+    if (value < 0) return `${Math.abs(value)} fewer than ${comparisonLabel}`;
+    return `no change from ${comparisonLabel}`;
+  }
+
   function renderAiInsightPanel() {
     const insight = state.aiInsight;
     const canRun = hasSupabaseConfig() && isSignedIn();
@@ -2418,6 +2405,15 @@
       button.addEventListener("click", () => {
         state.statsSelectedMonthKey = button.dataset.statsMonth || "";
         renderPreservingContentScroll();
+      });
+    });
+
+    document.querySelectorAll("[data-home-stats-month]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.statsSelectedMonthKey = button.dataset.homeStatsMonth || "";
+        state.statsRange = "6";
+        state.activeTab = "insights";
+        render();
       });
     });
 
