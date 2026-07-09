@@ -173,6 +173,7 @@ test("household login, navigation, records, and mobile layout work together", as
   await expect(page.locator(".pixel-calendar")).toBeVisible();
   await expect(page.locator(".milestone-card")).toBeVisible();
   await expect(page.locator(".seizure-free-card .streak-progress")).toBeVisible();
+  await expect(page.locator('[data-view="today"] .medication-plan')).toHaveCount(0);
   await expect(page.locator(".day-browser")).toHaveCount(0);
   await expect(page.locator(".monthly-outlook-card")).toHaveCount(0);
   await expect(page.locator(".home-month-chart")).toBeVisible();
@@ -209,6 +210,10 @@ test("household login, navigation, records, and mobile layout work together", as
   for (const [label, tab] of tabs) {
     await page.getByRole("button", { name: new RegExp(label, "i") }).last().click();
     await expect(page.locator(`[data-view="${tab}"]`)).toHaveClass(/active/);
+    if (tab === "log") {
+      await expect(page.locator('[data-view="log"] .medication-plan')).toBeVisible();
+      await expect(page.locator('[data-view="log"] .medication-plan')).toContainText("Today's medication");
+    }
     const overflow = await page.evaluate(() =>
       Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) -
       document.documentElement.clientWidth
