@@ -3,11 +3,15 @@ const { test, expect } = require("@playwright/test");
 const HOUSEHOLD_ID = "test-household";
 const ACCESS_STORAGE_KEY = "sawyer-household-access-key-hash";
 
-function fakeSupabaseConfig({ failEventWrites = false } = {}) {
+function fakeSupabaseConfig({ failEventWrites = false, seedSeizureDaysAgo = null } = {}) {
   return `
     (() => {
       const householdId = ${JSON.stringify(HOUSEHOLD_ID)};
       const now = new Date().toISOString();
+      const seedSeizureDaysAgo = ${JSON.stringify(seedSeizureDaysAgo)};
+      const seededSeizureAt = Number.isFinite(seedSeizureDaysAgo)
+        ? new Date(Date.now() - seedSeizureDaysAgo * 24 * 60 * 60 * 1000).toISOString()
+        : null;
       const stores = {
         sawyer_households: [{ id: householdId }],
         sawyer_dogs: [{
@@ -28,7 +32,27 @@ function fakeSupabaseConfig({ failEventWrites = false } = {}) {
           deleted_at: null
         }],
         sawyer_schedules: [],
-        sawyer_care_events: [],
+        sawyer_care_events: seededSeizureAt ? [{
+          household_id: householdId,
+          dog_id: "sawyer",
+          id: "seeded-seizure",
+          event_id: "seeded-seizure",
+          type: "seizure",
+          occurred_at: seededSeizureAt,
+          payload: {
+            id: "seeded-seizure",
+            type: "seizure",
+            occurredAt: seededSeizureAt,
+            severity: 2,
+            durationSeconds: 45,
+            timeKnown: false,
+            createdAt: now,
+            updatedAt: now,
+            syncStatus: "synced"
+          },
+          updated_at: now,
+          deleted_at: null
+        }] : [],
         sawyer_vet_documents: []
       };
 
@@ -278,6 +302,17 @@ test("household login, navigation, records, and mobile layout work together", as
   await expect(page.locator("#toast")).toContainText("Record deleted");
   await expect(page.locator("details.timeline-item.seizure")).toHaveCount(0);
 
+  expect(pageErrors).toEqual([]);
+});
+
+test("seizure-free streak earns animated pixel hearts every five days", async ({ page }) => {
+  const pageErrors = await openTracker(page, { seedSeizureDaysAgo: 12 });
+
+  const heartRail = page.locator(".seizure-free-card .streak-hearts");
+  await expect(heartRail).toBeVisible();
+  await expect(heartRail).toHaveAttribute("aria-label", /2 seizure-free hearts earned/);
+  await expect(page.locator(".seizure-free-card .pixel-heart")).toHaveCount(2);
+  await expect(page.locator(".seizure-free-card .streak-progress")).toContainText("days to next heart");
   expect(pageErrors).toEqual([]);
 });
 

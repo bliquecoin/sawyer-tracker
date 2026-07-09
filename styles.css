@@ -494,16 +494,16 @@ p {
   min-height: 174px;
   overflow: hidden;
   padding: 16px;
-  border-color: rgba(255, 150, 97, 0.46);
+  border-color: rgba(255, 117, 132, 0.38);
   background:
-    radial-gradient(circle at 82% 16%, rgba(255, 179, 50, 0.26), transparent 34%),
-    radial-gradient(circle at 12% 14%, rgba(255, 107, 87, 0.24), transparent 38%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 234, 216, 0.56)),
+    radial-gradient(circle at 86% 16%, rgba(255, 179, 50, 0.22), transparent 34%),
+    radial-gradient(circle at 16% 12%, rgba(255, 117, 132, 0.26), transparent 40%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(255, 224, 229, 0.62)),
     var(--glass);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
     inset 0 -18px 34px rgba(255, 255, 255, 0.36),
-    0 18px 38px rgba(255, 107, 87, 0.18);
+    0 18px 40px rgba(255, 117, 132, 0.18);
 }
 
 .seizure-free-card::before {
@@ -514,21 +514,21 @@ p {
   border-radius: 18px;
   background:
     linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent),
-    radial-gradient(circle at 50% 90%, rgba(255, 179, 50, 0.22), transparent 46%);
+    radial-gradient(circle at 50% 92%, rgba(255, 117, 132, 0.18), transparent 46%);
   opacity: 0.72;
 }
 
 .seizure-free-card.calm-streak {
-  border-color: rgba(47, 125, 84, 0.24);
+  border-color: rgba(255, 117, 132, 0.34);
   background:
-    radial-gradient(circle at 82% 16%, rgba(255, 179, 50, 0.26), transparent 34%),
-    radial-gradient(circle at 12% 14%, rgba(47, 125, 84, 0.2), transparent 38%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(220, 245, 241, 0.56)),
+    radial-gradient(circle at 86% 16%, rgba(255, 179, 50, 0.24), transparent 34%),
+    radial-gradient(circle at 12% 16%, rgba(255, 117, 132, 0.22), transparent 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(255, 230, 232, 0.64)),
     var(--glass);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
     inset 0 -18px 34px rgba(255, 255, 255, 0.36),
-    0 18px 40px rgba(47, 125, 84, 0.16);
+    0 18px 40px rgba(255, 117, 132, 0.18);
 }
 
 .seizure-free-header {
@@ -557,7 +557,7 @@ p {
 }
 
 .seizure-free-card.calm-streak .seizure-free-header em {
-  color: var(--good);
+  color: #d94c5e;
 }
 
 .stat-value-row {
@@ -607,11 +607,11 @@ p {
 
 .seizure-free-card .stat-value-row strong {
   color: var(--ink);
-  text-shadow: 0 7px 22px rgba(255, 107, 87, 0.16);
+  text-shadow: 0 7px 22px rgba(255, 117, 132, 0.18);
 }
 
 .seizure-free-card.calm-streak .stat-value-row strong {
-  text-shadow: 0 7px 22px rgba(47, 125, 84, 0.18);
+  text-shadow: 0 7px 22px rgba(255, 117, 132, 0.2);
 }
 
 .seizure-free-unit {
@@ -642,13 +642,13 @@ p {
   inset: 0 auto 0 0;
   width: var(--streak-progress);
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--brand), #ffb332);
-  box-shadow: 0 0 16px rgba(255, 107, 87, 0.34);
+  background: linear-gradient(90deg, #ff7584, #ffb332);
+  box-shadow: 0 0 16px rgba(255, 117, 132, 0.34);
 }
 
 .seizure-free-card.calm-streak .streak-progress > span::before {
-  background: linear-gradient(90deg, var(--good), #ffb332);
-  box-shadow: 0 0 16px rgba(47, 125, 84, 0.28);
+  background: linear-gradient(90deg, #ff7584, #ffb332);
+  box-shadow: 0 0 16px rgba(255, 117, 132, 0.32);
 }
 
 .streak-progress small {
@@ -656,12 +656,14 @@ p {
   font-size: 0.68rem;
 }
 
-.milestone-trophies {
+.streak-hearts {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 3px;
-  padding-top: 2px;
+  max-width: 54px;
+  padding: 0 0 4px;
 }
 
 .pixel-sparkle {
@@ -706,61 +708,72 @@ p {
   image-rendering: pixelated;
 }
 
-.pixel-trophy {
-  width: 26px;
-  height: 26px;
-  filter: drop-shadow(0 5px 7px rgba(217, 76, 60, 0.18));
+.pixel-heart {
+  width: 14px;
+  height: 14px;
+  animation: heart-bob 1.8s ease-in-out infinite;
+  animation-delay: calc(var(--heart-index) * 0.14s);
+  filter: drop-shadow(0 4px 5px rgba(217, 76, 94, 0.18));
 }
 
-.pixel-trophy::before {
+.pixel-heart::before {
   content: "";
   position: absolute;
-  top: 2px;
+  top: 1px;
   left: 1px;
-  width: 4px;
-  height: 4px;
+  width: 2px;
+  height: 2px;
   background: transparent;
   box-shadow:
-    8px 0 #ffe36a,
-    12px 0 #ffe36a,
-    16px 0 #ffe36a,
-    4px 4px #ffb332,
-    8px 4px #ffe36a,
-    12px 4px #ffe36a,
-    16px 4px #ffcf45,
-    20px 4px #ffb332,
-    0 8px #d94c3c,
-    4px 8px #ffb332,
-    8px 8px #ffcf45,
-    12px 8px #ffcf45,
-    16px 8px #ffb332,
-    20px 8px #d94c3c,
-    4px 12px #7d4a18,
-    8px 12px #ffb332,
-    12px 12px #ffb332,
-    16px 12px #7d4a18,
-    8px 16px #d94c3c,
-    12px 16px #d94c3c,
-    4px 20px #7d4a18,
-    8px 20px #7d4a18,
-    12px 20px #7d4a18,
-    16px 20px #7d4a18;
+    2px 0 #ff7584,
+    8px 0 #ff7584,
+    0 2px #ff7584,
+    2px 2px #ff4f68,
+    4px 2px #ff4f68,
+    6px 2px #ff4f68,
+    8px 2px #ff4f68,
+    10px 2px #ff7584,
+    0 4px #ff4f68,
+    2px 4px #ff4f68,
+    4px 4px #ff3657,
+    6px 4px #ff3657,
+    8px 4px #ff4f68,
+    10px 4px #ff4f68,
+    2px 6px #ff4f68,
+    4px 6px #ff3657,
+    6px 6px #ff3657,
+    8px 6px #ff4f68,
+    4px 8px #ff4f68,
+    6px 8px #ff4f68,
+    6px 10px #ff7584;
 }
 
-.pixel-trophy::after {
-  content: attr(data-milestone);
-  position: absolute;
-  right: -2px;
-  bottom: -1px;
-  min-width: 14px;
-  padding: 1px 2px;
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--brand-strong);
-  font-size: 0.48rem;
+.heart-count {
+  padding: 2px 4px;
+  border: 1px solid rgba(255, 117, 132, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.68);
+  color: #d94c5e;
+  font-size: 0.56rem;
   font-weight: 950;
   line-height: 1;
-  text-align: center;
+}
+
+@keyframes heart-bob {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  45% {
+    transform: translateY(-2px) scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel-heart {
+    animation: none;
+  }
 }
 
 .pixel-heading-lockup {
