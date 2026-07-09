@@ -553,17 +553,6 @@ p {
     var(--glass);
 }
 
-.monthly-outlook-card {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.34)),
-    radial-gradient(ellipse at 18% 0%, rgba(245, 239, 255, 0.52), transparent 50%),
-    radial-gradient(ellipse at 88% 18%, rgba(255, 180, 95, 0.14), transparent 42%),
-    var(--glass);
-}
-
 .trend-topline {
   display: flex;
   min-width: 0;
@@ -578,6 +567,36 @@ p {
 
 .trend-copy h2 {
   margin-bottom: 5px;
+}
+
+.trend-section {
+  min-width: 0;
+}
+
+.trend-section + .trend-section {
+  padding-top: 14px;
+  border-top: 1px solid rgba(37, 50, 43, 0.08);
+}
+
+.monthly-outlook-section {
+  display: grid;
+  gap: 12px;
+}
+
+.trend-card .stats-month-detail {
+  gap: 8px;
+  padding: 10px;
+  box-shadow: none;
+}
+
+.trend-card .stats-month-detail h3 {
+  margin-bottom: 2px;
+  font-size: 1rem;
+}
+
+.trend-card .stats-month-detail .subtle {
+  font-size: 0.82rem;
+  line-height: 1.34;
 }
 
 .home-month-chart {
