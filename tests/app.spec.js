@@ -172,6 +172,7 @@ test("household login, navigation, records, and mobile layout work together", as
   await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
   await expect(page.locator(".milestone-card")).toBeVisible();
+  await expect(page.locator(".seizure-free-card .streak-progress")).toBeVisible();
   await expect(page.locator(".day-browser")).toHaveCount(0);
   await expect(page.locator(".monthly-outlook-card")).toHaveCount(0);
   await expect(page.locator(".home-month-chart")).toBeVisible();
