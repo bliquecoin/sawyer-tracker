@@ -169,6 +169,7 @@ test("household login, navigation, records, and mobile layout work together", as
   const pageErrors = await openTracker(page);
 
   await expect(page.locator(".trend-chart")).toBeVisible();
+  await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
   await expect(page.locator(".milestone-card")).toBeVisible();
   await expect(page.locator(".day-browser")).toHaveCount(0);
