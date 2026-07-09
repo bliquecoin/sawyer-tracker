@@ -168,6 +168,15 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
+  await expect(page.locator(".home-month-chart")).toBeVisible();
+  const homeMonthButtons = page.locator("[data-home-stats-month]");
+  await expect(homeMonthButtons).toHaveCount(6);
+  const firstHomeMonth = await homeMonthButtons.first().getAttribute("data-home-stats-month");
+  await homeMonthButtons.first().click();
+  await expect(page.locator('[data-view="insights"]')).toHaveClass(/active/);
+  await expect(page.locator(`[data-stats-month="${firstHomeMonth}"]`)).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: /Today/i }).last().click();
+
   const tabs = [
     ["Today", "today"],
     ["Log", "log"],
