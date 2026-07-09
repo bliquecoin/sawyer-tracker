@@ -172,8 +172,14 @@ test("household login, navigation, records, and mobile layout work together", as
   await expect(page.locator(".day-browser")).toHaveCount(0);
   await expect(page.locator(".monthly-outlook-card")).toHaveCount(0);
   await expect(page.locator(".home-month-chart")).toBeVisible();
+  const homeRangeButtons = page.locator("[data-home-trend-range]");
+  await expect(homeRangeButtons).toHaveCount(3);
+  await expect(page.locator('[data-home-trend-range="6"]')).toHaveAttribute("aria-pressed", "true");
   const homeMonthButtons = page.locator("[data-home-stats-month]");
   await expect(homeMonthButtons).toHaveCount(6);
+  await page.locator('[data-home-trend-range="12"]').click();
+  await expect(page.locator('[data-home-trend-range="12"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(homeMonthButtons).toHaveCount(12);
   const firstHomeMonth = await homeMonthButtons.first().getAttribute("data-home-stats-month");
   await homeMonthButtons.first().click();
   await expect(page.locator('[data-view="today"]')).toHaveClass(/active/);
