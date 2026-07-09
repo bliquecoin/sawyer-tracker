@@ -990,13 +990,19 @@
           </div>
 
           <div class="stat-glass-grid" aria-label="Tracking statistics">
-            <article class="stat-card featured milestone-card">
-              <span>Seizure-free</span>
+            <article class="stat-card featured milestone-card seizure-free-card ${summary.daysSinceLast > 0 ? "calm-streak" : "watch-day"}">
+              <i class="pixel-sparkle sparkle-one" aria-hidden="true"></i>
+              <i class="pixel-sparkle sparkle-two" aria-hidden="true"></i>
+              <div class="seizure-free-header">
+                <span>Seizure-free</span>
+                <em>${summary.daysSinceLast > 0 ? "Calm" : "Care"}</em>
+              </div>
               <div class="stat-value-row">
                 <strong>${summary.daysSinceLast ?? "--"}</strong>
                 ${renderMilestoneTrophies(summary.daysSinceLast)}
               </div>
-              <small>${summary.daysSinceLast === 1 ? "day" : "days"}</small>
+              <small class="seizure-free-unit">${summary.daysSinceLast === 1 ? "day" : "days"}</small>
+              ${renderSeizureFreeProgress(summary.daysSinceLast)}
             </article>
             <article class="stat-card">
               <span>Total</span>
@@ -1057,6 +1063,34 @@
           <span class="pixel-icon pixel-trophy" data-milestone="${value}" aria-hidden="true"></span>
         `).join("")}
       </span>
+    `;
+  }
+
+  function renderSeizureFreeProgress(daysSinceLast) {
+    if (!Number.isFinite(daysSinceLast)) {
+      return `
+        <div class="streak-progress" style="--streak-progress: 0%;">
+          <span></span>
+          <small>First milestone: 7 days</small>
+        </div>
+      `;
+    }
+
+    const milestones = [7, 14, 30, 60, 90, 120, 180, 365];
+    const previous = milestones.filter((value) => daysSinceLast >= value).at(-1) || 0;
+    const next = milestones.find((value) => daysSinceLast < value) || 365;
+    const span = Math.max(1, next - previous);
+    const progress = next === previous ? 100 : clamp(((daysSinceLast - previous) / span) * 100, 0, 100);
+    const remaining = Math.max(0, next - daysSinceLast);
+    const message = remaining === 0
+      ? `${next}-day milestone reached`
+      : `${remaining} ${remaining === 1 ? "day" : "days"} to ${next}`;
+
+    return `
+      <div class="streak-progress" style="--streak-progress: ${round1(progress)}%;">
+        <span></span>
+        <small>${escapeHtml(message)}</small>
+      </div>
     `;
   }
 
@@ -1157,7 +1191,7 @@
             </div>
             <p class="subtle">${summary.totalSeizures ? `${summary.totalSeizures} seizure${summary.totalSeizures === 1 ? "" : "s"} tracked across your timeline.` : "Your graph will build as seizures are logged."}</p>
           </div>
-          <button class="btn ghost small" data-tab="insights" type="button">Stats</button>
+          <button class="btn ghost small trend-stats-btn" data-tab="insights" type="button">Stats</button>
         </div>
 
         <div class="trend-section">
