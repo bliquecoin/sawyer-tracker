@@ -3274,6 +3274,10 @@ html.ios-browser .toast {
     align-items: start;
   }
 
+  .stack.desktop-two > .medication-plan {
+    grid-column: 1 / -1;
+  }
+
   .other-records-panel {
     grid-column: 1 / -1;
   }

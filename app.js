@@ -895,7 +895,6 @@
   }
 
   function render() {
-    const todayEntries = getTodayDoseEntries();
     const summary = getSummary();
 
     if (shouldShowLoginScreen()) {
@@ -917,7 +916,7 @@
           <div id="pull-refresh" class="pull-refresh" aria-live="polite">Pull to refresh</div>
           ${renderEmergencySyncBanner()}
           <section class="view ${state.activeTab === "today" ? "active" : ""}" data-view="today">
-            ${renderToday(summary, todayEntries)}
+            ${renderToday(summary)}
           </section>
 
           <section class="view ${state.activeTab === "log" ? "active" : ""}" data-view="log">
@@ -961,7 +960,7 @@
     `;
   }
 
-  function renderToday(summary, entries) {
+  function renderToday(summary) {
     const installClass = state.installPrompt ? "panel install-banner ready" : "panel install-banner";
     const now = new Date();
     const statusTone = summary.daysSinceLast === 0 ? "attention" : summary.daysSinceLast === null ? "neutral" : "steady";
@@ -1038,7 +1037,6 @@
           </div>
         </section>
 
-        ${renderMedicationPlan(entries)}
       </div>
     `;
   }
@@ -1464,6 +1462,7 @@
 
   function renderLog() {
     const now = new Date();
+    const todayEntries = getTodayDoseEntries(now);
     const editingSeizure = state.events.find((event) => event.id === state.editingSeizureId && event.type === "seizure");
     const seizureDate = editingSeizure ? new Date(editingSeizure.occurredAt) : now;
     const durationSeconds = clamp(editingSeizure?.durationSeconds || 0, 0, 120);
@@ -1597,6 +1596,8 @@
             </form>
           </div>
         </section>
+
+        ${renderMedicationPlan(todayEntries)}
 
         <section class="panel document-library-panel">
           <div class="panel-body">
