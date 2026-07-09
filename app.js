@@ -998,7 +998,7 @@
               </div>
               <div class="stat-value-row">
                 <strong>${summary.daysSinceLast ?? "--"}</strong>
-                ${renderMilestoneTrophies(summary.daysSinceLast)}
+                ${renderStreakHearts(summary.daysSinceLast)}
               </div>
               <small class="seizure-free-unit">${summary.daysSinceLast === 1 ? "day" : "days"}</small>
               ${renderSeizureFreeProgress(summary.daysSinceLast)}
@@ -1049,17 +1049,18 @@
     return `${name} is ${summary.daysSinceLast} days seizure-free.`;
   }
 
-  function renderMilestoneTrophies(daysSinceLast) {
+  function renderStreakHearts(daysSinceLast) {
     if (!Number.isFinite(daysSinceLast)) return "";
-    const milestones = [10, 20, 30, 50, 75, 100, 150, 200, 365];
-    const reached = milestones.filter((value) => daysSinceLast >= value).slice(-3);
-    if (!reached.length) return "";
-    const label = `Seizure-free milestones reached: ${reached.map((value) => `${value} days`).join(", ")}`;
+    const heartCount = Math.floor(daysSinceLast / 5);
+    if (heartCount <= 0) return "";
+    const visibleHearts = Math.min(heartCount, 5);
+    const label = `${heartCount} seizure-free heart${heartCount === 1 ? "" : "s"} earned. Sawyer receives one heart for every 5 seizure-free days.`;
     return `
-      <span class="milestone-trophies" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
-        ${reached.map((value) => `
-          <span class="pixel-icon pixel-trophy" data-milestone="${value}" aria-hidden="true"></span>
+      <span class="streak-hearts" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+        ${Array.from({ length: visibleHearts }, (_, index) => `
+          <span class="pixel-icon pixel-heart" style="--heart-index: ${index}" aria-hidden="true"></span>
         `).join("")}
+        ${heartCount > visibleHearts ? `<span class="heart-count" aria-hidden="true">x${heartCount}</span>` : ""}
       </span>
     `;
   }
@@ -1069,20 +1070,19 @@
       return `
         <div class="streak-progress" style="--streak-progress: 0%;">
           <span></span>
-          <small>First milestone: 7 days</small>
+          <small>First heart: 5 days</small>
         </div>
       `;
     }
 
-    const milestones = [7, 14, 30, 60, 90, 120, 180, 365];
-    const previous = milestones.filter((value) => daysSinceLast >= value).at(-1) || 0;
-    const next = milestones.find((value) => daysSinceLast < value) || 365;
+    const previous = Math.floor(daysSinceLast / 5) * 5;
+    const next = previous + 5;
     const span = Math.max(1, next - previous);
-    const progress = next === previous ? 100 : clamp(((daysSinceLast - previous) / span) * 100, 0, 100);
+    const progress = clamp(((daysSinceLast - previous) / span) * 100, 0, 100);
     const remaining = Math.max(0, next - daysSinceLast);
     const message = remaining === 0
-      ? `${next}-day milestone reached`
-      : `${remaining} ${remaining === 1 ? "day" : "days"} to ${next}`;
+      ? `${next / 5} hearts earned`
+      : `${remaining} ${remaining === 1 ? "day" : "days"} to next heart`;
 
     return `
       <div class="streak-progress" style="--streak-progress: ${round1(progress)}%;">
