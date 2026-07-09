@@ -180,6 +180,15 @@ test("household login, navigation, records, and mobile layout work together", as
   await page.locator('[data-home-trend-range="12"]').click();
   await expect(page.locator('[data-home-trend-range="12"]')).toHaveAttribute("aria-pressed", "true");
   await expect(homeMonthButtons).toHaveCount(12);
+  const homeMonthScrollBeforeTap = await page.locator(".home-month-chart").evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+    return element.scrollLeft;
+  });
+  const lastHomeMonth = await homeMonthButtons.last().getAttribute("data-home-stats-month");
+  await homeMonthButtons.last().click();
+  await expect(page.locator(`[data-home-stats-month="${lastHomeMonth}"]`)).toHaveAttribute("aria-pressed", "true");
+  const homeMonthScrollAfterTap = await page.locator(".home-month-chart").evaluate((element) => element.scrollLeft);
+  expect(homeMonthScrollAfterTap).toBeGreaterThanOrEqual(homeMonthScrollBeforeTap - 2);
   const firstHomeMonth = await homeMonthButtons.first().getAttribute("data-home-stats-month");
   await homeMonthButtons.first().click();
   await expect(page.locator('[data-view="today"]')).toHaveClass(/active/);

@@ -2687,13 +2687,23 @@
     const content = document.querySelector(".content");
     const useWindowScroll = isIosBrowser();
     const scrollTop = useWindowScroll ? window.scrollY || 0 : content?.scrollTop || 0;
+    const horizontalScrolls = [".home-month-chart", ".stats-month-chart"]
+      .map((selector) => {
+        const element = document.querySelector(selector);
+        return element ? { selector, scrollLeft: element.scrollLeft } : null;
+      })
+      .filter(Boolean);
     return () => requestAnimationFrame(() => {
       if (useWindowScroll) {
         window.scrollTo({ top: scrollTop, left: 0, behavior: "auto" });
-        return;
+      } else {
+        const nextContent = document.querySelector(".content");
+        if (nextContent) nextContent.scrollTop = scrollTop;
       }
-      const nextContent = document.querySelector(".content");
-      if (nextContent) nextContent.scrollTop = scrollTop;
+      horizontalScrolls.forEach(({ selector, scrollLeft }) => {
+        const element = document.querySelector(selector);
+        if (element) element.scrollLeft = scrollLeft;
+      });
     });
   }
 
