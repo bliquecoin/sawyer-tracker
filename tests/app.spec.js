@@ -192,7 +192,7 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r69.css");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r70.css");
   await expect(page.locator(".trend-chart")).toBeVisible();
   await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
@@ -309,11 +309,32 @@ test("household login, navigation, records, and mobile layout work together", as
 test("seizure-free streak earns animated pixel hearts every five days", async ({ page }) => {
   const pageErrors = await openTracker(page, { seedSeizureDaysAgo: 12 });
 
+  const streakCard = page.locator(".seizure-free-card");
   const heartRail = page.locator(".seizure-free-card .streak-hearts");
   await expect(heartRail).toBeVisible();
   await expect(heartRail).toHaveAttribute("aria-label", /2 seizure-free hearts earned/);
   await expect(page.locator(".seizure-free-card .pixel-heart")).toHaveCount(2);
   await expect(page.locator(".seizure-free-card .streak-progress")).toContainText("days to next heart");
+  const initialAppearance = await streakCard.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      backgroundImage: style.backgroundImage,
+      backdropFilter: style.backdropFilter
+    };
+  });
+  await page.waitForTimeout(750);
+  const settledAppearance = await streakCard.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      backgroundImage: style.backgroundImage,
+      backdropFilter: style.backdropFilter
+    };
+  });
+  expect(initialAppearance.backgroundColor).toBe("rgb(255, 237, 241)");
+  expect(initialAppearance.backdropFilter).toBe("none");
+  expect(settledAppearance).toEqual(initialAppearance);
   expect(pageErrors).toEqual([]);
 });
 
