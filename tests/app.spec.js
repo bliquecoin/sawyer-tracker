@@ -192,7 +192,7 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r70.css");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r71.css");
   await expect(page.locator(".trend-chart")).toBeVisible();
   await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
@@ -335,6 +335,28 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
   expect(initialAppearance.backgroundColor).toBe("rgb(255, 237, 241)");
   expect(initialAppearance.backdropFilter).toBe("none");
   expect(settledAppearance).toEqual(initialAppearance);
+  expect(pageErrors).toEqual([]);
+});
+
+test("zero-day care state keeps the seizure-free rose background", async ({ page }) => {
+  const pageErrors = await openTracker(page, { seedSeizureDaysAgo: 0 });
+
+  const streakCard = page.locator(".seizure-free-card");
+  await expect(streakCard).toHaveClass(/watch-day/);
+  await expect(streakCard).toContainText("Care");
+  await expect(streakCard).toContainText("0");
+  const appearance = await streakCard.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      backgroundImage: style.backgroundImage,
+      backdropFilter: style.backdropFilter
+    };
+  });
+  expect(appearance.backgroundColor).toBe("rgb(255, 237, 241)");
+  expect(appearance.backgroundImage).toContain("rgba(255, 117, 132, 0.26)");
+  expect(appearance.backgroundImage).not.toContain("rgba(220, 245, 241, 0.68)");
+  expect(appearance.backdropFilter).toBe("none");
   expect(pageErrors).toEqual([]);
 });
 
