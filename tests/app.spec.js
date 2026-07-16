@@ -3,15 +3,18 @@ const { test, expect } = require("@playwright/test");
 const HOUSEHOLD_ID = "test-household";
 const ACCESS_STORAGE_KEY = "sawyer-household-access-key-hash";
 
-function fakeSupabaseConfig({ failEventWrites = false, seedSeizureDaysAgo = null } = {}) {
+function fakeSupabaseConfig({ failEventWrites = false, seedSeizureDaysAgo = null, seedSeizureHoursAgo = null } = {}) {
   return `
     (() => {
       const householdId = ${JSON.stringify(HOUSEHOLD_ID)};
       const now = new Date().toISOString();
       const seedSeizureDaysAgo = ${JSON.stringify(seedSeizureDaysAgo)};
-      const seededSeizureAt = Number.isFinite(seedSeizureDaysAgo)
-        ? new Date(Date.now() - seedSeizureDaysAgo * 24 * 60 * 60 * 1000).toISOString()
-        : null;
+      const seedSeizureHoursAgo = ${JSON.stringify(seedSeizureHoursAgo)};
+      const seededSeizureAt = Number.isFinite(seedSeizureHoursAgo)
+        ? new Date(Date.now() - seedSeizureHoursAgo * 60 * 60 * 1000).toISOString()
+        : Number.isFinite(seedSeizureDaysAgo)
+          ? new Date(Date.now() - seedSeizureDaysAgo * 24 * 60 * 60 * 1000).toISOString()
+          : null;
       const stores = {
         sawyer_households: [{ id: householdId }],
         sawyer_dogs: [{
@@ -45,7 +48,7 @@ function fakeSupabaseConfig({ failEventWrites = false, seedSeizureDaysAgo = null
             occurredAt: seededSeizureAt,
             severity: 2,
             durationSeconds: 45,
-            timeKnown: false,
+            timeKnown: true,
             createdAt: now,
             updatedAt: now,
             syncStatus: "synced"
@@ -192,7 +195,7 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r71.css");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r72.css");
   await expect(page.locator(".trend-chart")).toBeVisible();
   await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
@@ -313,6 +316,8 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
   const heartRail = page.locator(".seizure-free-card .streak-hearts");
   await expect(heartRail).toBeVisible();
   await expect(heartRail).toHaveAttribute("aria-label", /2 seizure-free hearts earned/);
+  await expect(streakCard).toHaveClass(/calm-streak/);
+  await expect(streakCard.locator(".seizure-free-header em")).toHaveCount(0);
   await expect(page.locator(".seizure-free-card .pixel-heart")).toHaveCount(2);
   await expect(page.locator(".seizure-free-card .streak-progress")).toContainText("days to next heart");
   const initialAppearance = await streakCard.evaluate((element) => {
@@ -332,19 +337,19 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
       backdropFilter: style.backdropFilter
     };
   });
-  expect(initialAppearance.backgroundColor).toBe("rgb(255, 237, 241)");
+  expect(initialAppearance.backgroundColor).toBe("rgb(229, 244, 233)");
   expect(initialAppearance.backdropFilter).toBe("none");
   expect(settledAppearance).toEqual(initialAppearance);
   expect(pageErrors).toEqual([]);
 });
 
-test("zero-day care state keeps the seizure-free rose background", async ({ page }) => {
-  const pageErrors = await openTracker(page, { seedSeizureDaysAgo: 0 });
+test("a seizure within 24 hours keeps the counter red", async ({ page }) => {
+  const pageErrors = await openTracker(page, { seedSeizureHoursAgo: 23 });
 
   const streakCard = page.locator(".seizure-free-card");
-  await expect(streakCard).toHaveClass(/watch-day/);
-  await expect(streakCard).toContainText("Care");
+  await expect(streakCard).toHaveClass(/recent-seizure/);
   await expect(streakCard).toContainText("0");
+  await expect(streakCard.locator(".seizure-free-header em")).toHaveCount(0);
   const appearance = await streakCard.evaluate((element) => {
     const style = getComputedStyle(element);
     return {
@@ -353,9 +358,30 @@ test("zero-day care state keeps the seizure-free rose background", async ({ page
       backdropFilter: style.backdropFilter
     };
   });
-  expect(appearance.backgroundColor).toBe("rgb(255, 237, 241)");
-  expect(appearance.backgroundImage).toContain("rgba(255, 117, 132, 0.26)");
+  expect(appearance.backgroundColor).toBe("rgb(255, 233, 237)");
+  expect(appearance.backgroundImage).toContain("rgba(219, 66, 78, 0.28)");
   expect(appearance.backgroundImage).not.toContain("rgba(220, 245, 241, 0.68)");
+  expect(appearance.backdropFilter).toBe("none");
+  expect(pageErrors).toEqual([]);
+});
+
+test("the counter turns amber after 24 hours and stays amber through day four", async ({ page }) => {
+  const pageErrors = await openTracker(page, { seedSeizureHoursAgo: 25 });
+
+  const streakCard = page.locator(".seizure-free-card");
+  await expect(streakCard).toHaveClass(/building-streak/);
+  await expect(streakCard).toContainText("1");
+  await expect(streakCard.locator(".seizure-free-header em")).toHaveCount(0);
+  const appearance = await streakCard.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      backgroundImage: style.backgroundImage,
+      backdropFilter: style.backdropFilter
+    };
+  });
+  expect(appearance.backgroundColor).toBe("rgb(255, 242, 207)");
+  expect(appearance.backgroundImage).toContain("rgba(255, 179, 50, 0.34)");
   expect(appearance.backdropFilter).toBe("none");
   expect(pageErrors).toEqual([]);
 });

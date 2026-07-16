@@ -2,7 +2,7 @@
   "name": "Sawyer Tracker",
   "short_name": "Sawyer",
   "description": "Shared Supabase seizure, medication, supplement, vet visit, and blood test tracking for Sawyer.",
-  "start_url": "./index.html?release=71",
+  "start_url": "./index.html?release=72",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f8faf7",
