@@ -963,7 +963,8 @@
   function renderToday(summary) {
     const installClass = state.installPrompt ? "panel install-banner ready" : "panel install-banner";
     const now = new Date();
-    const statusTone = summary.daysSinceLast === 0 ? "attention" : summary.daysSinceLast === null ? "neutral" : "steady";
+    const streakTone = seizureFreeTone(summary);
+    const statusTone = streakTone === "recent-seizure" ? "attention" : streakTone === "no-history" ? "neutral" : "steady";
 
     return `
       <div class="home-stack">
@@ -989,11 +990,10 @@
           </div>
 
           <div class="stat-glass-grid" aria-label="Tracking statistics">
-            <article class="stat-card featured milestone-card seizure-free-card ${summary.daysSinceLast > 0 ? "calm-streak" : "watch-day"}">
+            <article class="stat-card featured milestone-card seizure-free-card ${streakTone}">
               <i class="pixel-sparkle sparkle-one" aria-hidden="true"></i>
               <div class="seizure-free-header">
                 <span>Seizure-free</span>
-                <em>${summary.daysSinceLast > 0 ? "Calm" : "Care"}</em>
               </div>
               <div class="stat-value-row">
                 <strong>${summary.daysSinceLast ?? "--"}</strong>
@@ -4078,7 +4078,9 @@
     const monthKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
     const thisMonthSeizures = seizures.filter((event) => eventDayKey(event).startsWith(monthKey)).length;
 
-    const daysSinceLast = last ? Math.floor((startOfDay(now) - startOfDay(new Date(last.occurredAt))) / 86400000) : null;
+    const lastSeizureAt = last ? seizureCounterReferenceTime(last) : null;
+    const elapsedSinceLastMs = lastSeizureAt ? Math.max(0, now - lastSeizureAt) : null;
+    const daysSinceLast = elapsedSinceLastMs === null ? null : Math.floor(elapsedSinceLastMs / 86400000);
     const longestGap = gaps.length ? Math.max(...gaps.map((gap) => gap.days)) : null;
     const averageGap = gaps.length ? mean(gaps.map((gap) => gap.days)) : null;
     const averageDuration = durations.length ? mean(durations) : null;
@@ -4086,12 +4088,34 @@
     return {
       totalSeizures: seizures.length,
       daysSinceLast,
+      elapsedSinceLastMs,
       lastSeizureText: last ? `Last seizure: ${formatEventDateTime(last)}` : "No seizure logged yet",
       averageGapText: averageGap ? `${round1(averageGap)} days` : "--",
       longestGapText: longestGap ? `${round1(longestGap)} days` : "--",
       averageDurationText: averageDuration ? formatDuration(Math.round(averageDuration)) : "--",
       thisMonthSeizures
     };
+  }
+
+  function seizureCounterReferenceTime(event) {
+    const occurredAt = new Date(event.occurredAt);
+    if (event.timeKnown !== false) return occurredAt;
+
+    const createdAt = new Date(event.createdAt);
+    if (
+      !Number.isNaN(createdAt.getTime()) &&
+      eventDayKey(event) === localDateKey(createdAt)
+    ) {
+      return createdAt;
+    }
+    return occurredAt;
+  }
+
+  function seizureFreeTone(summary) {
+    if (summary.elapsedSinceLastMs === null) return "no-history";
+    if (summary.elapsedSinceLastMs < 86400000) return "recent-seizure";
+    if (summary.elapsedSinceLastMs < 5 * 86400000) return "building-streak";
+    return "calm-streak";
   }
 
   function getSeizureGaps(seizures) {
