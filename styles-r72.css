@@ -477,6 +477,16 @@ p {
   backdrop-filter: blur(20px) saturate(1.28);
 }
 
+.stat-glass-grid > .stat-card:not(.featured) {
+  display: grid;
+  align-content: center;
+}
+
+.stat-glass-grid > .stat-card:not(.featured) strong {
+  font-size: 1.6rem;
+  line-height: 1.05;
+}
+
 .stat-card.featured {
   grid-row: span 2;
   display: grid;
@@ -506,14 +516,6 @@ p {
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
     inset 0 -18px 34px rgba(255, 255, 255, 0.36),
     0 18px 40px rgba(38, 48, 43, 0.1);
-}
-
-.stat-card.seizure-free-card,
-.stat-card.seizure-free-card span,
-.stat-card.seizure-free-card small,
-.stat-card.seizure-free-card strong {
-  font-family: "Press Start 2P", ui-monospace, monospace;
-  font-weight: 400;
 }
 
 .seizure-free-card::before {
@@ -555,16 +557,16 @@ p {
 }
 
 .stat-card.featured.seizure-free-card.calm-streak {
-  border-color: rgba(86, 185, 111, 0.42);
-  background-color: #e4f7df;
+  border-color: rgba(55, 132, 86, 0.34);
+  background-color: #e5f4e9;
   background-image:
-    radial-gradient(circle at 86% 16%, rgba(255, 190, 125, 0.44), transparent 36%),
-    radial-gradient(circle at 12% 16%, rgba(91, 207, 126, 0.38), transparent 44%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.68), rgba(183, 235, 190, 0.6));
+    radial-gradient(circle at 86% 16%, rgba(255, 225, 133, 0.2), transparent 34%),
+    radial-gradient(circle at 12% 16%, rgba(67, 151, 100, 0.24), transparent 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(205, 235, 214, 0.46));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    inset 0 -18px 34px rgba(255, 255, 255, 0.34),
-    0 18px 40px rgba(73, 174, 99, 0.2);
+    inset 0 -18px 34px rgba(255, 255, 255, 0.36),
+    0 18px 40px rgba(47, 125, 84, 0.17);
 }
 
 .seizure-free-header {
@@ -575,13 +577,6 @@ p {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-}
-
-.seizure-free-header span {
-  font-size: 0.48rem;
-  letter-spacing: -0.04em;
-  line-height: 1.4;
-  white-space: nowrap;
 }
 
 .stat-value-row {
@@ -630,12 +625,8 @@ p {
 }
 
 .seizure-free-card .stat-value-row strong {
-  flex: 0 0 auto;
   color: var(--ink);
-  font-size: clamp(2.4rem, 11vw, 3.7rem);
-  overflow-wrap: normal;
   text-shadow: 0 7px 22px rgba(38, 48, 43, 0.12);
-  white-space: nowrap;
 }
 
 .seizure-free-card.recent-seizure .stat-value-row strong {
@@ -647,15 +638,12 @@ p {
 }
 
 .seizure-free-card.calm-streak .stat-value-row strong {
-  color: #286047;
-  text-shadow: 0 7px 22px rgba(43, 139, 78, 0.17);
+  text-shadow: 0 7px 22px rgba(47, 125, 84, 0.2);
 }
 
 .seizure-free-unit {
   position: relative;
   z-index: 1;
-  font-size: 0.58rem;
-  line-height: 1.4;
 }
 
 .streak-progress {
@@ -696,14 +684,13 @@ p {
 }
 
 .seizure-free-card.calm-streak .streak-progress > span::before {
-  background: linear-gradient(90deg, #65c984, #a9e7a5);
-  box-shadow: 0 0 16px rgba(66, 180, 96, 0.24);
+  background: linear-gradient(90deg, #3f8f60, #7fcf91);
+  box-shadow: 0 0 16px rgba(47, 125, 84, 0.3);
 }
 
 .streak-progress small {
   color: rgba(37, 50, 43, 0.72);
-  font-size: 0.48rem;
-  line-height: 1.6;
+  font-size: 0.68rem;
 }
 
 .streak-hearts {
@@ -751,7 +738,7 @@ p {
   height: 20px;
   animation: heart-bob 1.8s ease-in-out infinite;
   animation-delay: calc(var(--heart-index) * 0.14s);
-  filter: drop-shadow(0 4px 5px rgba(218, 91, 119, 0.2));
+  filter: drop-shadow(0 4px 5px rgba(217, 54, 78, 0.18));
 }
 
 .pixel-heart::before {
@@ -763,76 +750,76 @@ p {
   height: 2px;
   background: transparent;
   box-shadow:
-    4px 0 #8f4f61,
-    6px 0 #8f4f61,
-    12px 0 #8f4f61,
-    14px 0 #8f4f61,
-    2px 2px #8f4f61,
-    4px 2px #ff91a5,
-    6px 2px #ff91a5,
-    8px 2px #8f4f61,
-    10px 2px #8f4f61,
-    12px 2px #ff91a5,
-    14px 2px #ff91a5,
-    16px 2px #8f4f61,
-    0 4px #8f4f61,
-    2px 4px #ff91a5,
-    4px 4px #fff3df,
-    6px 4px #ff91a5,
-    8px 4px #f77691,
-    10px 4px #db5b7a,
-    12px 4px #ff91a5,
-    14px 4px #ff91a5,
-    16px 4px #f77691,
-    18px 4px #8f4f61,
-    0 6px #8f4f61,
-    2px 6px #ff91a5,
-    4px 6px #fff3df,
-    6px 6px #ff91a5,
-    8px 6px #ff91a5,
-    10px 6px #f77691,
-    12px 6px #ff91a5,
-    14px 6px #ff91a5,
-    16px 6px #db5b7a,
-    18px 6px #8f4f61,
-    0 8px #8f4f61,
-    2px 8px #ff91a5,
-    4px 8px #ff91a5,
-    6px 8px #ff91a5,
-    8px 8px #ff91a5,
-    10px 8px #f77691,
-    12px 8px #db5b7a,
-    14px 8px #db5b7a,
-    16px 8px #db5b7a,
-    18px 8px #8f4f61,
-    2px 10px #8f4f61,
-    4px 10px #ff91a5,
-    6px 10px #ff91a5,
-    8px 10px #ff91a5,
-    10px 10px #f77691,
-    12px 10px #db5b7a,
-    14px 10px #db5b7a,
-    16px 10px #8f4f61,
-    4px 12px #8f4f61,
-    6px 12px #ff91a5,
-    8px 12px #f77691,
-    10px 12px #db5b7a,
-    12px 12px #db5b7a,
-    14px 12px #8f4f61,
-    6px 14px #8f4f61,
-    8px 14px #f77691,
-    10px 14px #db5b7a,
-    12px 14px #8f4f61,
-    8px 16px #8f4f61,
-    10px 16px #8f4f61;
+    4px 0 #050505,
+    6px 0 #050505,
+    12px 0 #050505,
+    14px 0 #050505,
+    2px 2px #050505,
+    4px 2px #f00510,
+    6px 2px #f00510,
+    8px 2px #050505,
+    10px 2px #050505,
+    12px 2px #f00510,
+    14px 2px #f00510,
+    16px 2px #050505,
+    0 4px #050505,
+    2px 4px #f00510,
+    4px 4px #ffffff,
+    6px 4px #f00510,
+    8px 4px #e0000b,
+    10px 4px #d0000a,
+    12px 4px #f00510,
+    14px 4px #f00510,
+    16px 4px #e0000b,
+    18px 4px #050505,
+    0 6px #050505,
+    2px 6px #f00510,
+    4px 6px #ffffff,
+    6px 6px #f00510,
+    8px 6px #f00510,
+    10px 6px #e0000b,
+    12px 6px #f00510,
+    14px 6px #f00510,
+    16px 6px #d0000a,
+    18px 6px #050505,
+    0 8px #050505,
+    2px 8px #f00510,
+    4px 8px #f00510,
+    6px 8px #f00510,
+    8px 8px #f00510,
+    10px 8px #e0000b,
+    12px 8px #d0000a,
+    14px 8px #d0000a,
+    16px 8px #d0000a,
+    18px 8px #050505,
+    2px 10px #050505,
+    4px 10px #f00510,
+    6px 10px #f00510,
+    8px 10px #f00510,
+    10px 10px #e0000b,
+    12px 10px #d0000a,
+    14px 10px #d0000a,
+    16px 10px #050505,
+    4px 12px #050505,
+    6px 12px #f00510,
+    8px 12px #e0000b,
+    10px 12px #d0000a,
+    12px 12px #d0000a,
+    14px 12px #050505,
+    6px 14px #050505,
+    8px 14px #e0000b,
+    10px 14px #d0000a,
+    12px 14px #050505,
+    8px 16px #050505,
+    10px 16px #050505;
 }
 
 .heart-count {
   padding: 2px 4px;
-  border: 1px solid rgba(231, 104, 132, 0.28);
+  border: 1px solid rgba(255, 83, 102, 0.18);
   border-radius: 999px;
-  background: rgba(255, 238, 240, 0.88);
-  color: #c4516e;
+  background: rgba(255, 255, 255, 0.68);
+  color: #d9364e;
   font-size: 0.56rem;
   font-weight: 950;
   line-height: 1;

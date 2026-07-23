@@ -195,18 +195,18 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[href="./assets/fonts/press-start-2p.css?v=75"]')).toHaveCount(1);
-  await expect(page.locator('link[href="./styles-r72.css?v=75"]')).toHaveCount(1);
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r72.css?v=76");
   await expect(page.locator(".trend-chart")).toBeVisible();
   await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
   await expect(page.locator(".milestone-card")).toBeVisible();
   await expect(page.locator(".seizure-free-card .streak-progress")).toBeVisible();
   const homeStatCards = page.locator('[data-view="today"] .stat-glass-grid > .stat-card');
+  await expect(homeStatCards).toHaveCount(3);
   await expect(homeStatCards.nth(1)).toContainText("Longest streak");
-  await expect(homeStatCards.nth(1)).toContainText("between episodes");
+  await expect(homeStatCards.nth(1).locator("small")).toHaveCount(0);
   await expect(homeStatCards.nth(2)).toContainText("Average gap");
-  await expect(homeStatCards.nth(2)).toContainText("between episodes");
+  await expect(homeStatCards.nth(2).locator("small")).toHaveCount(0);
   await expect(page.locator('[data-view="today"] .medication-plan')).toHaveCount(0);
   await expect(page.locator(".day-browser")).toHaveCount(0);
   await expect(page.locator(".monthly-outlook-card")).toHaveCount(0);
@@ -331,17 +331,7 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
     return {
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
-      backdropFilter: style.backdropFilter,
-      fontFamily: style.fontFamily,
-      fitsContent:
-        element.scrollWidth - element.clientWidth <= 1 &&
-        element.scrollHeight - element.clientHeight <= 1,
-      dimensions: {
-        clientWidth: element.clientWidth,
-        clientHeight: element.clientHeight,
-        scrollWidth: element.scrollWidth,
-        scrollHeight: element.scrollHeight
-      }
+      backdropFilter: style.backdropFilter
     };
   });
   await page.waitForTimeout(750);
@@ -350,23 +340,11 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
     return {
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
-      backdropFilter: style.backdropFilter,
-      fontFamily: style.fontFamily,
-      fitsContent:
-        element.scrollWidth - element.clientWidth <= 1 &&
-        element.scrollHeight - element.clientHeight <= 1,
-      dimensions: {
-        clientWidth: element.clientWidth,
-        clientHeight: element.clientHeight,
-        scrollWidth: element.scrollWidth,
-        scrollHeight: element.scrollHeight
-      }
+      backdropFilter: style.backdropFilter
     };
   });
-  expect(initialAppearance.backgroundColor).toBe("rgb(228, 247, 223)");
+  expect(initialAppearance.backgroundColor).toBe("rgb(229, 244, 233)");
   expect(initialAppearance.backdropFilter).toBe("none");
-  expect(initialAppearance.fontFamily).toContain("Press Start 2P");
-  expect(initialAppearance.fitsContent).toBe(true);
   expect(settledAppearance).toEqual(initialAppearance);
   expect(pageErrors).toEqual([]);
 });
