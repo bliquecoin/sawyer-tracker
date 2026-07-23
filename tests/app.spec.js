@@ -195,7 +195,8 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r72.css");
+  await expect(page.locator('link[href="./assets/fonts/silkscreen.css?v=74"]')).toHaveCount(1);
+  await expect(page.locator('link[href="./styles-r72.css?v=74"]')).toHaveCount(1);
   await expect(page.locator(".trend-chart")).toBeVisible();
   await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
@@ -330,7 +331,9 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
     return {
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
-      backdropFilter: style.backdropFilter
+      backdropFilter: style.backdropFilter,
+      fontFamily: style.fontFamily,
+      fitsContent: element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight
     };
   });
   await page.waitForTimeout(750);
@@ -339,11 +342,15 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
     return {
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
-      backdropFilter: style.backdropFilter
+      backdropFilter: style.backdropFilter,
+      fontFamily: style.fontFamily,
+      fitsContent: element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight
     };
   });
-  expect(initialAppearance.backgroundColor).toBe("rgb(229, 244, 233)");
+  expect(initialAppearance.backgroundColor).toBe("rgb(241, 248, 243)");
   expect(initialAppearance.backdropFilter).toBe("none");
+  expect(initialAppearance.fontFamily).toContain("Silkscreen");
+  expect(initialAppearance.fitsContent).toBe(true);
   expect(settledAppearance).toEqual(initialAppearance);
   expect(pageErrors).toEqual([]);
 });

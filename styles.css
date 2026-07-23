@@ -508,6 +508,14 @@ p {
     0 18px 40px rgba(38, 48, 43, 0.1);
 }
 
+.seizure-free-card,
+.seizure-free-card span,
+.seizure-free-card small,
+.seizure-free-card strong {
+  font-family: "Silkscreen", ui-monospace, monospace;
+  font-weight: 700;
+}
+
 .seizure-free-card::before {
   content: "";
   position: absolute;
@@ -547,16 +555,16 @@ p {
 }
 
 .stat-card.featured.seizure-free-card.calm-streak {
-  border-color: rgba(55, 132, 86, 0.34);
-  background-color: #e5f4e9;
+  border-color: rgba(113, 158, 128, 0.24);
+  background-color: #f1f8f3;
   background-image:
-    radial-gradient(circle at 86% 16%, rgba(255, 225, 133, 0.2), transparent 34%),
-    radial-gradient(circle at 12% 16%, rgba(67, 151, 100, 0.24), transparent 42%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(205, 235, 214, 0.46));
+    radial-gradient(circle at 86% 16%, rgba(255, 224, 213, 0.28), transparent 34%),
+    radial-gradient(circle at 12% 16%, rgba(171, 214, 185, 0.22), transparent 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(226, 242, 231, 0.42));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    inset 0 -18px 34px rgba(255, 255, 255, 0.36),
-    0 18px 40px rgba(47, 125, 84, 0.17);
+    inset 0 -18px 34px rgba(255, 255, 255, 0.46),
+    0 18px 40px rgba(73, 111, 85, 0.1);
 }
 
 .seizure-free-header {
@@ -628,7 +636,8 @@ p {
 }
 
 .seizure-free-card.calm-streak .stat-value-row strong {
-  text-shadow: 0 7px 22px rgba(47, 125, 84, 0.2);
+  color: #425d4c;
+  text-shadow: 0 7px 22px rgba(87, 127, 101, 0.13);
 }
 
 .seizure-free-unit {
@@ -674,8 +683,8 @@ p {
 }
 
 .seizure-free-card.calm-streak .streak-progress > span::before {
-  background: linear-gradient(90deg, #3f8f60, #7fcf91);
-  box-shadow: 0 0 16px rgba(47, 125, 84, 0.3);
+  background: linear-gradient(90deg, #9bc9aa, #c8e5d0);
+  box-shadow: 0 0 16px rgba(103, 153, 119, 0.18);
 }
 
 .streak-progress small {
@@ -728,7 +737,8 @@ p {
   height: 20px;
   animation: heart-bob 1.8s ease-in-out infinite;
   animation-delay: calc(var(--heart-index) * 0.14s);
-  filter: drop-shadow(0 4px 5px rgba(217, 54, 78, 0.18));
+  filter: saturate(0.52) brightness(1.16) drop-shadow(0 4px 5px rgba(180, 104, 125, 0.14));
+  opacity: 0.82;
 }
 
 .pixel-heart::before {
@@ -806,10 +816,10 @@ p {
 
 .heart-count {
   padding: 2px 4px;
-  border: 1px solid rgba(255, 83, 102, 0.18);
+  border: 1px solid rgba(197, 132, 151, 0.2);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.68);
-  color: #d9364e;
+  background: rgba(255, 248, 250, 0.78);
+  color: #ad7183;
   font-size: 0.56rem;
   font-weight: 950;
   line-height: 1;
