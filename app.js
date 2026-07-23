@@ -1005,10 +1005,12 @@
             <article class="stat-card">
               <span>Longest streak</span>
               <strong>${summary.homeLongestGapText}</strong>
+              <small>between episodes</small>
             </article>
             <article class="stat-card">
               <span>Average gap</span>
               <strong>${summary.homeAverageGapText}</strong>
+              <small>between episodes</small>
             </article>
           </div>
 

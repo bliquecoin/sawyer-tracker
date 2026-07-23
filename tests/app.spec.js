@@ -195,7 +195,7 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r72.css?v=76");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r72.css?v=77");
   await expect(page.locator(".trend-chart")).toBeVisible();
   await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
@@ -204,9 +204,9 @@ test("household login, navigation, records, and mobile layout work together", as
   const homeStatCards = page.locator('[data-view="today"] .stat-glass-grid > .stat-card');
   await expect(homeStatCards).toHaveCount(3);
   await expect(homeStatCards.nth(1)).toContainText("Longest streak");
-  await expect(homeStatCards.nth(1).locator("small")).toHaveCount(0);
+  await expect(homeStatCards.nth(1).locator("small")).toHaveText("between episodes");
   await expect(homeStatCards.nth(2)).toContainText("Average gap");
-  await expect(homeStatCards.nth(2).locator("small")).toHaveCount(0);
+  await expect(homeStatCards.nth(2).locator("small")).toHaveText("between episodes");
   await expect(page.locator('[data-view="today"] .medication-plan')).toHaveCount(0);
   await expect(page.locator(".day-browser")).toHaveCount(0);
   await expect(page.locator(".monthly-outlook-card")).toHaveCount(0);
