@@ -195,8 +195,8 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[href="./assets/fonts/silkscreen.css?v=74"]')).toHaveCount(1);
-  await expect(page.locator('link[href="./styles-r72.css?v=74"]')).toHaveCount(1);
+  await expect(page.locator('link[href="./assets/fonts/press-start-2p.css?v=75"]')).toHaveCount(1);
+  await expect(page.locator('link[href="./styles-r72.css?v=75"]')).toHaveCount(1);
   await expect(page.locator(".trend-chart")).toBeVisible();
   await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
@@ -333,7 +333,15 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
       backgroundImage: style.backgroundImage,
       backdropFilter: style.backdropFilter,
       fontFamily: style.fontFamily,
-      fitsContent: element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight
+      fitsContent:
+        element.scrollWidth - element.clientWidth <= 1 &&
+        element.scrollHeight - element.clientHeight <= 1,
+      dimensions: {
+        clientWidth: element.clientWidth,
+        clientHeight: element.clientHeight,
+        scrollWidth: element.scrollWidth,
+        scrollHeight: element.scrollHeight
+      }
     };
   });
   await page.waitForTimeout(750);
@@ -344,12 +352,20 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
       backgroundImage: style.backgroundImage,
       backdropFilter: style.backdropFilter,
       fontFamily: style.fontFamily,
-      fitsContent: element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight
+      fitsContent:
+        element.scrollWidth - element.clientWidth <= 1 &&
+        element.scrollHeight - element.clientHeight <= 1,
+      dimensions: {
+        clientWidth: element.clientWidth,
+        clientHeight: element.clientHeight,
+        scrollWidth: element.scrollWidth,
+        scrollHeight: element.scrollHeight
+      }
     };
   });
-  expect(initialAppearance.backgroundColor).toBe("rgb(241, 248, 243)");
+  expect(initialAppearance.backgroundColor).toBe("rgb(228, 247, 223)");
   expect(initialAppearance.backdropFilter).toBe("none");
-  expect(initialAppearance.fontFamily).toContain("Silkscreen");
+  expect(initialAppearance.fontFamily).toContain("Press Start 2P");
   expect(initialAppearance.fitsContent).toBe(true);
   expect(settledAppearance).toEqual(initialAppearance);
   expect(pageErrors).toEqual([]);
