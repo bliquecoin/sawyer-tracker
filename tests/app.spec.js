@@ -201,6 +201,11 @@ test("household login, navigation, records, and mobile layout work together", as
   await expect(page.locator(".pixel-calendar")).toBeVisible();
   await expect(page.locator(".milestone-card")).toBeVisible();
   await expect(page.locator(".seizure-free-card .streak-progress")).toBeVisible();
+  const homeStatCards = page.locator('[data-view="today"] .stat-glass-grid > .stat-card');
+  await expect(homeStatCards.nth(1)).toContainText("Longest streak");
+  await expect(homeStatCards.nth(1)).toContainText("between episodes");
+  await expect(homeStatCards.nth(2)).toContainText("Average gap");
+  await expect(homeStatCards.nth(2)).toContainText("between episodes");
   await expect(page.locator('[data-view="today"] .medication-plan')).toHaveCount(0);
   await expect(page.locator(".day-browser")).toHaveCount(0);
   await expect(page.locator(".monthly-outlook-card")).toHaveCount(0);

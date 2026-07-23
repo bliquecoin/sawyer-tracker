@@ -94,6 +94,27 @@ test("cluster logic handles known and unknown seizure times conservatively", () 
   );
 });
 
+test("episode gaps start after the last seizure in each cluster", () => {
+  const seizures = [
+    { id: "a", type: "seizure", occurredAt: "2026-01-01T00:00:00Z", timeKnown: true },
+    { id: "b", type: "seizure", occurredAt: "2026-01-01T12:00:00Z", timeKnown: true },
+    { id: "c", type: "seizure", occurredAt: "2026-01-11T12:00:00Z", timeKnown: true },
+    { id: "d", type: "seizure", occurredAt: "2026-01-20T12:00:00Z", timeKnown: true },
+    { id: "e", type: "seizure", occurredAt: "2026-01-21T00:00:00Z", timeKnown: true },
+    { id: "f", type: "seizure", occurredAt: "2026-02-01T00:00:00Z", timeKnown: true }
+  ];
+
+  const gaps = core.seizureEpisodeGaps(seizures);
+  assert.deepEqual(
+    gaps.map((gap) => ({ from: gap.from.id, to: gap.to.id, days: gap.days })),
+    [
+      { from: "b", to: "c", days: 10 },
+      { from: "c", to: "d", days: 9 },
+      { from: "e", to: "f", days: 11 }
+    ]
+  );
+});
+
 test("local date keys do not shift to UTC", () => {
   assert.equal(core.localDateKey(new Date(2026, 6, 6, 23, 59)), "2026-07-06");
 });

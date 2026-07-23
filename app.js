@@ -1003,14 +1003,14 @@
               ${renderSeizureFreeProgress(summary.daysSinceLast)}
             </article>
             <article class="stat-card">
-              <span>Total</span>
-              <strong>${summary.totalSeizures}</strong>
-              <small>seizures</small>
+              <span>Longest streak</span>
+              <strong>${summary.homeLongestGapText}</strong>
+              <small>between episodes</small>
             </article>
             <article class="stat-card">
               <span>Average gap</span>
-              <strong>${summary.averageGapText}</strong>
-              <small>between logs</small>
+              <strong>${summary.homeAverageGapText}</strong>
+              <small>between episodes</small>
             </article>
           </div>
 
@@ -4074,6 +4074,7 @@
     const now = new Date();
     const last = seizures.at(-1);
     const gaps = getSeizureGaps(seizures);
+    const episodeGaps = CORE.seizureEpisodeGaps(seizures, CLUSTER_WINDOW_MS);
     const durations = seizures.map((event) => event.durationSeconds || 0).filter(Boolean);
     const monthKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
     const thisMonthSeizures = seizures.filter((event) => eventDayKey(event).startsWith(monthKey)).length;
@@ -4083,6 +4084,8 @@
     const daysSinceLast = elapsedSinceLastMs === null ? null : Math.floor(elapsedSinceLastMs / 86400000);
     const longestGap = gaps.length ? Math.max(...gaps.map((gap) => gap.days)) : null;
     const averageGap = gaps.length ? mean(gaps.map((gap) => gap.days)) : null;
+    const homeLongestGap = episodeGaps.length ? Math.max(...episodeGaps.map((gap) => gap.days)) : null;
+    const homeAverageGap = episodeGaps.length ? mean(episodeGaps.map((gap) => gap.days)) : null;
     const averageDuration = durations.length ? mean(durations) : null;
 
     return {
@@ -4092,6 +4095,8 @@
       lastSeizureText: last ? `Last seizure: ${formatEventDateTime(last)}` : "No seizure logged yet",
       averageGapText: averageGap ? `${round1(averageGap)} days` : "--",
       longestGapText: longestGap ? `${round1(longestGap)} days` : "--",
+      homeAverageGapText: homeAverageGap ? `${round1(homeAverageGap)} days` : "--",
+      homeLongestGapText: homeLongestGap ? `${round1(homeLongestGap)} days` : "--",
       averageDurationText: averageDuration ? formatDuration(Math.round(averageDuration)) : "--",
       thisMonthSeizures
     };
