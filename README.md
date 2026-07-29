@@ -45,7 +45,6 @@ for backups. Free projects should still be exported periodically.
 - Long-term timeline
 - Local observations for seizure gaps, milestones, time-of-day patterns, missed/late dose context, and MCT oil context
 - Background Web Push alerts for each 5-day seizure-free heart, matching the longest completed episode gap, and reaching the historical average gap
-- Reminder permission and in-app medication reminder checks
 - Private vet PDF storage shared between both phones
 - Installable PWA shell
 - JSON backup/import and CSV export

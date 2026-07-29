@@ -4,7 +4,6 @@
   const DB_NAME = "sawyer-care-tracker";
   const DB_VERSION = 1;
   const DOG_ID = "sawyer";
-  const REMINDER_WINDOW_MINUTES = 15;
   const OVERDUE_MINUTES = 45;
   const CLUSTER_WINDOW_MS = 24 * 60 * 60 * 1000;
   const HISTORY_PAGE_SIZE = 30;
@@ -102,9 +101,7 @@
 
   const DEFAULT_SETTINGS = {
     id: "main",
-    remindersEnabled: false,
     pushNotificationsEnabled: false,
-    reminderLeadMinutes: 0,
     supabaseUrl: "",
     supabaseAnonKey: "",
     supabaseHouseholdId: "",
@@ -235,7 +232,6 @@
     }
     await reconcilePushSubscription({ silent: true });
     render();
-    startReminderLoop();
   }
 
   async function resetStaleBrowserCache() {
@@ -301,7 +297,7 @@
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
-        refreshApp({ silent: true }).catch(() => safeHydrate().then(render).then(checkReminders));
+        refreshApp({ silent: true }).catch(() => safeHydrate().then(render));
       }
     });
 
@@ -2273,31 +2269,6 @@
           </div>
         </section>
 
-        <section class="panel">
-          <div class="panel-body">
-            <h2>In-app reminders</h2>
-            <p class="subtle">These reminders can appear while Sawyer Tracker is open. iPhone may pause them after the app is closed.</p>
-            <div class="metric-row">
-              <div class="metric">
-                <span>Status</span>
-                <strong>${state.settings?.remindersEnabled ? "On" : "Off"}</strong>
-              </div>
-              <div class="metric">
-                <span>Permission</span>
-                <strong>${escapeHtml(capitalize(notificationText))}</strong>
-              </div>
-              <div class="metric">
-                <span>Window</span>
-                <strong>${REMINDER_WINDOW_MINUTES} min</strong>
-              </div>
-            </div>
-            <div class="button-row" style="margin-top: 12px;">
-              <button class="btn primary" data-action="enable-reminders">Enable Reminders</button>
-              <button class="btn secondary" data-action="disable-reminders">Disable</button>
-            </div>
-          </div>
-        </section>
-
         ${renderCloudSync()}
 
         <section class="panel">
@@ -2898,7 +2869,6 @@
       render();
       if (!options.silent) showToast(error.message || "Supabase refresh failed.");
     }
-    checkReminders();
   }
 
   async function handleAction(action) {
@@ -2915,8 +2885,6 @@
     if (action === "enable-push") enablePushNotifications();
     if (action === "test-push") testPushNotification();
     if (action === "disable-push") disablePushNotifications();
-    if (action === "enable-reminders") enableReminders();
-    if (action === "disable-reminders") disableReminders();
     if (action === "export-json") exportJson();
     if (action === "import-json") importJson();
     if (action === "export-csv") exportCsv();
@@ -4083,82 +4051,6 @@
     const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
     const raw = atob(base64);
     return Uint8Array.from(raw, (character) => character.charCodeAt(0));
-  }
-
-  async function enableReminders() {
-    if (!("Notification" in window)) {
-      showToast("Notifications are not supported in this browser.");
-      return;
-    }
-
-    const permission = await Notification.requestPermission();
-    const timestamp = nowIso();
-    await dbPut("settings", {
-      ...state.settings,
-      remindersEnabled: permission === "granted",
-      updatedAt: timestamp,
-      syncStatus: "local"
-    });
-    await hydrate();
-    render();
-    showToast(permission === "granted" ? "Reminders enabled." : "Notification permission was not granted.");
-  }
-
-  async function disableReminders() {
-    const timestamp = nowIso();
-    await dbPut("settings", {
-      ...state.settings,
-      remindersEnabled: false,
-      updatedAt: timestamp,
-      syncStatus: "local"
-    });
-    await hydrate();
-    render();
-    showToast("Reminders disabled.");
-  }
-
-  function startReminderLoop() {
-    checkReminders();
-    setInterval(checkReminders, 60 * 1000);
-  }
-
-  function checkReminders() {
-    if (!state.settings?.remindersEnabled || !("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
-
-    const now = new Date();
-    getTodayDoseEntries().forEach((entry) => {
-      if (entry.log) return;
-      const minutesUntilDue = Math.round((entry.dueAt - now) / 60000);
-      const isInReminderWindow =
-        minutesUntilDue <= state.settings.reminderLeadMinutes &&
-        minutesUntilDue >= -REMINDER_WINDOW_MINUTES;
-      if (!isInReminderWindow) return;
-
-      const reminderKey = `reminded:${entry.key}:${localDateKey(now)}`;
-      if (localStorage.getItem(reminderKey)) return;
-      localStorage.setItem(reminderKey, nowIso());
-
-      showBrowserNotification(`${entry.schedule.name} for ${state.profile?.name || "Sawyer"}`, {
-        body: `${entry.time.label} dose is due at ${formatTime(entry.dueAt)}.`,
-        icon: "./icon.svg",
-        tag: entry.key
-      });
-    });
-  }
-
-  function showBrowserNotification(title, options) {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.ready
-        .then((registration) => registration.showNotification(title, options))
-        .catch(() => {});
-      return;
-    }
-    try {
-      new Notification(title, options);
-    } catch {
-      // Some browsers only allow notifications through a service worker.
-    }
   }
 
   function getTodayDoseEntries(date = new Date()) {
