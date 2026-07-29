@@ -248,6 +248,10 @@ test("household login, navigation, records, and mobile layout work together", as
       await expect(page.locator('[data-view="log"] .medication-plan')).toBeVisible();
       await expect(page.locator('[data-view="log"] .medication-plan')).toContainText("Today's medication");
     }
+    if (tab === "backup") {
+      await expect(page.getByRole("heading", { name: "Seizure-free push alerts" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Send Test" })).toBeDisabled();
+    }
     const overflow = await page.evaluate(() =>
       Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) -
       document.documentElement.clientWidth

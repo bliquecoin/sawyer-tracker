@@ -14,6 +14,7 @@
   const FFLATE_JS_URL = "https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js";
   const FALLBACK_APP_URL = "https://bliquecoin.github.io/sawyer-tracker/";
   const ACCESS_KEY_STORAGE = "sawyer-household-access-key-hash";
+  const PUSH_DEVICE_STORAGE = "sawyer-push-device-id";
   const ACCESS_HEADER = "x-sawyer-access-key";
   const SUPABASE_TABLES = {
     dogs: "sawyer_dogs",
@@ -47,6 +48,7 @@
     settings: null,
     toastTimer: null,
     installPrompt: null,
+    pushRegistration: null,
     supabaseClient: null,
     supabaseFingerprint: "",
     supabaseSession: null,
@@ -101,6 +103,7 @@
   const DEFAULT_SETTINGS = {
     id: "main",
     remindersEnabled: false,
+    pushNotificationsEnabled: false,
     reminderLeadMinutes: 0,
     supabaseUrl: "",
     supabaseAnonKey: "",
@@ -221,7 +224,7 @@
 
   async function init() {
     if (await resetStaleBrowserCache()) return;
-    if (await retireServiceWorker()) return;
+    await registerServiceWorker();
     requestPersistentStorage();
     attachGlobalListeners();
     await safeHydrate();
@@ -230,6 +233,7 @@
       await syncWithSupabase({ silent: true }).catch(() => {});
       if (isSignedIn()) await loadVetDocuments({ silent: true });
     }
+    await reconcilePushSubscription({ silent: true });
     render();
     startReminderLoop();
   }
@@ -249,18 +253,17 @@
     return true;
   }
 
-  async function retireServiceWorker() {
-    if (sessionStorage.getItem("sawyerServiceWorkerRetired") === "done") return false;
-
-    const hadServiceWorker = Boolean(navigator.serviceWorker?.controller);
-    const cleared = await clearServiceWorkerState();
-    if (!hadServiceWorker && !cleared) return false;
-
-    sessionStorage.setItem("sawyerServiceWorkerRetired", "done");
-    const url = new URL(window.location.href);
-    url.hash = "";
-    window.location.replace(url.toString());
-    return true;
+  async function registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) return null;
+    try {
+      const registration = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+      state.pushRegistration = registration;
+      registration.update().catch(() => {});
+      return registration;
+    } catch {
+      state.pushRegistration = null;
+      return null;
+    }
   }
 
   async function clearServiceWorkerState() {
@@ -2208,6 +2211,18 @@
   function renderBackup() {
     const notificationText =
       "Notification" in window ? Notification.permission : "Not supported";
+    const pushSupported = isPushSupported();
+    const pushEnabled =
+      pushSupported &&
+      state.settings?.pushNotificationsEnabled &&
+      Notification.permission === "granted";
+    const pushStatus = !pushSupported
+      ? "Not supported"
+      : Notification.permission === "denied"
+        ? "Blocked"
+        : pushEnabled
+          ? "On"
+          : "Off";
     const lastBackup = state.settings?.lastBackupAt
       ? formatDateTime(new Date(state.settings.lastBackupAt))
       : "No backup yet";
@@ -2227,6 +2242,34 @@
               </div>
               <button class="btn primary" type="submit">Save Setup</button>
             </form>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-body">
+            <h2>Seizure-free push alerts</h2>
+            <p class="subtle">Receive an alert when Sawyer earns a new 5-day heart, matches his longest completed streak, or reaches his historical average gap—even when the app is closed.</p>
+            ${isIosBrowser() ? `<p class="subtle danger-text">On iPhone, add Sawyer Tracker to the Home Screen and open it from its icon before enabling push alerts.</p>` : ""}
+            <div class="metric-row">
+              <div class="metric">
+                <span>Status</span>
+                <strong>${escapeHtml(pushStatus)}</strong>
+              </div>
+              <div class="metric">
+                <span>Permission</span>
+                <strong>${escapeHtml(capitalize(notificationText))}</strong>
+              </div>
+              <div class="metric">
+                <span>Delivery</span>
+                <strong>Background</strong>
+              </div>
+            </div>
+            <div class="button-row" style="margin-top: 12px;">
+              <button class="btn primary" data-action="enable-push">Enable Push Alerts</button>
+              <button class="btn secondary" data-action="test-push" ${pushEnabled ? "" : "disabled"}>Send Test</button>
+              <button class="btn secondary" data-action="disable-push">Disable</button>
+            </div>
+            <p class="subtle" style="margin-top: 10px;">Average-gap alerts describe Sawyer's recorded history only. They are not a medical prediction.</p>
           </div>
         </section>
 
@@ -2869,6 +2912,9 @@
       }, 50);
     }
     if (action === "install-app") installApp();
+    if (action === "enable-push") enablePushNotifications();
+    if (action === "test-push") testPushNotification();
+    if (action === "disable-push") disablePushNotifications();
     if (action === "enable-reminders") enableReminders();
     if (action === "disable-reminders") disableReminders();
     if (action === "export-json") exportJson();
@@ -3872,6 +3918,173 @@
     render();
   }
 
+  function isPushSupported() {
+    return Boolean(
+      "serviceWorker" in navigator &&
+      "PushManager" in window &&
+      "Notification" in window
+    );
+  }
+
+  async function enablePushNotifications() {
+    if (!isPushSupported()) {
+      showToast("Push notifications are not supported on this device.");
+      return;
+    }
+    if (isIosBrowser()) {
+      showToast("Add Sawyer Tracker to the Home Screen, then enable push alerts from the installed app.");
+      return;
+    }
+    if (!canSaveCloudRecord()) return;
+
+    const vapidPublicKey = String(externalConfig.vapidPublicKey || "").trim();
+    if (!vapidPublicKey) {
+      showToast("Push notifications are not configured yet.");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        await updateSettings({ pushNotificationsEnabled: false });
+        render();
+        showToast("Notification permission was not granted.");
+        return;
+      }
+
+      const registration =
+        state.pushRegistration ||
+        (await navigator.serviceWorker.ready);
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+        });
+      }
+
+      await invokePushSubscriptionAction("subscribe", {
+        subscription: subscription.toJSON(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Australia/Brisbane"
+      });
+      await updateSettings({ pushNotificationsEnabled: true });
+      render();
+      showToast("Seizure-free push alerts enabled.");
+    } catch (error) {
+      await updateSettings({ pushNotificationsEnabled: false }).catch(() => {});
+      render();
+      showToast(error.message || "Push alerts could not be enabled.");
+    }
+  }
+
+  async function disablePushNotifications() {
+    if (!isPushSupported()) {
+      await updateSettings({ pushNotificationsEnabled: false });
+      render();
+      return;
+    }
+    if (!canSaveCloudRecord()) return;
+
+    try {
+      await invokePushSubscriptionAction("unsubscribe");
+      const registration =
+        state.pushRegistration ||
+        (await navigator.serviceWorker.ready);
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) await subscription.unsubscribe();
+      await updateSettings({ pushNotificationsEnabled: false });
+      render();
+      showToast("Seizure-free push alerts disabled.");
+    } catch (error) {
+      showToast(error.message || "Push alerts could not be disabled.");
+    }
+  }
+
+  async function testPushNotification() {
+    if (!canSaveCloudRecord()) return;
+    try {
+      await invokePushSubscriptionAction("test");
+      showToast("Test push sent.");
+    } catch (error) {
+      showToast(error.message || "The test push could not be sent.");
+    }
+  }
+
+  async function reconcilePushSubscription(options = {}) {
+    if (
+      !isPushSupported() ||
+      Notification.permission !== "granted" ||
+      !state.settings?.pushNotificationsEnabled ||
+      !hasSupabaseConfig() ||
+      !hasStoredAccess() ||
+      !navigator.onLine
+    ) {
+      return;
+    }
+
+    try {
+      const registration =
+        state.pushRegistration ||
+        (await navigator.serviceWorker.ready);
+      const subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        await updateSettings({ pushNotificationsEnabled: false });
+        return;
+      }
+      await invokePushSubscriptionAction("subscribe", {
+        subscription: subscription.toJSON(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Australia/Brisbane"
+      });
+    } catch (error) {
+      if (!options.silent) showToast(error.message || "Push subscription could not be refreshed.");
+    }
+  }
+
+  async function invokePushSubscriptionAction(action, payload = {}) {
+    const client = state.supabaseClient || (await initSupabase());
+    if (!client) throw new Error("Supabase is not available.");
+    const { data, error } = await client.functions.invoke("sawyer-push-subscriptions", {
+      headers: state.householdAccessHash ? { [ACCESS_HEADER]: state.householdAccessHash } : {},
+      body: {
+        action,
+        householdId: state.settings.supabaseHouseholdId,
+        deviceId: pushDeviceId(),
+        ...payload
+      }
+    });
+    if (error) {
+      let message = error.message || "Push notification request failed.";
+      try {
+        const details = await error.context?.json();
+        if (details?.message) message = details.message;
+      } catch {
+        // Keep the original function error.
+      }
+      throw new Error(message);
+    }
+    return data || {};
+  }
+
+  function pushDeviceId() {
+    try {
+      let deviceId = localStorage.getItem(PUSH_DEVICE_STORAGE) || "";
+      if (!deviceId) {
+        deviceId = crypto.randomUUID?.() || uid();
+        localStorage.setItem(PUSH_DEVICE_STORAGE, deviceId);
+      }
+      return deviceId;
+    } catch {
+      return uid();
+    }
+  }
+
+  function urlBase64ToUint8Array(value) {
+    const padding = "=".repeat((4 - (value.length % 4)) % 4);
+    const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+  }
+
   async function enableReminders() {
     if (!("Notification" in window)) {
       showToast("Notifications are not supported in this browser.");
@@ -3926,34 +4139,26 @@
       if (localStorage.getItem(reminderKey)) return;
       localStorage.setItem(reminderKey, nowIso());
 
-      new Notification(`${entry.schedule.name} for ${state.profile?.name || "Sawyer"}`, {
+      showBrowserNotification(`${entry.schedule.name} for ${state.profile?.name || "Sawyer"}`, {
         body: `${entry.time.label} dose is due at ${formatTime(entry.dueAt)}.`,
         icon: "./icon.svg",
         tag: entry.key
       });
     });
-
-    checkMilestoneNotifications();
   }
 
-  function checkMilestoneNotifications() {
-    const seizures = getSeizuresAsc();
-    const last = seizures.at(-1);
-    if (!last) return;
-
-    const days = Math.floor((startOfDay(new Date()) - startOfDay(new Date(last.occurredAt))) / 86400000);
-    const milestones = [7, 14, 30, 60, 90, 120, 180, 365];
-    if (!milestones.includes(days)) return;
-
-    const key = `milestone:${last.id}:${days}`;
-    if (localStorage.getItem(key)) return;
-    localStorage.setItem(key, nowIso());
-
-    new Notification(`${state.profile?.name || "Sawyer"} milestone`, {
-      body: `${days} days since the last logged seizure.`,
-      icon: "./icon.svg",
-      tag: key
-    });
+  function showBrowserNotification(title, options) {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.ready
+        .then((registration) => registration.showNotification(title, options))
+        .catch(() => {});
+      return;
+    }
+    try {
+      new Notification(title, options);
+    } catch {
+      // Some browsers only allow notifications through a service worker.
+    }
   }
 
   function getTodayDoseEntries(date = new Date()) {

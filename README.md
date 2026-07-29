@@ -44,10 +44,21 @@ for backups. Free projects should still be exported periodically.
 - Preloaded schedule for Epibrom morning/night, Phenomav morning/night, and MCT oil C8/C10 daily
 - Long-term timeline
 - Local observations for seizure gaps, milestones, time-of-day patterns, missed/late dose context, and MCT oil context
-- Reminder permission and in-app reminder checks
+- Background Web Push alerts for each 5-day seizure-free heart, matching the longest completed episode gap, and reaching the historical average gap
+- Reminder permission and in-app medication reminder checks
 - Private vet PDF storage shared between both phones
 - Installable PWA shell
 - JSON backup/import and CSV export
+
+## Push Notifications
+
+Push alerts use the standards-based Push API, a persistent service worker, Supabase Edge Functions, and a once-per-minute Supabase Cron job. Each installed phone registers its own encrypted Web Push subscription.
+
+On iPhone, push requires iOS 16.4 or later and Sawyer Tracker must be opened from a Home Screen installation. Open **More > Seizure-free push alerts**, choose **Enable Push Alerts**, and then use **Send Test** to confirm delivery.
+
+The average-gap alert is a historical tracking cue, not a medical prediction. It is only enabled after at least two completed seizure-episode gaps are available.
+
+The VAPID public key belongs in `config.js`. `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, and `VAPID_SUBJECT` must be stored in Supabase Edge Function secrets; never commit the private key.
 
 ## Supabase Sync
 
