@@ -3,18 +3,30 @@ const { test, expect } = require("@playwright/test");
 const HOUSEHOLD_ID = "test-household";
 const ACCESS_STORAGE_KEY = "sawyer-household-access-key-hash";
 
-function fakeSupabaseConfig({ failEventWrites = false, seedSeizureDaysAgo = null, seedSeizureHoursAgo = null } = {}) {
+function fakeSupabaseConfig({
+  failEventWrites = false,
+  seedSeizureDaysAgo = null,
+  seedSeizureDaysAgoList = null,
+  seedSeizureHoursAgo = null
+} = {}) {
   return `
     (() => {
       const householdId = ${JSON.stringify(HOUSEHOLD_ID)};
-      const now = new Date().toISOString();
+      const nowMs = Date.now();
+      const now = new Date(nowMs).toISOString();
       const seedSeizureDaysAgo = ${JSON.stringify(seedSeizureDaysAgo)};
+      const seedSeizureDaysAgoList = ${JSON.stringify(seedSeizureDaysAgoList)};
       const seedSeizureHoursAgo = ${JSON.stringify(seedSeizureHoursAgo)};
       const seededSeizureAt = Number.isFinite(seedSeizureHoursAgo)
-        ? new Date(Date.now() - seedSeizureHoursAgo * 60 * 60 * 1000).toISOString()
+        ? new Date(nowMs - seedSeizureHoursAgo * 60 * 60 * 1000).toISOString()
         : Number.isFinite(seedSeizureDaysAgo)
-          ? new Date(Date.now() - seedSeizureDaysAgo * 24 * 60 * 60 * 1000).toISOString()
+          ? new Date(nowMs - seedSeizureDaysAgo * 24 * 60 * 60 * 1000).toISOString()
           : null;
+      const seededSeizuresAt = Array.isArray(seedSeizureDaysAgoList)
+        ? seedSeizureDaysAgoList.map((daysAgo) => new Date(nowMs - daysAgo * 24 * 60 * 60 * 1000).toISOString())
+        : seededSeizureAt
+          ? [seededSeizureAt]
+          : [];
       const stores = {
         sawyer_households: [{ id: householdId }],
         sawyer_dogs: [{
@@ -35,17 +47,17 @@ function fakeSupabaseConfig({ failEventWrites = false, seedSeizureDaysAgo = null
           deleted_at: null
         }],
         sawyer_schedules: [],
-        sawyer_care_events: seededSeizureAt ? [{
+        sawyer_care_events: seededSeizuresAt.map((occurredAt, index) => ({
           household_id: householdId,
           dog_id: "sawyer",
-          id: "seeded-seizure",
-          event_id: "seeded-seizure",
+          id: \`seeded-seizure-\${index}\`,
+          event_id: \`seeded-seizure-\${index}\`,
           type: "seizure",
-          occurred_at: seededSeizureAt,
+          occurred_at: occurredAt,
           payload: {
-            id: "seeded-seizure",
+            id: \`seeded-seizure-\${index}\`,
             type: "seizure",
-            occurredAt: seededSeizureAt,
+            occurredAt,
             severity: 2,
             durationSeconds: 45,
             timeKnown: true,
@@ -55,7 +67,7 @@ function fakeSupabaseConfig({ failEventWrites = false, seedSeizureDaysAgo = null
           },
           updated_at: now,
           deleted_at: null
-        }] : [],
+        })),
         sawyer_vet_documents: []
       };
 
@@ -350,6 +362,15 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
   expect(initialAppearance.backgroundColor).toBe("rgb(229, 244, 233)");
   expect(initialAppearance.backdropFilter).toBe("none");
   expect(settledAppearance).toEqual(initialAppearance);
+  expect(pageErrors).toEqual([]);
+});
+
+test("homepage longest streak includes a current streak that has passed the completed record", async ({ page }) => {
+  const pageErrors = await openTracker(page, { seedSeizureDaysAgoList: [30, 20, 12] });
+
+  const longestStreakCard = page.locator('[data-view="today"] .stat-glass-grid > .stat-card').nth(1);
+  await expect(longestStreakCard.locator("strong")).toHaveText("12 days");
+  await expect(longestStreakCard.locator("small")).toHaveText("current streak");
   expect(pageErrors).toEqual([]);
 });
 

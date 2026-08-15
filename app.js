@@ -5,7 +5,8 @@
   const DB_VERSION = 1;
   const DOG_ID = "sawyer";
   const OVERDUE_MINUTES = 45;
-  const CLUSTER_WINDOW_MS = 24 * 60 * 60 * 1000;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const CLUSTER_WINDOW_MS = DAY_MS;
   const HISTORY_PAGE_SIZE = 30;
   const SYNC_PAGE_SIZE = 500;
   const SYNC_UPLOAD_BATCH_SIZE = 200;
@@ -1004,7 +1005,7 @@
             <article class="stat-card">
               <span>Longest streak</span>
               <strong>${summary.homeLongestGapText}</strong>
-              <small>between episodes</small>
+              <small>${summary.homeLongestGapIsCurrent ? "current streak" : "between episodes"}</small>
             </article>
             <article class="stat-card">
               <span>Average gap</span>
@@ -4181,7 +4182,14 @@
     const daysSinceLast = elapsedSinceLastMs === null ? null : Math.floor(elapsedSinceLastMs / 86400000);
     const longestGap = gaps.length ? Math.max(...gaps.map((gap) => gap.days)) : null;
     const averageGap = gaps.length ? mean(gaps.map((gap) => gap.days)) : null;
-    const homeLongestGap = episodeGaps.length ? Math.max(...episodeGaps.map((gap) => gap.days)) : null;
+    const completedLongestGap = episodeGaps.length ? Math.max(...episodeGaps.map((gap) => gap.days)) : null;
+    const currentStreakDays = elapsedSinceLastMs === null ? null : elapsedSinceLastMs / DAY_MS;
+    const homeLongestGap = currentStreakDays === null
+      ? completedLongestGap
+      : Math.max(completedLongestGap ?? 0, currentStreakDays);
+    const homeLongestGapIsCurrent = currentStreakDays !== null && (
+      completedLongestGap === null || currentStreakDays >= completedLongestGap
+    );
     const homeAverageGap = episodeGaps.length ? mean(episodeGaps.map((gap) => gap.days)) : null;
     const averageDuration = durations.length ? mean(durations) : null;
 
@@ -4193,7 +4201,8 @@
       averageGapText: averageGap ? `${round1(averageGap)} days` : "--",
       longestGapText: longestGap ? `${round1(longestGap)} days` : "--",
       homeAverageGapText: homeAverageGap ? `${round1(homeAverageGap)} days` : "--",
-      homeLongestGapText: homeLongestGap ? `${round1(homeLongestGap)} days` : "--",
+      homeLongestGapText: homeLongestGap !== null ? `${round1(homeLongestGap)} days` : "--",
+      homeLongestGapIsCurrent,
       averageDurationText: averageDuration ? formatDuration(Math.round(averageDuration)) : "--",
       thisMonthSeizures
     };
