@@ -365,12 +365,16 @@ test("seizure-free streak earns animated pixel hearts every five days", async ({
   expect(pageErrors).toEqual([]);
 });
 
-test("homepage longest streak includes a current streak that has passed the completed record", async ({ page }) => {
+test("longest streak and gap displays include a current streak that has passed the completed record", async ({ page }) => {
   const pageErrors = await openTracker(page, { seedSeizureDaysAgoList: [30, 20, 12] });
 
   const longestStreakCard = page.locator('[data-view="today"] .stat-glass-grid > .stat-card').nth(1);
   await expect(longestStreakCard.locator("strong")).toHaveText("12 days");
   await expect(longestStreakCard.locator("small")).toHaveText("current streak");
+
+  await page.getByRole("button", { name: /Stats/i }).last().click();
+  const longestGapMetric = page.locator(".stats-metrics .metric").filter({ hasText: "Longest gap" });
+  await expect(longestGapMetric.locator("strong")).toHaveText("12 days");
   expect(pageErrors).toEqual([]);
 });
 

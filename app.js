@@ -4180,18 +4180,18 @@
     const lastSeizureAt = last ? seizureCounterReferenceTime(last) : null;
     const elapsedSinceLastMs = lastSeizureAt ? Math.max(0, now - lastSeizureAt) : null;
     const daysSinceLast = elapsedSinceLastMs === null ? null : Math.floor(elapsedSinceLastMs / 86400000);
-    const longestGap = gaps.length ? Math.max(...gaps.map((gap) => gap.days)) : null;
     const averageGap = gaps.length ? mean(gaps.map((gap) => gap.days)) : null;
     const completedLongestGap = episodeGaps.length ? Math.max(...episodeGaps.map((gap) => gap.days)) : null;
     const currentStreakDays = elapsedSinceLastMs === null ? null : elapsedSinceLastMs / DAY_MS;
-    const homeLongestGap = currentStreakDays === null
+    const longestGap = currentStreakDays === null
       ? completedLongestGap
       : Math.max(completedLongestGap ?? 0, currentStreakDays);
-    const homeLongestGapIsCurrent = currentStreakDays !== null && (
+    const longestGapIsCurrent = currentStreakDays !== null && (
       completedLongestGap === null || currentStreakDays >= completedLongestGap
     );
     const homeAverageGap = episodeGaps.length ? mean(episodeGaps.map((gap) => gap.days)) : null;
     const averageDuration = durations.length ? mean(durations) : null;
+    const longestGapText = longestGap !== null ? `${round1(longestGap)} days` : "--";
 
     return {
       totalSeizures: seizures.length,
@@ -4199,10 +4199,13 @@
       elapsedSinceLastMs,
       lastSeizureText: last ? `Last seizure: ${formatEventDateTime(last)}` : "No seizure logged yet",
       averageGapText: averageGap ? `${round1(averageGap)} days` : "--",
-      longestGapText: longestGap ? `${round1(longestGap)} days` : "--",
+      longestGapText,
+      longestGapIsCurrent,
       homeAverageGapText: homeAverageGap ? `${round1(homeAverageGap)} days` : "--",
-      homeLongestGapText: homeLongestGap !== null ? `${round1(homeLongestGap)} days` : "--",
-      homeLongestGapIsCurrent,
+      homeLongestGapText: longestGapText,
+      homeLongestGapIsCurrent: longestGapIsCurrent,
+      completedLongestGap,
+      currentStreakDays,
       averageDurationText: averageDuration ? formatDuration(Math.round(averageDuration)) : "--",
       thisMonthSeizures
     };
@@ -4246,6 +4249,7 @@
   function buildInsights(summary) {
     const seizures = getSeizuresAsc();
     const gaps = getSeizureGaps(seizures);
+    const episodeGaps = CORE.seizureEpisodeGaps(seizures, CLUSTER_WINDOW_MS);
     const latestVet = latestEventOfType("vet_visit");
     const latestBlood = latestEventOfType("blood_test");
     const insights = [];
@@ -4297,20 +4301,20 @@
         : `${milestone.value - (summary.daysSinceLast || 0)} days until the next ${milestone.value}-day seizure-free milestone.`
     });
 
-    if (gaps.length && summary.daysSinceLast !== null) {
-      const completedAverage = mean(gaps.map((gap) => gap.days));
-      const completedLongest = Math.max(...gaps.map((gap) => gap.days));
-      const currentInterval = summary.daysSinceLast;
+    if (episodeGaps.length && summary.currentStreakDays !== null) {
+      const completedAverage = mean(episodeGaps.map((gap) => gap.days));
+      const completedLongest = summary.completedLongestGap;
+      const currentInterval = summary.currentStreakDays;
       if (currentInterval > completedLongest) {
         insights.push({
           title: "Longest current interval",
-          body: `${currentInterval} days have passed since the last logged seizure. That is ${round1(currentInterval - completedLongest)} days beyond Sawyer's longest completed gap in this record.`
+          body: `${round1(currentInterval)} days have passed since the last logged seizure episode. That is ${round1(currentInterval - completedLongest)} days beyond Sawyer's longest completed gap in this record.`
         });
       } else if (Math.abs(currentInterval - completedAverage) >= 1) {
         const difference = Math.abs(currentInterval - completedAverage);
         insights.push({
           title: "Current interval",
-          body: `${currentInterval} days have passed since the last logged seizure, ${round1(difference)} days ${currentInterval >= completedAverage ? "longer" : "shorter"} than the historical average gap of ${round1(completedAverage)} days.`
+          body: `${round1(currentInterval)} days have passed since the last logged seizure episode, ${round1(difference)} days ${currentInterval >= completedAverage ? "longer" : "shorter"} than the historical average gap of ${round1(completedAverage)} days.`
         });
       }
     }
