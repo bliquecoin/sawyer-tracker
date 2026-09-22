@@ -46,7 +46,7 @@ function fakeSupabaseConfig({
           updated_at: now,
           deleted_at: null
         }],
-        sawyer_schedules: [],
+        sawyer_care_schedules: [],
         sawyer_care_events: seededSeizuresAt.map((occurredAt, index) => ({
           household_id: householdId,
           dog_id: "sawyer",
@@ -72,7 +72,7 @@ function fakeSupabaseConfig({
       };
 
       const clone = (value) => JSON.parse(JSON.stringify(value));
-      const valueFor = (row, column) => row[column];
+      const valueFor = (row, column) => column === "payload->>doseKey" ? row.payload?.doseKey : row[column];
 
       function queryFor(table) {
         const state = {
@@ -80,6 +80,8 @@ function fakeSupabaseConfig({
           orders: [],
           max: null,
           upserted: null,
+          inserted: null,
+          updated: null,
           selected: "*"
         };
 
@@ -100,10 +102,23 @@ function fakeSupabaseConfig({
           if (state.max !== null) rows = rows.slice(0, state.max);
           if (range) rows = rows.slice(range.from, range.to + 1);
 
-          if (state.upserted && table === "sawyer_care_events" && ${JSON.stringify(failEventWrites)}) {
+          if ((state.upserted || state.inserted || state.updated) && table === "sawyer_care_events" && ${JSON.stringify(failEventWrites)} && !window.__SAWYER_ALLOW_WRITES__) {
             return { data: null, error: { message: "Simulated Supabase write failure" } };
           }
 
+          if (state.inserted) {
+            const list = stores[table] || (stores[table] = []);
+            if (list.some((row) => row.id === state.inserted.id && row.household_id === state.inserted.household_id)) {
+              return { data: null, error: { code: "23505", message: "Duplicate record" } };
+            }
+            list.push(clone(state.inserted));
+            rows = [clone(state.inserted)];
+          }
+          if (state.updated) {
+            const ids = new Set(rows.map((row) => row.id));
+            stores[table] = (stores[table] || []).map((row) => ids.has(row.id) ? clone(state.updated) : row);
+            rows = rows.map(() => clone(state.updated));
+          }
           if (state.upserted) {
             const list = stores[table] || (stores[table] = []);
             state.upserted.forEach((row) => {
@@ -144,6 +159,8 @@ function fakeSupabaseConfig({
           range(from, to) {
             return Promise.resolve(execute({ from, to }));
           },
+          insert(row) { state.inserted = clone(row); return query; },
+          update(row) { state.updated = clone(row); return query; },
           upsert(rows) {
             state.upserted = clone(Array.isArray(rows) ? rows : [rows]);
             return query;
@@ -207,7 +224,7 @@ async function openTracker(page, options = {}) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles-r72.css?v=77");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=82");
   await expect(page.locator(".trend-chart")).toBeVisible();
   await expect(page.locator(".pixel-trend")).toBeVisible();
   await expect(page.locator(".pixel-calendar")).toBeVisible();
@@ -430,19 +447,152 @@ test("reset page waits for explicit confirmation", async ({ page }) => {
   await expect(page).toHaveURL(/reset\.html$/);
 });
 
-test("a failed cloud write remains unsaved and keeps the form available", async ({ page }) => {
+test("a failed cloud write is durable and visibly pending", async ({ page }) => {
   const pageErrors = await openTracker(page, { failEventWrites: true });
   await page.getByRole("button", { name: /Log/i }).last().click();
   const noteDetails = page.locator("details.record-disclosure").filter({ hasText: "Care note" });
   await noteDetails.locator("summary").click();
-  await page.locator("#note-title").fill("Must not save");
+  await page.locator("#note-title").fill("Keep this record");
   await page.locator("#note-body").fill("This write is expected to fail.");
   await page.getByRole("button", { name: "Save Note" }).click();
 
-  await expect(page.locator("#toast")).toContainText("Not saved: Simulated Supabase write failure");
-  await expect(page.locator("#note-title")).toHaveValue("Must not save");
-  await expect(page.locator("#note-body")).toHaveValue("This write is expected to fail.");
+  await expect(page.locator("#toast")).toContainText("Saved on this device. Waiting to sync.");
+  await expect(page.locator(".sync-banner")).toContainText("Waiting to sync");
   const remoteEvents = await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events);
   expect(remoteEvents).toEqual([]);
   expect(pageErrors).toEqual([]);
+});
+
+test("drafts survive navigation, foreground refresh and reload without truncating duration", async ({ page }) => {
+  const errors = await openTracker(page);
+  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await page.locator("#duration-minutes").fill("12");
+  await page.locator("#duration-seconds").fill("35");
+  await page.locator('[data-severity="4"]').click();
+  await page.locator(".log-details summary").click();
+  await page.locator("#notes").fill("Interrupted entry survives");
+  await page.getByRole("button", { name: "Today", exact: true }).click();
+  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await expect(page.locator("#notes")).toHaveValue("Interrupted entry survives");
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect(page.locator("#duration-minutes")).toHaveValue("12");
+  await page.reload();
+  await expect(page.locator("#duration-minutes")).toHaveValue("12");
+  await expect(page.locator("#duration-seconds")).toHaveValue("35");
+  await expect(page.locator('[data-severity="4"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#notes")).toHaveValue("Interrupted entry survives");
+  await page.getByRole("button", { name: "Save seizure", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Seizure saved");
+  expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events[0].payload.durationSeconds)).toBe(755);
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  const seizure = page.locator("details.timeline-item.seizure").first();
+  await seizure.locator("summary").click();
+  await seizure.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.locator("#duration-minutes")).toHaveValue("12");
+  await page.getByRole("button", { name: "Update seizure", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Seizure updated");
+  expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events[0].payload.durationSeconds)).toBe(755);
+  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await expect(page.locator("#duration-minutes")).toHaveValue("0");
+  await expect(page.locator("#notes")).toHaveValue("");
+  expect(errors).toEqual([]);
+});
+
+test("offline records survive reload and sync exactly once after reconnection", async ({ page, context }) => {
+  const errors = await openTracker(page);
+  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await context.setOffline(true);
+  await page.locator("#duration-minutes").fill("5");
+  await page.getByRole("button", { name: "Save seizure", exact: true }).click();
+  await expect(page.locator(".sync-banner")).toContainText("Waiting to sync");
+  expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events.length)).toBe(0);
+  // Restore the transport for reload; fail cloud writes to prove the local queue survives it.
+  await page.route("**/config.js*", (route) => route.fulfill({ contentType: "application/javascript", body: fakeSupabaseConfig({ failEventWrites: true }) }));
+  await context.setOffline(false);
+  await page.reload();
+  await expect(page.locator(".sync-banner")).toContainText("Waiting to sync");
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect(page.locator("details.timeline-item.seizure")).toHaveCount(1);
+  await page.evaluate(() => { window.__SAWYER_ALLOW_WRITES__ = true; window.dispatchEvent(new Event("online")); });
+  await expect(page.locator(".sync-banner")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events.length)).toBe(1);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.locator("details.timeline-item.seizure")).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test("dose confirmation records the carer and timestamp and prevents rapid duplicate taps", async ({ page }) => {
+  const errors = await openTracker(page);
+  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await page.locator("#carer-name").fill("Beau");
+  const firstDose = page.locator(".medication-row").first();
+  await firstDose.getByRole("button", { name: "Given", exact: true }).evaluate((button) => { button.click(); button.click(); });
+  await expect(firstDose).toContainText("Beau");
+  await expect(firstDose.getByRole("button", { name: "Undo given", exact: true })).toBeVisible();
+  const doses = await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events.filter((row) => row.payload.type === "dose"));
+  expect(doses).toHaveLength(1);
+  expect(doses[0].payload.recordedBy).toBe("Beau");
+  expect(Number.isFinite(Date.parse(doses[0].payload.occurredAt))).toBe(true);
+  await firstDose.getByRole("button", { name: "Undo given", exact: true }).click();
+  await expect(firstDose.getByRole("button", { name: "Given", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByLabel("Require confirmation for each dose").check();
+  await page.getByRole("button", { name: "Save Setup", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Setup saved");
+  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await expect(firstDose).toContainText("Unconfirmed");
+  expect(errors).toEqual([]);
+});
+
+test("conflicting edits preserve both versions and can be reviewed explicitly", async ({ page }) => {
+  const errors = await openTracker(page);
+  await page.getByRole("button", { name: "Log", exact: true }).click();
+  const note = page.locator("details.record-disclosure").filter({ hasText: "Care note" });
+  await note.locator("summary").click();
+  await page.locator("#note-title").fill("Shared note");
+  await page.locator("#note-body").fill("Original");
+  await page.getByRole("button", { name: "Save Note", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Note saved");
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  const entry = page.locator("details.timeline-item.note").first();
+  await entry.locator("summary").click();
+  await entry.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.locator("#note-body").fill("My unfinished edit");
+  await page.evaluate(() => {
+    const row = window.__SAWYER_TEST_STORES__.sawyer_care_events[0];
+    row.payload.body = "Edit from the other phone";
+    row.updated_at = new Date(Date.now() + 5000).toISOString();
+    row.payload.updatedAt = row.updated_at;
+  });
+  await page.getByRole("button", { name: "Update Note", exact: true }).click();
+  await expect(page.locator(".sync-banner")).toContainText("need review");
+  await page.getByRole("button", { name: "Review changes", exact: true }).click();
+  await expect(page.locator(".conflict-versions")).toContainText("My unfinished edit");
+  await expect(page.locator(".conflict-versions")).toContainText("Edit from the other phone");
+  await page.getByRole("button", { name: "Keep this device's version", exact: true }).click();
+  await expect(page.locator(".sync-banner")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events[0].payload.body)).toBe("My unfinished edit");
+  expect(errors).toEqual([]);
+});
+
+test.describe("offline app shell", () => {
+  test.use({ serviceWorkers: "allow" });
+  test("an installed shell reopens without a network connection", async ({ page, context, browserName }) => {
+    test.skip(browserName === "webkit", "Playwright's WebKit offline emulation does not cover service workers; verify installation on a physical iPhone.");
+    await openTracker(page);
+    await page.evaluate(async (config) => {
+      await navigator.serviceWorker.ready;
+      const cache = await caches.open("sawyer-tracker-shell-82");
+      await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
+    }, fakeSupabaseConfig());
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+    await expect(page.locator(".sync-banner")).toContainText("Offline");
+    await page.getByRole("button", { name: "Log", exact: true }).click();
+    await page.getByRole("button", { name: "Save seizure", exact: true }).click();
+    await expect(page.locator(".sync-banner")).toContainText("Waiting to sync");
+    await page.reload();
+    await expect(page.locator(".sync-banner")).toContainText("Waiting to sync");
+  });
 });

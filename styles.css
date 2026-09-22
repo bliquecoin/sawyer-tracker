@@ -3465,3 +3465,22 @@ html.ios-browser .toast {
     grid-template-columns: 1fr;
   }
 }
+:root { --care-focus: #125c60; }
+.sync-banner, .draft-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border-radius: 14px; background: #fff2cf; color: #42351c; margin-bottom: 12px; }
+.sync-banner { flex-wrap: wrap; }
+.draft-status { grid-column: 1 / -1; font-size: 13px; margin-top: 12px; }
+.duration-inputs { margin-top: 12px; }
+.duration-inputs input { min-width: 0; font-size: 18px; }
+.carer-field { margin: 12px 0; }
+.dose-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.dose-actions button { min-height: 44px; }
+.medication-copy small { display: block; margin-top: 4px; font-size: 12px; }
+.pending-record { padding: 16px 0; border-bottom: 1px solid #d9e3df; overflow-wrap: anywhere; }
+.conflict-versions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.conflict-versions section { padding: 12px; border: 1px solid #d9e3df; border-radius: 12px; }
+.conflict-versions pre { white-space: pre-wrap; font: inherit; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid var(--care-focus); outline-offset: 3px; }
+@media (max-width: 480px) {
+  .conflict-versions { grid-template-columns: 1fr; }
+  .dose-actions { max-width: 150px; }
+}

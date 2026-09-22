@@ -10,8 +10,13 @@ module.exports = defineConfig({
     baseURL: "http://127.0.0.1:4191",
     ...devices["Desktop Chrome"],
     viewport: { width: 390, height: 844 },
+    serviceWorkers: "block",
     trace: "retain-on-failure"
   },
+  projects: [
+    { name: "chromium", use: { browserName: "chromium" } },
+    { name: "iphone-webkit", use: { ...devices["iPhone 13"], browserName: "webkit" } }
+  ],
   webServer: {
     command: "python3 -m http.server 4191",
     url: "http://127.0.0.1:4191",

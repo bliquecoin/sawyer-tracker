@@ -81,6 +81,10 @@
     pullRefreshing: false,
     editingSeizureId: "",
     editingRecordId: "",
+    saveBusy: false,
+    savingFormId: "",
+    pendingRecords: [],
+    lastSaveStatus: "synced",
     severity: 3
   };
   const startedFromAuthRedirect = isAuthRedirectUrl();
@@ -90,6 +94,23 @@
     schedules: new Map(),
     events: new Map()
   };
+  const SYNC = window.SawyerTrackerSync;
+  const recordWork = SYNC.createSerialQueue();
+  const { dbGetAll, dbGet, dbPut, dbBulkPut, dbDelete, dbClear } = window.SawyerTrackerStorage.create({
+    state, memoryStores, clone, DB_NAME, DB_VERSION
+  });
+  const drafts = window.SawyerTrackerDrafts.create({
+    storage: { getItem: (key) => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value),
+      removeItem: (key) => localStorage.removeItem(key) },
+    householdId: () => state.settings?.supabaseHouseholdId || "unconfigured",
+    onDiscard: () => render()
+  });
+  try {
+    const previousView = JSON.parse(sessionStorage.getItem("sawyer-view") || "null");
+    if (previousView && ["today", "log", "timeline", "insights", "backup"].includes(previousView.activeTab)) {
+      Object.assign(state, previousView);
+    }
+  } catch { /* Start on Today if session storage is unavailable. */ }
   setRuntimeClasses();
 
   const DEFAULT_PROFILE = {
@@ -102,6 +123,7 @@
 
   const DEFAULT_SETTINGS = {
     id: "main",
+    carerName: "",
     pushNotificationsEnabled: false,
     supabaseUrl: "",
     supabaseAnonKey: "",
@@ -226,6 +248,7 @@
     requestPersistentStorage();
     attachGlobalListeners();
     await safeHydrate();
+    render();
     await initSupabase();
     if (state.settings?.syncEnabled && hasStoredAccess() && navigator.onLine) {
       await syncWithSupabase({ silent: true }).catch(() => {});
@@ -302,9 +325,11 @@
       }
     });
 
-    window.addEventListener("online", () => {
-      queueBackgroundSync();
-    });
+    window.addEventListener("online", () => { render(); queueBackgroundSync(); });
+    window.addEventListener("offline", render);
+    setInterval(() => {
+      if (!document.hidden && !state.saveBusy) queueBackgroundSync();
+    }, 30000);
   }
 
   async function safeHydrate() {
@@ -359,7 +384,7 @@
       script.src = SUPABASE_JS_URL;
       script.async = true;
       script.onload = () => resolve(true);
-      script.onerror = () => reject(new Error("Supabase library could not be loaded."));
+      script.onerror = () => { script.remove(); reject(new Error("Supabase library could not be loaded.")); };
       document.head.appendChild(script);
     });
   }
@@ -379,7 +404,7 @@
       script.src = FFLATE_JS_URL;
       script.async = true;
       script.onload = resolve;
-      script.onerror = () => reject(new Error("Backup tools could not be loaded."));
+      script.onerror = () => { script.remove(); reject(new Error("Backup tools could not be loaded.")); };
       document.head.appendChild(script);
     });
 
@@ -398,7 +423,7 @@
     }
 
     try {
-      await loadSupabaseLibrary();
+      await withTimeout(loadSupabaseLibrary(), 8000, "Cloud connection timed out. Saved records remain on this device.");
       const fingerprint = [
         state.settings.supabaseUrl,
         state.settings.supabaseAnonKey,
@@ -414,6 +439,15 @@
         state.settings.supabaseAnonKey,
         {
           global: {
+            fetch: async (url, options = {}) => {
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 10000);
+              const abort = () => controller.abort();
+              options.signal?.addEventListener("abort", abort, { once: true });
+              if (options.signal?.aborted) abort();
+              try { return await fetch(url, { ...options, signal: controller.signal }); }
+              finally { clearTimeout(timeout); options.signal?.removeEventListener("abort", abort); }
+            },
             headers: state.householdAccessHash ? { [ACCESS_HEADER]: state.householdAccessHash } : {}
           },
           auth: {
@@ -545,169 +579,6 @@
       if (error) throw error;
       state.supabaseSession = data.session;
     }
-  }
-
-  function openDb() {
-    return new Promise((resolve, reject) => {
-      if (!window.indexedDB) {
-        state.storageUnavailable = true;
-        reject(new Error("IndexedDB is not available."));
-        return;
-      }
-
-      const timeoutId = setTimeout(() => {
-        state.storageUnavailable = true;
-        reject(new Error("IndexedDB did not respond."));
-      }, 2500);
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains("profile")) {
-          db.createObjectStore("profile", { keyPath: "id" });
-        }
-        if (!db.objectStoreNames.contains("settings")) {
-          db.createObjectStore("settings", { keyPath: "id" });
-        }
-        if (!db.objectStoreNames.contains("schedules")) {
-          const schedules = db.createObjectStore("schedules", { keyPath: "id" });
-          schedules.createIndex("dogId", "dogId");
-          schedules.createIndex("kind", "kind");
-        }
-        if (!db.objectStoreNames.contains("events")) {
-          const events = db.createObjectStore("events", { keyPath: "id" });
-          events.createIndex("dogId", "dogId");
-          events.createIndex("type", "type");
-          events.createIndex("occurredAt", "occurredAt");
-          events.createIndex("dayKey", "dayKey");
-          events.createIndex("doseKey", "doseKey", { unique: false });
-          events.createIndex("syncStatus", "syncStatus");
-        }
-      };
-
-      request.onsuccess = () => {
-        clearTimeout(timeoutId);
-        resolve(request.result);
-      };
-      request.onerror = () => {
-        clearTimeout(timeoutId);
-        state.storageUnavailable = true;
-        reject(request.error);
-      };
-      request.onblocked = () => {
-        clearTimeout(timeoutId);
-        state.storageUnavailable = true;
-        reject(new Error("IndexedDB is blocked by another Safari tab."));
-      };
-    });
-  }
-
-  async function dbGetAll(storeName) {
-    if (state.storageUnavailable) return memoryGetAll(storeName);
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, "readonly");
-      const request = tx.objectStore(storeName).getAll();
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
-      tx.oncomplete = () => db.close();
-    });
-  }
-
-  async function dbGet(storeName, key) {
-    if (state.storageUnavailable) return memoryGet(storeName, key);
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, "readonly");
-      const request = tx.objectStore(storeName).get(key);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-      tx.oncomplete = () => db.close();
-    });
-  }
-
-  async function dbPut(storeName, value) {
-    if (state.storageUnavailable) return memoryPut(storeName, value);
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, "readwrite");
-      tx.objectStore(storeName).put(value);
-      tx.oncomplete = () => {
-        db.close();
-        resolve(value);
-      };
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-
-  async function dbBulkPut(storeName, values) {
-    if (state.storageUnavailable) return memoryBulkPut(storeName, values);
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, "readwrite");
-      const store = tx.objectStore(storeName);
-      values.forEach((value) => store.put(value));
-      tx.oncomplete = () => {
-        db.close();
-        resolve(values);
-      };
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-
-  async function dbDelete(storeName, key) {
-    if (state.storageUnavailable) return memoryDelete(storeName, key);
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, "readwrite");
-      tx.objectStore(storeName).delete(key);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-
-  async function dbClear(storeName) {
-    if (state.storageUnavailable) return memoryClear(storeName);
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, "readwrite");
-      tx.objectStore(storeName).clear();
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-
-  function memoryGetAll(storeName) {
-    return Array.from(memoryStores[storeName]?.values() || []).map(clone);
-  }
-
-  function memoryGet(storeName, key) {
-    const value = memoryStores[storeName]?.get(key);
-    return value ? clone(value) : null;
-  }
-
-  function memoryPut(storeName, value) {
-    memoryStores[storeName]?.set(value.id, clone(value));
-    return clone(value);
-  }
-
-  function memoryBulkPut(storeName, values) {
-    values.forEach((value) => memoryPut(storeName, value));
-    return values.map(clone);
-  }
-
-  function memoryDelete(storeName, key) {
-    memoryStores[storeName]?.delete(key);
-  }
-
-  function memoryClear(storeName) {
-    memoryStores[storeName]?.clear();
   }
 
   function normalizeSettings(settings) {
@@ -891,11 +762,25 @@
     state.profile = profile;
     state.settings = settings;
     state.schedules = schedules.filter((schedule) => !schedule.deletedAt);
-    state.events = (await dbGetAll("events")).filter((event) => !event.deletedAt);
+    const allEvents = await dbGetAll("events");
+    state.events = allEvents.filter((event) => !event.deletedAt);
+    state.pendingRecords = [
+      ...allEvents.map((record) => ({ storeName: "events", record })),
+      ...schedules.map((record) => ({ storeName: "schedules", record })),
+      { storeName: "profile", record: profile }
+    ].filter(({ record }) => SYNC.pending(record));
   }
 
   function render() {
     const summary = getSummary();
+    const focused = document.activeElement;
+    const focusId = focused?.matches("input, textarea, select") ? focused.id : "";
+    const selection = focusId && ["text", "search", "textarea"].includes(focused.type)
+      ? [focused.selectionStart, focused.selectionEnd] : null;
+    try {
+      sessionStorage.setItem("sawyer-view", JSON.stringify({ activeTab: state.activeTab,
+        editingSeizureId: state.editingSeizureId, editingRecordId: state.editingRecordId }));
+    } catch { /* View recovery is optional. */ }
 
     if (shouldShowLoginScreen()) {
       app.innerHTML = `
@@ -915,6 +800,7 @@
         <main class="content">
           <div id="pull-refresh" class="pull-refresh" aria-live="polite">Pull to refresh</div>
           ${renderEmergencySyncBanner()}
+          ${renderPendingBanner()}
           <section class="view ${state.activeTab === "today" ? "active" : ""}" data-view="today">
             ${renderToday(summary)}
           </section>
@@ -948,13 +834,18 @@
     `;
 
     bindUi();
+    const nextFocus = focusId ? document.getElementById(focusId) : null;
+    if (nextFocus?.closest(".view.active") && nextFocus.getClientRects().length) {
+      nextFocus.focus({ preventScroll: true });
+      if (selection) nextFocus.setSelectionRange(...selection);
+    }
     startHomeInsightRotation();
     centerSelectedDayPill();
   }
 
   function navButton(tab, label, icon) {
     return `
-      <button class="nav-btn ${state.activeTab === tab ? "active" : ""}" data-tab="${tab}" type="button">
+      <button aria-current="${state.activeTab === tab ? "page" : "false"}" class="nav-btn ${state.activeTab === tab ? "active" : ""}" data-tab="${tab}" type="button">
         <span aria-hidden="true">${icon}</span>${label}
       </button>
     `;
@@ -1118,6 +1009,66 @@
         <button class="btn secondary small" data-tab="backup" type="button">Cloud status</button>
       </aside>
     `;
+  }
+
+  function renderPendingBanner() {
+    const count = state.pendingRecords.length;
+    const conflicts = state.pendingRecords.filter(({ record }) => record.syncStatus === "conflict").length;
+    if (!count && navigator.onLine) return "";
+    return `<aside class="sync-banner" role="status">
+      <span>${conflicts ? `${conflicts} shared change${conflicts === 1 ? "" : "s"} need review.`
+        : count ? `${count} change${count === 1 ? "" : "s"} saved on this device. Waiting to sync.`
+          : "Offline — new entries will be saved on this device."}</span>
+      <button class="btn secondary small" data-tab="backup" type="button">${conflicts ? "Review changes" : "Sync status"}</button>
+    </aside>`;
+  }
+
+  function renderPendingRecords() {
+    if (!state.pendingRecords.length) return "";
+    return `<section class="panel"><div class="panel-body"><h2>Changes on this device</h2>
+      <p class="subtle">Pending entries remain saved here until the shared record confirms them.</p>
+      ${state.pendingRecords.map(({ storeName, record }) => {
+        const remote = record.syncConflict ? SYNC.fromRemote(record.syncConflict) : null;
+        const description = (item) => !item || item.deletedAt ? "<p>Record deleted</p>"
+          : item.type ? `<strong>${escapeHtml(eventTitle(item))}</strong><p>${escapeHtml(formatEventDateTime(item))}</p>${eventDetail(item)}`
+            : `<strong>${escapeHtml(item.name || "Care setup")}</strong><pre>${escapeHtml(JSON.stringify({ dose: item.dose, unit: item.unit, times: item.times, doseConfirmationMode: item.doseConfirmationMode }, null, 2))}</pre>`;
+        return `<article class="pending-record">
+          <strong>${escapeHtml(record.title || record.medicationName || record.name || capitalize(record.type || "Record"))}</strong>
+          <p>${record.syncStatus === "conflict" ? "Another phone changed this record." : "Waiting to sync"}</p>
+          ${record.syncError ? `<p class="subtle">${escapeHtml(record.syncError)}</p>` : ""}
+          ${record.syncStatus === "conflict" ? `<div class="conflict-versions">
+            <section><h3>This device</h3>${description(record)}</section>
+            <section><h3>Shared record</h3>${description(remote)}</section></div>
+            <div class="button-row">
+              <button class="btn secondary" data-resolve-conflict="remote" data-store="${storeName}" data-record="${escapeHtml(record.id)}">Use shared version</button>
+              <button class="btn primary" data-resolve-conflict="local" data-store="${storeName}" data-record="${escapeHtml(record.id)}">Keep this device's version</button>
+            </div>` : ""}</article>`;
+      }).join("")}
+      <button class="btn secondary" data-action="sync-now" ${navigator.onLine ? "" : "disabled"}>Sync now</button>
+    </div></section>`;
+  }
+
+  async function resolveConflict(storeName, id, choice) {
+    try {
+      await recordWork(async () => {
+        const record = await dbGet(storeName, id);
+        if (record?.syncStatus !== "conflict") return;
+        const remote = record.syncConflict;
+        if (choice === "remote") {
+          if (remote) await dbPut(storeName, SYNC.fromRemote(remote));
+          if (!remote || remote.id !== id) await dbDelete(storeName, id);
+        } else {
+          const next = SYNC.enqueue({ ...record, id: remote?.id || id,
+            syncBaseUpdatedAt: remote?.updated_at || null, updatedAt: SYNC.nextTimestamp(remote?.updated_at) },
+            record, state.settings.supabaseHouseholdId, record.syncMutationId || uid());
+          await dbPut(storeName, next);
+          if (next.id !== id) await dbDelete(storeName, id);
+        }
+      });
+      await hydrate();
+      render();
+      queueBackgroundSync();
+    } catch (error) { showToast(error.message); }
   }
 
   function renderLoginScreen() {
@@ -1371,7 +1322,8 @@
     const exceptions = doses.filter((entry) => entry.status === "missed" || entry.status === "skipped");
     const headline = exceptions.length
       ? `${exceptions.length} dose exception${exceptions.length === 1 ? "" : "s"}`
-      : "Medication assumed given";
+      : doses.every((entry) => entry.status === "given") ? "Medication confirmed"
+        : state.profile?.doseConfirmationMode === "explicit" ? "Confirmation needed" : "Medication assumed given";
     const eventList = events.length
       ? events.map((event) => `<li>${escapeHtml(eventTitle(event))}<span>${escapeHtml(formatEventTime(event))}</span></li>`).join("")
       : `<li>No care records<span>${doses.length} scheduled</span></li>`;
@@ -1411,12 +1363,14 @@
           <div>
             <p class="eyebrow">Today's medication</p>
             <h2>Daily check</h2>
-            <p class="subtle">Assumed given unless you mark a dose as missed.</p>
+            <p class="subtle">${state.profile?.doseConfirmationMode === "explicit" ? "Confirm each dose after it is given." : "Assumed given unless marked missed. You can also confirm a dose."}</p>
           </div>
           <span class="status-pill ${exceptions.length ? "missed" : "assumed"}">
-            ${exceptions.length ? `${exceptions.length} missed` : "All assumed"}
+            ${exceptions.length ? `${exceptions.length} missed` : `${entries.filter((entry) => entry.status === "given").length} confirmed`}
           </span>
         </div>
+        <div class="field carer-field"><label for="carer-name">Recording as</label>
+          <input id="carer-name" maxlength="60" autocomplete="given-name" placeholder="Your name" value="${escapeHtml(state.settings.carerName || "")}" /></div>
         <div class="dose-groups">
           ${groups.map(renderDoseGroup).join("")}
         </div>
@@ -1442,21 +1396,19 @@
   function renderDoseRow(entry) {
     const hasException = entry.status === "missed" || entry.status === "skipped";
     const details = [entry.statusText, entry.doseText].filter(Boolean).join(" · ");
-    return `
-      <article class="medication-row ${hasException ? "missed" : ""}">
-        <div class="medication-copy">
-          <strong>${escapeHtml(entry.schedule.name)}</strong>
-          <span class="medication-meta">
-            <span class="medication-state ${entry.pillClass}">${escapeHtml(details)}</span>
-          </span>
-        </div>
-        ${
-          hasException
-            ? `<button class="missed-toggle active" data-clear-dose="${entry.log.id}" type="button">Undo missed</button>`
-            : `<button class="missed-toggle" data-dose="${entry.key}" data-status="missed" type="button">Mark missed</button>`
-        }
-      </article>
-    `;
+    const attribution = entry.log?.recordedBy
+      ? `${entry.log.recordedBy} · ${formatTime(new Date(entry.log.occurredAt))}` : "";
+    return `<article class="medication-row ${hasException ? "missed" : ""}">
+      <div class="medication-copy"><strong>${escapeHtml(entry.schedule.name)}</strong>
+        <span class="medication-meta"><span class="medication-state ${entry.pillClass}">${escapeHtml(details)}</span></span>
+        ${attribution ? `<small>${escapeHtml(attribution)}</small>` : ""}
+        ${entry.log && SYNC.pending(entry.log) ? `<small>${entry.log.syncStatus === "conflict" ? "Needs review in More" : "Waiting to sync"}</small>` : ""}
+      </div>
+      <div class="dose-actions">${entry.log
+        ? `<button class="missed-toggle ${hasException ? "active" : ""}" data-clear-dose="${escapeHtml(entry.log.id)}" type="button">${hasException ? "Undo missed" : "Undo given"}</button>`
+        : `<button class="btn secondary small" data-dose="${escapeHtml(entry.key)}" data-status="given" type="button">Given</button>
+           <button class="missed-toggle" data-dose="${escapeHtml(entry.key)}" data-status="missed" type="button">Mark missed</button>`}
+      </div></article>`;
   }
 
   function renderLog() {
@@ -1464,7 +1416,7 @@
     const todayEntries = getTodayDoseEntries(now);
     const editingSeizure = state.events.find((event) => event.id === state.editingSeizureId && event.type === "seizure");
     const seizureDate = editingSeizure ? new Date(editingSeizure.occurredAt) : now;
-    const durationSeconds = clamp(editingSeizure?.durationSeconds || 0, 0, 120);
+    const durationSeconds = Math.max(0, editingSeizure?.durationSeconds || 0);
     const localDate = toDateInputValue(seizureDate);
     const localTime = toTimeInputValue(seizureDate);
     const timeKnown = editingSeizure ? editingSeizure.timeKnown !== false : false;
@@ -1516,35 +1468,20 @@
 
               <section class="log-section seizure-measures">
                 <div class="duration-wheel">
-                  <div class="duration-wheel-heading">
-                    <div>
-                      <span class="label">Duration</span>
-                      <small>Slide to the closest estimate</small>
-                    </div>
-                    <output id="duration-output" for="seizure-duration">${formatDuration(durationSeconds)}</output>
-                  </div>
-                  <input
-                    id="seizure-duration"
-                    name="durationSeconds"
-                    type="range"
-                    min="0"
-                    max="120"
-                    step="5"
-                    value="${durationSeconds}"
-                    style="--duration-progress: ${(durationSeconds / 120) * 100}%"
-                    aria-label="Seizure duration in seconds"
-                  />
-                  <div class="duration-scale" aria-hidden="true">
-                    <span>0 sec</span>
-                    <span>1 min</span>
-                    <span>2 min</span>
+                  <div class="duration-wheel-heading"><span class="label">Duration</span>
+                    <output id="duration-output">${formatDuration(durationSeconds)}</output></div>
+                  <div class="grid two duration-inputs">
+                    <div class="field"><label for="duration-minutes">Minutes</label>
+                      <input id="duration-minutes" name="durationMinutes" type="number" min="0" step="1" inputmode="numeric" value="${Math.floor(durationSeconds / 60)}" required /></div>
+                    <div class="field"><label for="duration-seconds">Seconds</label>
+                      <input id="duration-seconds" name="durationSeconds" type="number" min="0" max="59" step="1" inputmode="numeric" value="${durationSeconds % 60}" required /></div>
                   </div>
                 </div>
                 <div class="field">
                   <span class="label">Severity</span>
                   <input id="seizure-severity" name="severity" type="hidden" value="${selectedSeverity}" />
                   <div class="segmented" role="group" aria-label="Severity">
-                    ${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="${selectedSeverity === n ? "active" : ""}" data-severity="${n}">${n}</button>`).join("")}
+                    ${[1, 2, 3, 4, 5].map((n) => `<button type="button" aria-pressed="${selectedSeverity === n}" class="${selectedSeverity === n ? "active" : ""}" data-severity="${n}">${n}</button>`).join("")}
                   </div>
                 </div>
               </section>
@@ -2226,6 +2163,7 @@
 
     return `
       <div class="stack">
+        ${renderPendingRecords()}
         <section class="panel">
           <div class="panel-body">
             <h2>Care Setup</h2>
@@ -2234,6 +2172,7 @@
                 <label for="dog-name">Dog name</label>
                 <input id="dog-name" name="dogName" value="${escapeHtml(state.profile?.name || "Sawyer")}" required />
               </div>
+              <label class="check-chip"><input name="confirmDoses" type="checkbox" ${state.profile?.doseConfirmationMode === "explicit" ? "checked" : ""} /> Require confirmation for each dose</label>
               <div class="setup-list">
                 ${state.schedules.map(renderSetupSchedule).join("")}
               </div>
@@ -2421,6 +2360,27 @@
   }
 
   function bindUi() {
+    drafts.bind(app, (form) => {
+      if (form.getAttribute("id") === "setup-form") {
+        return JSON.stringify(Object.fromEntries([state.profile, ...state.schedules].filter(Boolean)
+          .map((record) => [record.id, SYNC.pending(record) ? record.syncBaseUpdatedAt : record.serverUpdatedAt || record.updatedAt])));
+      }
+      const record = state.events.find((item) => item.id === form.elements.namedItem("id")?.value);
+      return record ? (SYNC.pending(record) ? record.syncBaseUpdatedAt : record.serverUpdatedAt || record.updatedAt) : "";
+    });
+    const restoredSeverity = document.querySelector("#seizure-severity")?.value;
+    if (state.savingFormId) {
+      const savingForm = document.getElementById(state.savingFormId);
+      if (savingForm) { savingForm.inert = true; savingForm.setAttribute("aria-busy", "true"); }
+    }
+    document.querySelectorAll("[data-severity]").forEach((button) => {
+      const active = button.dataset.severity === restoredSeverity;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    document.querySelectorAll("[data-resolve-conflict]").forEach((button) => {
+      button.addEventListener("click", () => resolveConflict(button.dataset.store, button.dataset.record, button.dataset.resolveConflict));
+    });
     document.querySelectorAll("[data-tab]").forEach((button) => {
       button.addEventListener("click", () => {
         state.activeTab = button.dataset.tab;
@@ -2432,7 +2392,14 @@
     });
 
     document.querySelectorAll("[data-dose]").forEach((button) => {
-      button.addEventListener("click", () => logDose(button.dataset.dose, button.dataset.status));
+      button.addEventListener("click", async () => {
+        if (state.saveBusy) return;
+        state.saveBusy = true;
+        button.disabled = true;
+        try { await logDose(button.dataset.dose, button.dataset.status); }
+        catch (error) { reportCloudSaveFailure(error); }
+        finally { state.saveBusy = false; button.disabled = false; }
+      });
     });
 
     document.querySelectorAll("[data-day]").forEach((button) => {
@@ -2473,19 +2440,26 @@
       button.addEventListener("click", () => {
         state.severity = Number(button.dataset.severity);
         const severityInput = document.querySelector("#seizure-severity");
-        if (severityInput) severityInput.value = String(state.severity);
-        document.querySelectorAll("[data-severity]").forEach((item) => item.classList.remove("active"));
+        if (severityInput) {
+          severityInput.value = String(state.severity);
+          severityInput.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        document.querySelectorAll("[data-severity]").forEach((item) => {
+          item.classList.remove("active"); item.setAttribute("aria-pressed", "false");
+        });
+        button.setAttribute("aria-pressed", "true");
         button.classList.add("active");
       });
     });
 
-    const durationInput = document.querySelector("#seizure-duration");
-    durationInput?.addEventListener("input", () => {
-      const duration = clamp(Number(durationInput.value), 0, 120);
-      durationInput.style.setProperty("--duration-progress", `${(duration / 120) * 100}%`);
+    const updateDuration = () => {
+      const minutes = Number(document.querySelector("#duration-minutes")?.value || 0);
+      const seconds = Number(document.querySelector("#duration-seconds")?.value || 0);
       const output = document.querySelector("#duration-output");
-      if (output) output.textContent = formatDuration(duration);
-    });
+      if (output) output.textContent = formatDuration(minutes * 60 + seconds);
+    };
+    document.querySelectorAll(".duration-inputs input").forEach((input) => input.addEventListener("input", updateDuration));
+    updateDuration();
 
     document.querySelectorAll(".time-input-shell input[type='time']").forEach((input) => {
       const display = input.closest(".time-input-shell")?.querySelector(".time-input-value");
@@ -2494,6 +2468,7 @@
       };
       input.addEventListener("input", updateDisplay);
       input.addEventListener("change", updateDisplay);
+      updateDisplay();
     });
 
     document.querySelectorAll(".date-input-shell input[type='date']").forEach((input) => {
@@ -2503,6 +2478,7 @@
       };
       input.addEventListener("input", updateDisplay);
       input.addEventListener("change", updateDisplay);
+      updateDisplay();
     });
 
     const timeKnownToggle = document.querySelector("[data-time-known]");
@@ -2634,13 +2610,13 @@
       );
     }
 
-    document.querySelector("#seizure-form")?.addEventListener("submit", saveSeizure);
-    document.querySelector("#note-form")?.addEventListener("submit", saveNote);
-    document.querySelector("#vet-form")?.addEventListener("submit", saveVetVisit);
-    document.querySelector("#blood-test-form")?.addEventListener("submit", saveBloodTest);
+    bindSaveForm("#seizure-form", saveSeizure);
+    bindSaveForm("#note-form", saveNote);
+    bindSaveForm("#vet-form", saveVetVisit);
+    bindSaveForm("#blood-test-form", saveBloodTest);
     document.querySelector("#vet-document-form")?.addEventListener("submit", uploadVetDocument);
     document.querySelector("#history-search-form")?.addEventListener("submit", searchHistory);
-    document.querySelector("#setup-form")?.addEventListener("submit", saveSetup);
+    bindSaveForm("#setup-form", saveSetup);
     document.querySelector("#sync-config-form")?.addEventListener("submit", saveSyncConfig);
     document.querySelector("#access-form")?.addEventListener("submit", saveAccessCode);
 
@@ -2656,7 +2632,37 @@
       button.addEventListener("click", () => deleteVetDocument(button.dataset.deleteVetDocument));
     });
 
+    document.querySelector("#carer-name")?.addEventListener("input", (event) => {
+      updateSettings({ carerName: event.target.value.trim().slice(0, 60) }).catch(() => {});
+    });
     bindPullRefresh();
+  }
+
+  function bindSaveForm(selector, handler) {
+    const form = document.querySelector(selector);
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (state.saveBusy) return;
+      state.saveBusy = true;
+      state.savingFormId = form.getAttribute("id");
+      const button = form.querySelector('[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        // Keep the form reference across awaits; DOM Event.currentTarget is transient.
+        const saving = handler({ preventDefault() {}, currentTarget: form });
+        form.inert = true;
+        form.setAttribute("aria-busy", "true");
+        await saving;
+      } catch (error) { reportCloudSaveFailure(error); }
+      finally {
+        state.saveBusy = false;
+        state.savingFormId = "";
+        if (button) button.disabled = false;
+        form.inert = false;
+        form.removeAttribute("aria-busy");
+        document.querySelectorAll("form[inert]").forEach((item) => { item.inert = false; item.removeAttribute("aria-busy"); });
+      }
+    });
   }
 
   function centerSelectedDayPill() {
@@ -2853,6 +2859,7 @@
 
   async function refreshApp(options = {}) {
     await safeHydrate();
+    render();
     await initSupabase();
     try {
       if (state.settings?.syncEnabled && hasStoredAccess() && navigator.onLine) {
@@ -2916,31 +2923,20 @@
     render();
   }
 
-  async function persistEventMutation(record) {
-    const records = await dbGetAll("events");
-    const nextById = new Map(records.map((item) => [item.id, item]));
-    nextById.set(record.id, record);
-    const nextRecords = Array.from(nextById.values());
-    const clusterUpdates = buildAutomaticClusterUpdates(nextRecords);
-    const writesById = new Map([[record.id, record]]);
-    clusterUpdates.forEach((item) => writesById.set(item.id, item));
-    return persistCloudRecords({
-      storeName: "events",
-      tableName: SUPABASE_TABLES.events,
-      records: Array.from(writesById.values())
-    });
+  async function persistEventMutation(record, onQueued) {
+    return persistCloudRecords({ storeName: "events", tableName: SUPABASE_TABLES.events, records: [record], onQueued });
   }
 
   function cloudSaveBlockMessage() {
     if (!hasSupabaseConfig()) return "Supabase is not configured yet.";
     if (!state.settings?.syncEnabled) return "Supabase sync is not enabled yet.";
     if (!hasStoredAccess()) return "Enter the household access code before saving Sawyer's records.";
-    if (!navigator.onLine) return "Internet is required before saving Sawyer's records.";
+    if (state.storageUnavailable) return "Device storage is unavailable. Your entry remains in the form; restore storage before saving.";
     return "Supabase is not ready yet.";
   }
 
   function canSaveCloudRecord() {
-    if (hasSupabaseConfig() && state.settings?.syncEnabled && hasStoredAccess() && navigator.onLine) return true;
+    if (hasSupabaseConfig() && state.settings?.syncEnabled && hasStoredAccess() && !state.storageUnavailable) return true;
     const message = cloudSaveBlockMessage();
     state.syncMessage = message;
     showToast(message);
@@ -2953,11 +2949,20 @@
     const entry = getTodayDoseEntries().find((item) => item.key === doseKey);
     if (!entry) return;
 
+    const carerName = String(document.querySelector("#carer-name")?.value || state.settings.carerName || "").trim().slice(0, 60);
+    if (!carerName) {
+      showToast("Enter your name in Recording as before confirming a dose.");
+      document.querySelector("#carer-name")?.focus();
+      return;
+    }
+    await updateSettings({ carerName });
     const restoreScroll = captureContentScroll();
     const existing = entry.log;
     const timestamp = nowIso();
     const event = {
-      id: existing?.id || uid(),
+      id: existing?.id || `dose:${doseKey}`,
+      recordedBy: carerName,
+      ...(existing ? { syncBaseUpdatedAt: SYNC.pending(existing) ? existing.syncBaseUpdatedAt : existing.serverUpdatedAt || existing.updatedAt } : {}),
       dogId: DOG_ID,
       type: "dose",
       scheduleId: entry.schedule.id,
@@ -2982,7 +2987,7 @@
       await hydrate();
       render();
       restoreScroll();
-      showToast(`${entry.schedule.name} marked ${status}.`);
+      showSaveToast(`${entry.schedule.name} marked ${status}.`);
     } catch (error) {
       reportCloudSaveFailure(error);
       restoreScroll();
@@ -3008,7 +3013,7 @@
       await hydrate();
       render();
       restoreScroll();
-      showToast(message);
+      showSaveToast(message);
     } catch (error) {
       reportCloudSaveFailure(error);
       restoreScroll();
@@ -3058,17 +3063,18 @@
     event.preventDefault();
     if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
-    const existingId = String(form.get("id") || "").trim();
+    const existingId = String(form.get("id") || form.get("_entryId") || "").trim();
     const existing = existingId ? await dbGet("events", existingId) : null;
     const date = String(form.get("date") || localDateKey(new Date()));
     const timeKnown = form.get("timeKnown") === "on";
     const time = timeKnown ? String(form.get("time") || "12:00") : "12:00";
     const occurredAt = localTimeToDate(date, time);
-    const durationSeconds = clamp(Number(form.get("durationSeconds") || 0), 0, 120);
+    const durationSeconds = CORE.durationInSeconds(form.get("durationMinutes"), form.get("durationSeconds"));
+    if (durationSeconds === null) { showToast("Enter whole minutes and seconds from 0 to 59."); return; }
     const timestamp = nowIso();
 
     const record = {
-      id: existing?.id || uid(),
+      id: existing?.id || existingId || uid(),
       dogId: DOG_ID,
       type: "seizure",
       dayKey: localDateKey(occurredAt),
@@ -3089,14 +3095,15 @@
     };
 
     try {
-      await persistEventMutation(record);
+      record.syncBaseUpdatedAt = form.get("_baseUpdatedAt") || null;
+      await persistEventMutation(record, () => drafts.clear(event.currentTarget));
       if (existing) state.editingSeizureId = "";
       await hydrate();
       const savedRecord = state.events.find((item) => item.id === record.id) || record;
       const clusterDetected = isAutomaticCluster(savedRecord);
       state.activeTab = "today";
       render();
-      showToast(
+      showSaveToast(
         clusterDetected
           ? `${existing ? "Seizure updated" : "Seizure saved"}. Multiple seizures were logged within 24 hours.`
           : existing
@@ -3112,7 +3119,7 @@
     event.preventDefault();
     if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
-    const existingId = String(form.get("id") || "").trim();
+    const existingId = String(form.get("id") || form.get("_entryId") || "").trim();
     const existing = existingId ? await dbGet("events", existingId) : null;
     const title = String(form.get("title") || "Care note").trim() || "Care note";
     const body = String(form.get("body") || "").trim();
@@ -3120,7 +3127,7 @@
     const timestamp = nowIso();
 
     const record = {
-      id: existing?.id || uid(),
+      id: existing?.id || existingId || uid(),
       dogId: DOG_ID,
       type: "note",
       dayKey: existing?.dayKey || localDateKey(new Date()),
@@ -3133,12 +3140,13 @@
     };
 
     try {
-      await persistEventMutation(record);
+      record.syncBaseUpdatedAt = form.get("_baseUpdatedAt") || null;
+      await persistEventMutation(record, () => drafts.clear(event.currentTarget));
       await hydrate();
       if (existing) state.editingRecordId = "";
       state.activeTab = "today";
       render();
-      showToast(existing ? "Note updated." : "Note saved.");
+      showSaveToast(existing ? "Note updated." : "Note saved.");
     } catch (error) {
       reportCloudSaveFailure(error);
     }
@@ -3148,7 +3156,7 @@
     event.preventDefault();
     if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
-    const existingId = String(form.get("id") || "").trim();
+    const existingId = String(form.get("id") || form.get("_entryId") || "").trim();
     const existing = existingId ? await dbGet("events", existingId) : null;
     const date = String(form.get("date") || toDateInputValue(new Date()));
     const time = String(form.get("time") || "12:00");
@@ -3156,7 +3164,7 @@
     const timestamp = nowIso();
 
     const record = {
-      id: existing?.id || uid(),
+      id: existing?.id || existingId || uid(),
       dogId: DOG_ID,
       type: "vet_visit",
       dayKey: localDateKey(occurredAt),
@@ -3171,12 +3179,13 @@
     };
 
     try {
-      await persistEventMutation(record);
+      record.syncBaseUpdatedAt = form.get("_baseUpdatedAt") || null;
+      await persistEventMutation(record, () => drafts.clear(event.currentTarget));
       await hydrate();
       if (existing) state.editingRecordId = "";
       state.activeTab = "today";
       render();
-      showToast(existing ? "Vet visit updated." : "Vet visit saved.");
+      showSaveToast(existing ? "Vet visit updated." : "Vet visit saved.");
     } catch (error) {
       reportCloudSaveFailure(error);
     }
@@ -3186,7 +3195,7 @@
     event.preventDefault();
     if (!canSaveCloudRecord()) return;
     const form = new FormData(event.currentTarget);
-    const existingId = String(form.get("id") || "").trim();
+    const existingId = String(form.get("id") || form.get("_entryId") || "").trim();
     const existing = existingId ? await dbGet("events", existingId) : null;
     const date = String(form.get("date") || toDateInputValue(new Date()));
     const time = String(form.get("time") || "12:00");
@@ -3196,7 +3205,7 @@
     const bromide = readLabLevel(form, "bromide");
 
     const record = {
-      id: existing?.id || uid(),
+      id: existing?.id || existingId || uid(),
       dogId: DOG_ID,
       type: "blood_test",
       dayKey: localDateKey(occurredAt),
@@ -3214,12 +3223,13 @@
     };
 
     try {
-      await persistEventMutation(record);
+      record.syncBaseUpdatedAt = form.get("_baseUpdatedAt") || null;
+      await persistEventMutation(record, () => drafts.clear(event.currentTarget));
       await hydrate();
       if (existing) state.editingRecordId = "";
       state.activeTab = "today";
       render();
-      showToast(existing ? "Blood test updated." : "Blood test saved.");
+      showSaveToast(existing ? "Blood test updated." : "Blood test saved.");
     } catch (error) {
       reportCloudSaveFailure(error);
     }
@@ -3415,16 +3425,21 @@
     const timestamp = nowIso();
     const dogName = String(form.get("dogName") || "Sawyer").trim() || "Sawyer";
     const regimenChanges = [];
+    let bases = {};
+    try { bases = JSON.parse(form.get("_baseUpdatedAt") || "{}"); } catch { /* Old drafts have no base. */ }
 
     const updatedProfile = {
       ...state.profile,
       name: dogName,
+      doseConfirmationMode: form.get("confirmDoses") === "on" ? "explicit" : "assumed",
+      syncBaseUpdatedAt: bases[state.profile.id] || null,
       updatedAt: timestamp,
       syncStatus: "local"
     };
 
     const updatedSchedules = state.schedules.map((schedule) => ({
       ...schedule,
+      syncBaseUpdatedAt: bases[schedule.id] || null,
       dose: String(form.get(`${schedule.id}:dose`) || "").trim(),
       unit: String(form.get(`${schedule.id}:unit`) || "").trim(),
       effectiveFrom: String(form.get(`${schedule.id}:effectiveFrom`) || "").trim(),
@@ -3473,7 +3488,7 @@
         tableName: SUPABASE_TABLES.dogs,
         records: [updatedProfile]
       });
-      await persistCloudRecords({
+      const savedSchedules = await persistCloudRecords({
         storeName: "schedules",
         tableName: SUPABASE_TABLES.schedules,
         records: updatedSchedules
@@ -3482,12 +3497,15 @@
         await persistCloudRecords({
           storeName: "events",
           tableName: SUPABASE_TABLES.events,
-          records: regimenChanges
+          records: regimenChanges.map((record) => ({ ...record,
+            syncParent: { id: record.scheduleId, mutationId: savedSchedules.find((schedule) => schedule?.id === record.scheduleId)?.syncMutationId }
+          }))
         });
       }
+      drafts.clear(event.currentTarget);
       await hydrate();
       render();
-      showToast("Setup saved.");
+      showSaveToast("Setup saved.");
     } catch (error) {
       reportCloudSaveFailure(error);
     }
@@ -3508,6 +3526,8 @@
 
   async function saveSyncConfig(event) {
     event.preventDefault();
+    if (state.saveBusy) { showToast("Wait for the current save to finish."); return; }
+    if (state.pendingRecords.length) { showToast("Sync or resolve local changes before changing households."); return; }
     const form = new FormData(event.currentTarget);
     const supabaseUrl = String(form.get("supabaseUrl") || "").trim().replace(/\/$/, "");
     const supabaseAnonKey = String(form.get("supabaseAnonKey") || "").trim();
@@ -3559,6 +3579,8 @@
   }
 
   async function signOut() {
+    if (state.saveBusy) { showToast("Wait for the current save to finish."); return; }
+    if (state.pendingRecords.length) { showToast("Sync or resolve the saved changes before removing household access."); return; }
     try {
       const client = state.supabaseClient || (await initSupabase());
       if (client) await client.auth.signOut();
@@ -3645,12 +3667,14 @@
     if (!state.settings?.syncEnabled || !hasStoredAccess() || !navigator.onLine) return;
     clearTimeout(state.syncTimer);
     state.syncTimer = setTimeout(() => {
-      syncWithSupabase({ silent: true }).catch(() => {});
+      syncWithSupabase({ silent: true }).catch(() => {}).finally(() => {
+        safeHydrate().then(() => renderPreservingContentScroll());
+      });
     }, 1500);
   }
 
   async function syncWithSupabase(options = {}) {
-    return state.syncFlight.run(() => runSupabaseSync(options));
+    return state.syncFlight.run(() => recordWork(() => runSupabaseSync(options)));
   }
 
   async function runSupabaseSync(options = {}) {
@@ -3689,24 +3713,14 @@
         localRecords: await dbGetAll("events")
       });
 
-      let uploaded = dogResult.uploaded + scheduleResult.uploaded + eventResult.uploaded;
-      let downloaded = dogResult.downloaded + scheduleResult.downloaded + eventResult.downloaded;
+      const uploaded = dogResult.uploaded + scheduleResult.uploaded + eventResult.uploaded;
+      const downloaded = dogResult.downloaded + scheduleResult.downloaded + eventResult.downloaded;
 
       await hydrate();
-      const clusterUpdates = await refreshAutomaticClusterFlags();
-      if (clusterUpdates) {
-        const clusterResult = await syncStore({
-          client,
-          householdId,
-          storeName: "events",
-          tableName: SUPABASE_TABLES.events,
-          localRecords: await dbGetAll("events")
-        });
-        uploaded += clusterResult.uploaded;
-        downloaded += clusterResult.downloaded;
-      }
-
-      const message = `Synced ${uploaded} up and ${downloaded} down.`;
+      const conflicts = state.pendingRecords.filter(({ record }) => record.syncStatus === "conflict").length;
+      const message = conflicts ? `${conflicts} shared change${conflicts === 1 ? "" : "s"} need review in More.`
+        : state.pendingRecords.length ? `${state.pendingRecords.length} change${state.pendingRecords.length === 1 ? "" : "s"} waiting to sync.`
+          : `Synced ${uploaded} up and ${downloaded} down.`;
 
       await updateSettings({
         syncEnabled: true,
@@ -3729,31 +3743,38 @@
     }
   }
 
-  async function persistCloudRecords({ storeName, tableName, records }) {
-    if (!records.length) return [];
-    if (!navigator.onLine) throw new Error("Internet is required before saving Sawyer's records.");
+  async function persistCloudRecords({ storeName, tableName, records, onQueued }) {
+    return recordWork(async () => {
+      if (state.storageUnavailable) throw new Error("Device storage is unavailable. The entry has not been saved.");
+      const householdId = state.settings.supabaseHouseholdId;
+      const queued = [];
+      for (const record of records) {
+        const previous = await dbGet(storeName, record.id);
+        queued.push(SYNC.enqueue(record, previous, householdId, uid()));
+      }
+      await dbBulkPut(storeName, queued);
+      onQueued?.();
+      state.lastSaveStatus = "pending";
+      if (navigator.onLine) {
+        try {
+          const client = await requireSupabaseSession();
+          await syncStore({ client, householdId, storeName, tableName, localRecords: await dbGetAll(storeName) });
+        } catch (error) {
+          state.syncMessage = error.message || "Waiting for the cloud connection.";
+        }
+      }
+      const saved = await Promise.all(queued.map((record) => dbGet(storeName, record.id)));
+      state.lastSaveStatus = saved.some((record) => record?.syncStatus === "conflict") ? "conflict"
+        : saved.some((record) => SYNC.pending(record || {})) ? "pending" : "synced";
+      return saved;
+    });
+  }
 
-    const client = await requireSupabaseSession();
-    const householdId = state.settings?.supabaseHouseholdId;
-    if (!householdId) throw new Error("Sawyer's household is not configured.");
-
-    const rows = records.map((record) => localToRemoteRow(householdId, record));
-    const { data, error } = await client
-      .from(tableName)
-      .upsert(rows, { onConflict: "household_id,id" })
-      .select("id,updated_at,deleted_at");
-    if (error) throw error;
-    if ((data || []).length !== rows.length) {
-      throw new Error("Supabase did not confirm every record. Nothing was marked as saved on this device.");
-    }
-
-    const confirmed = records.map((record) => ({
-      ...record,
-      syncStatus: "synced"
-    }));
-    await dbBulkPut(storeName, confirmed);
-    state.accessVerified = true;
-    return confirmed;
+  function showSaveToast(message) {
+    const status = state.pendingRecords.some(({ record }) => record.syncStatus === "conflict") ? "conflict"
+      : state.pendingRecords.length ? "pending" : state.lastSaveStatus;
+    showToast(status === "conflict" ? "Saved on this device. Review conflicting changes in More."
+      : status === "pending" ? `${message} Saved on this device. Waiting to sync.` : message);
   }
 
   function reportCloudSaveFailure(error) {
@@ -3764,119 +3785,54 @@
 
   async function syncStore({ client, householdId, storeName, tableName, localRecords }) {
     const remoteRows = await fetchAllRemoteRows(client, householdId, tableName);
-    const planOptions = {
-      toLocal: remotePayloadToLocal,
-      isNewer,
-      preferRemote: (local, remote) => shouldPreferRemoteSeed(storeName, local, remote)
-    };
-    const downloadPlan = CORE.buildSyncPlan(localRecords, remoteRows, planOptions);
+    const remoteMap = new Map(remoteRows.map((row) => [row.id, row]));
+    let uploaded = 0;
     let downloaded = 0;
-
-    for (const remoteRecord of downloadPlan.downloads) {
-      await dbPut(storeName, remoteRecord);
+    for (const original of localRecords) {
+      let record = original;
+      const remote = remoteMap.get(record.id);
+      if (record.syncStatus === "conflict") continue;
+      if (!SYNC.pending(record) && !remote && record.syncStatus === "local") {
+        record = SYNC.enqueue(record, null, householdId, uid());
+        await dbPut(storeName, record);
+      }
+      if (record.syncStatus === "pending") {
+        if (record.syncParent) {
+          const parent = await dbGet("schedules", record.syncParent.id);
+          if (!parent || SYNC.pending(parent)) continue;
+          if (parent.syncMutationId !== record.syncParent.mutationId) {
+            await dbDelete(storeName, record.id);
+            continue; // The schedule change was discarded during conflict review.
+          }
+        }
+        try {
+          const result = await SYNC.upload(client, tableName, householdId, record);
+          if (result.id !== record.id) await dbDelete(storeName, record.id);
+          await dbPut(storeName, result);
+          if (result.syncStatus === "synced") uploaded += 1;
+          remoteMap.delete(record.id);
+          remoteMap.delete(result.id);
+        } catch (error) {
+          await dbPut(storeName, { ...record, syncError: error.message || "Cloud connection failed." });
+          throw error;
+        }
+      } else if (remote) {
+        await dbPut(storeName, SYNC.fromRemote(remote));
+        remoteMap.delete(record.id);
+        downloaded += 1;
+      }
+    }
+    for (const row of remoteMap.values()) {
+      const local = await dbGet(storeName, row.id);
+      if (local && SYNC.pending(local)) continue;
+      await dbPut(storeName, SYNC.fromRemote(row));
       downloaded += 1;
     }
-
-    const refreshedLocalRecords =
-      storeName === "profile"
-        ? [await dbGet("profile", DOG_ID)].filter(Boolean)
-        : await dbGetAll(storeName);
-    const uploads = CORE.buildSyncPlan(refreshedLocalRecords, remoteRows, planOptions).uploads;
-
-    if (uploads.length) {
-      for (const batch of CORE.chunk(uploads, SYNC_UPLOAD_BATCH_SIZE)) {
-        const rows = batch.map((record) => localToRemoteRow(householdId, record));
-        const { error: upsertError } = await client
-          .from(tableName)
-          .upsert(rows, { onConflict: "household_id,id" });
-        if (upsertError) throw upsertError;
-      }
-
-      await dbBulkPut(
-        storeName,
-        uploads.map((record) => ({
-          ...record,
-          syncStatus: "synced"
-        }))
-      );
-    }
-
-    return { uploaded: uploads.length, downloaded };
+    return { uploaded, downloaded };
   }
 
   async function fetchAllRemoteRows(client, householdId, tableName) {
     return CORE.fetchAllRemoteRows(client, householdId, tableName, SYNC_PAGE_SIZE);
-  }
-
-  function localToRemoteRow(householdId, record) {
-    const updatedAt = record.updatedAt || record.createdAt || nowIso();
-    const payload = {
-      ...record,
-      syncStatus: "synced",
-      updatedAt
-    };
-
-    return {
-      household_id: householdId,
-      id: record.id,
-      dog_id: record.dogId || (record.id === DOG_ID ? record.id : DOG_ID),
-      payload,
-      updated_at: updatedAt,
-      deleted_at: record.deletedAt || null
-    };
-  }
-
-  function remotePayloadToLocal(row) {
-    const payload = row.payload || {};
-    return {
-      ...payload,
-      id: payload.id || row.id,
-      dogId: payload.dogId || row.dog_id || DOG_ID,
-      updatedAt: payload.updatedAt || row.updated_at || nowIso(),
-      deletedAt: payload.deletedAt || row.deleted_at || null,
-      syncStatus: "synced"
-    };
-  }
-
-  function isNewer(a, b) {
-    return new Date(recordUpdatedAt(a)).getTime() > new Date(recordUpdatedAt(b)).getTime();
-  }
-
-  function shouldPreferRemoteSeed(storeName, local, remote) {
-    if (state.settings?.lastSyncAt || !local || !remote) return false;
-    if (storeName === "profile") {
-      return local.name === DEFAULT_PROFILE.name && remote.name && remote.name !== local.name;
-    }
-    if (storeName !== "schedules") return false;
-
-    return isDefaultSchedule(local) && !recordsEquivalent(local, remote);
-  }
-
-  function isDefaultSchedule(record) {
-    const seed = DEFAULT_SCHEDULES.find((schedule) => schedule.id === record.id);
-    if (!seed) return false;
-
-    return (
-      record.kind === seed.kind &&
-      record.name === seed.name &&
-      !record.dose &&
-      !record.unit &&
-      JSON.stringify(record.times || []) === JSON.stringify(seed.times || [])
-    );
-  }
-
-  function recordsEquivalent(a, b) {
-    const comparableA = { ...a };
-    const comparableB = { ...b };
-    ["createdAt", "updatedAt", "syncStatus", "deletedAt"].forEach((key) => {
-      delete comparableA[key];
-      delete comparableB[key];
-    });
-    return JSON.stringify(comparableA) === JSON.stringify(comparableB);
-  }
-
-  function recordUpdatedAt(record) {
-    return record.updatedAt || record.updated_at || record.createdAt || "1970-01-01T00:00:00.000Z";
   }
 
   async function installApp() {
@@ -4062,8 +4018,9 @@
         schedule.times.map((time) => {
           const dueAt = localTimeToDate(dayKey, time.time);
           const key = `${dayKey}:${schedule.id}:${time.id}`;
-          const log = state.events.find((event) => event.type === "dose" && event.doseKey === key);
-          const status = log?.status || "assumed";
+          const matches = state.events.filter((event) => event.type === "dose" && event.doseKey === key);
+          const log = matches.find(SYNC.pending) || matches.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
+          const status = log?.status || (state.profile?.doseConfirmationMode === "explicit" ? "unconfirmed" : "assumed");
           const pillClass =
             status === "given"
               ? "given"
@@ -4079,7 +4036,7 @@
                 ? "Missed"
                 : status === "skipped"
                   ? "Skipped"
-                  : "Assumed";
+                  : status === "unconfirmed" ? "Unconfirmed" : "Assumed";
           const doseText = [schedule.dose, schedule.unit].filter(Boolean).join(" ");
 
           return {
@@ -4139,32 +4096,6 @@
   function isAutomaticCluster(event, seizures = state.events) {
     if (!event || event.type !== "seizure") return false;
     return automaticClusterIds(seizures).has(event.id);
-  }
-
-  async function refreshAutomaticClusterFlags() {
-    const records = await dbGetAll("events");
-    const updates = buildAutomaticClusterUpdates(records);
-    if (updates.length) await dbBulkPut("events", updates);
-    return updates.length;
-  }
-
-  function buildAutomaticClusterUpdates(records) {
-    const clusteredIds = automaticClusterIds(records);
-    const timestamp = nowIso();
-    return records
-      .filter((record) => record.type === "seizure" && !record.deletedAt)
-      .filter(
-        (record) =>
-          Boolean(record.cluster) !== clusteredIds.has(record.id) ||
-          record.clusterSource !== "automatic"
-      )
-      .map((record) => ({
-        ...record,
-        cluster: clusteredIds.has(record.id),
-        clusterSource: "automatic",
-        updatedAt: timestamp,
-        syncStatus: "local"
-      }));
   }
 
   function getSummary() {
@@ -4541,7 +4472,7 @@
         delta: 0,
         averageSeverityText: severityValues.length ? round1(mean(severityValues)).toString() : "--",
         averageDurationText: durationValues.length ? formatDuration(Math.round(mean(durationValues))) : "--",
-        clusterCount: monthSeizures.filter((event) => event.cluster).length,
+        clusterCount: monthSeizures.filter((event) => isAutomaticCluster(event)).length,
         timeWindowText: timeWindow ? timeWindow.label : "--",
         summary: describeStatsMonth(date, monthSeizures)
       });
@@ -4643,7 +4574,7 @@
     if (event.type === "dose") {
       const dose = [event.dose, event.unit].filter(Boolean).join(" ");
       const due = event.dueAt ? `Due ${formatTime(new Date(event.dueAt))}` : "";
-      return `<p class="subtle">${escapeHtml([event.label, dose, due].filter(Boolean).join(" · "))}</p>`;
+      return `<p class="subtle">${escapeHtml([event.label, dose, due, event.recordedBy ? `Recorded by ${event.recordedBy}` : ""].filter(Boolean).join(" · "))}</p>`;
     }
 
     if (event.type === "note") {
@@ -4709,6 +4640,7 @@
       const client = await requireSupabaseSession();
       const householdId = state.settings.supabaseHouseholdId;
       await syncWithSupabase({ silent: true });
+      if (state.pendingRecords.length) throw new Error("Sync or resolve local changes before downloading a complete cloud backup.");
 
       const [dogs, schedules, events, documents] = await Promise.all([
         fetchAllRemoteRows(client, householdId, SUPABASE_TABLES.dogs),
@@ -4813,6 +4745,7 @@
   }
 
   async function restoreCompleteBackup(file, restoreScroll) {
+    if (state.pendingRecords.length) throw new Error("Sync or resolve local changes before restoring a backup.");
     const fflate = await loadFflateLibrary();
     const archive = fflate.unzipSync(new Uint8Array(await file.arrayBuffer()));
     const manifestBytes = archive["manifest.json"];
@@ -4985,6 +4918,8 @@
       "cluster_detected",
       "name",
       "status",
+      "recorded_by",
+      "sync_status",
       "severity",
       "duration_seconds",
       "trigger",
@@ -5008,6 +4943,8 @@
         event.type === "seizure" ? isAutomaticCluster(event) : "",
         event.medicationName || event.title || "",
         event.status || "",
+        event.recordedBy || "",
+        event.syncStatus || "",
         event.severity || "",
         event.durationSeconds || "",
         event.trigger || "",
@@ -5027,6 +4964,8 @@
   }
 
   async function resetData() {
+    if (state.saveBusy) { showToast("Wait for the current save to finish."); return; }
+    if (state.pendingRecords.length) { showToast("Sync or resolve the saved changes before clearing this device."); return; }
     if (!confirm("Clear Sawyer Tracker's browser cache on this device? Supabase records are not deleted.")) {
       return;
     }

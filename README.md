@@ -24,7 +24,9 @@ Open:
 http://127.0.0.1:4173
 ```
 
-The app uses a small browser cache so it opens quickly, but new care records require a connected Supabase household access code.
+Connect the household once while online. The installed app then caches its shell, saves care records to IndexedDB, and can reopen and record entries offline. A banner identifies changes waiting to sync. Keep the app open or reopen it when connected to upload pending changes; background sync while the app is closed is not guaranteed.
+
+Unfinished seizure, note, vet, blood-test and setup forms are saved as device-local drafts. They survive navigation, refresh and reopening. Saving clears the relevant draft; **Discard draft** removes it explicitly. Drafts are private to that browser and household and are not shared between phones.
 
 ## Supabase Keep-Alive
 
@@ -39,15 +41,15 @@ for backups. Free projects should still be exported periodically.
 
 ## Current Features
 
-- Seizure logging with timer, duration, severity, symptoms, cluster flag, trigger, recovery, and notes
-- Daily medication and supplement tracking
+- Seizure logging with minutes/seconds entry (including durations above two minutes), severity, symptoms, automatic cluster detection, trigger, recovery, and notes
+- Daily medication and supplement tracking, optional Given confirmations with carer name and time, and a shared setting to require explicit confirmation
 - Preloaded schedule for Epibrom morning/night, Phenomav morning/night, and MCT oil C8/C10 daily
 - Long-term timeline
 - Local observations for seizure gaps, milestones, time-of-day patterns, missed/late dose context, and MCT oil context
 - Background Web Push alerts for each 5-day seizure-free heart, matching the longest completed episode gap, and reaching the historical average gap
 - Private vet PDF storage shared between both phones
 - Installable PWA shell
-- JSON backup/import and CSV export
+- Complete ZIP backup/restore (including vet PDFs) and CSV export with recorder and sync status
 
 ## Push Notifications
 
@@ -61,7 +63,11 @@ The VAPID public key belongs in `config.js`. `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_
 
 ## Supabase Sync
 
-Supabase is the shared source of truth for Beau and Janelle's phones. The browser cache is only used to render the app quickly and recover from Safari storage quirks.
+Supabase is the shared source of truth for Beau and Janelle's phones. Device storage also holds drafts and pending changes. The app retries when connectivity returns, when reopened, and every 30 seconds while visible. New writes are persisted locally before upload; a failure remains visibly pending rather than being reported as shared.
+
+Updates use a conditional `updated_at` comparison against the version originally edited. If another phone changed the record, **More > Changes on this device** shows both versions. Choose **Use shared version** or **Keep this device's version**. Retries carry a stable mutation ID so a lost success response does not create a duplicate. New dose IDs are derived from the date, schedule and time slot; older dose IDs are discovered before insertion. Both phones should run the current release to benefit from these protections.
+
+The normal reset, sign-out and household-change flows are blocked while changes are unsynced. Browser/OS storage deletion can still remove local drafts and pending changes. Device recovery mode does not claim to save durable offline entries when IndexedDB is unavailable.
 
 ### Household Access Code
 
@@ -104,8 +110,8 @@ The publishable key is public. Access is protected by Row Level Security plus th
 
 Vet PDFs are stored in the private `sawyer-vet-documents` Storage bucket.
 Uploads, short-lived viewing links, and permanent deletion are handled by the
-`sawyer-vet-documents` Edge Function. PDFs are limited to 20 MB and are not
-included in JSON backups.
+`sawyer-vet-documents` Edge Function. PDFs are limited to 20 MB and are included
+in complete ZIP backups. PDF access, backup and restore require a connection.
 
 ### 3. App URL
 
@@ -132,3 +138,27 @@ After deployment:
 2. Enter the shared household access code.
 3. Use Safari Share > Add to Home Screen.
 4. Open from the Home Screen and tap Backup > Sync Now.
+
+## Development and verification
+
+The active stylesheet is `styles.css`; earlier snapshots are retained in Git history.
+Browser storage, draft recovery and conditional cloud writes live in
+`lib/tracker-storage.js`, `lib/tracker-drafts.js` and `lib/tracker-sync.js`.
+Pure calculations live in `lib/tracker-core.js`; `app.js` owns the screens and user flows.
+No database migration is required for this release: conditional updates use the existing primary keys, `updated_at` columns and RLS policies.
+
+```sh
+npm ci
+npx playwright install chromium webkit
+npm run check
+npm test
+npm run test:e2e
+```
+
+Browser tests run in Chromium and iPhone-sized WebKit using a fake Supabase client;
+they never write production care data. Coverage includes draft recovery, long-duration
+edits, offline queues, retry, conflict review and named dose confirmation. Sync unit
+tests exercise simultaneous writers and a lost response after the server commits.
+The offline service-worker reopening test runs in Chromium. Before publishing, also
+check Home Screen installation, offline reopening and push delivery on a physical
+iPhone; desktop WebKit emulation is not a substitute for those OS behaviours.

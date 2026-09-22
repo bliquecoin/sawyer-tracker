@@ -3,6 +3,15 @@ const assert = require("node:assert/strict");
 const { strFromU8, strToU8, unzipSync, zipSync } = require("fflate");
 const core = require("../lib/tracker-core.js");
 
+test("duration entry preserves long seizures and rejects invalid time parts", () => {
+  assert.equal(core.durationInSeconds("12", "35"), 755);
+  assert.equal(core.durationInSeconds("0", "0"), 0);
+  assert.equal(core.durationInSeconds("-1", "0"), null);
+  assert.equal(core.durationInSeconds("1.5", "0"), null);
+  assert.equal(core.durationInSeconds("2", "60"), null);
+  assert.equal(core.durationInSeconds("bad", "0"), null);
+});
+
 test("chunk creates bounded upload groups", () => {
   const values = Array.from({ length: 405 }, (_, index) => index);
   assert.deepEqual(core.chunk(values, 200).map((items) => items.length), [200, 200, 5]);
@@ -54,26 +63,6 @@ test("paginated reads request deterministic inclusive ranges", async () => {
   const rows = await core.fetchAllRemoteRows(client, "household", "events", 500);
   assert.equal(rows.length, 1205);
   assert.deepEqual(ranges, [[0, 499], [500, 999], [1000, 1499]]);
-});
-
-test("sync plan prefers newer rows without overwriting newer cloud data", () => {
-  const local = [
-    { id: "a", updatedAt: "2026-01-03T00:00:00Z" },
-    { id: "b", updatedAt: "2026-01-01T00:00:00Z" },
-    { id: "c", updatedAt: "2026-01-02T00:00:00Z" }
-  ];
-  const remote = [
-    { id: "a", payload: { id: "a", updatedAt: "2026-01-01T00:00:00Z" } },
-    { id: "b", payload: { id: "b", updatedAt: "2026-01-04T00:00:00Z" } },
-    { id: "d", payload: { id: "d", updatedAt: "2026-01-02T00:00:00Z" } }
-  ];
-  const plan = core.buildSyncPlan(local, remote, {
-    toLocal: (row) => row.payload,
-    isNewer: (a, b) => new Date(a.updatedAt) > new Date(b.updatedAt),
-    preferRemote: () => false
-  });
-  assert.deepEqual(plan.downloads.map((row) => row.id), ["b", "d"]);
-  assert.deepEqual(plan.uploads.map((row) => row.id), ["a", "c"]);
 });
 
 test("cluster logic handles known and unknown seizure times conservatively", () => {
