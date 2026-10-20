@@ -9,7 +9,8 @@ function fakeSupabaseConfig({
   seedSeizureDaysAgo = null,
   seedSeizureDaysAgoList = null,
   seedSeizureHoursAgo = null,
-  seedSchedules = []
+  seedSchedules = [],
+  failPushUnsubscribe = false
 } = {}) {
   return `
     (() => {
@@ -199,7 +200,13 @@ function fakeSupabaseConfig({
         },
         from: queryFor,
         functions: {
-          invoke: async () => ({ data: {}, error: null })
+          invoke: async (name, options = {}) => {
+            window.__SAWYER_FUNCTION_CALLS__.push({ name, body: clone(options.body || {}), headers: clone(options.headers || {}) });
+            if (name === "sawyer-push-subscriptions" && options.body?.action === "unsubscribe" && ${JSON.stringify(failPushUnsubscribe)}) {
+              return { data: null, error: { message: "Simulated push failure" } };
+            }
+            return { data: {}, error: null };
+          }
         },
         storage: {
           from: () => ({
@@ -210,6 +217,7 @@ function fakeSupabaseConfig({
       };
 
       window.__SAWYER_TEST_STORES__ = stores;
+      window.__SAWYER_FUNCTION_CALLS__ = [];
       window.SAWYER_SUPABASE_CONFIG = {
         supabaseUrl: "https://example.supabase.co",
         supabaseAnonKey: "test-anon-key",
@@ -219,6 +227,23 @@ function fakeSupabaseConfig({
       };
     })();
   `;
+}
+
+// Service workers are blocked in these tests, so a fake registration stands in for an enabled push subscription.
+async function fakePushSubscription(page) {
+  await page.addInitScript(() => {
+    window.__SAWYER_PUSH_UNSUBSCRIBED__ = false;
+    const subscription = {
+      endpoint: "https://push.example.invalid/device",
+      toJSON() { return { endpoint: this.endpoint, keys: { p256dh: "test-p256dh", auth: "test-auth" } }; },
+      async unsubscribe() { window.__SAWYER_PUSH_UNSUBSCRIBED__ = true; return true; }
+    };
+    const registration = { pushManager: { getSubscription: async () => window.__SAWYER_PUSH_UNSUBSCRIBED__ ? null : subscription } };
+    if (!("PushManager" in window)) window.PushManager = function PushManager() {};
+    if (!("Notification" in window)) window.Notification = { permission: "default", requestPermission: async () => "default" };
+    if ("serviceWorker" in navigator) navigator.serviceWorker.getRegistration = async () => registration;
+    else Object.defineProperty(navigator, "serviceWorker", { value: { getRegistration: async () => registration } });
+  });
 }
 
 async function openTracker(page, options = {}) {
@@ -665,6 +690,54 @@ test("forgetting household access removes this device's records and drafts", asy
   await expect(page.locator("#toast")).toContainText("Household access removed");
   expect(await localCopy()).toEqual({ events: 0, drafts: 0, access: null });
   expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events.length)).toBe(1);
+  expect(await page.evaluate(() => window.__SAWYER_FUNCTION_CALLS__.map((call) => call.name))).not.toContain("sawyer-push-subscriptions");
+  expect(errors).toEqual([]);
+});
+
+test("forgetting household access removes this device's push alerts before the access code", async ({ page }) => {
+  await fakePushSubscription(page);
+  const errors = await openTracker(page);
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
+  const dialogs = [];
+  page.on("dialog", (dialog) => { dialogs.push(dialog.message()); dialog.accept(); });
+  await page.getByRole("button", { name: "Forget Access", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Household access removed");
+  expect(dialogs).toHaveLength(1);
+  expect(dialogs[0]).toContain("push alerts on this device are turned off");
+  const pushCalls = await page.evaluate(() => window.__SAWYER_FUNCTION_CALLS__.filter((call) => call.name === "sawyer-push-subscriptions"));
+  expect(pushCalls).toHaveLength(1);
+  expect(pushCalls[0].body).toMatchObject({ action: "unsubscribe", householdId: HOUSEHOLD_ID });
+  expect(pushCalls[0].headers["x-sawyer-access-key"]).toBe("verified-test-hash");
+  expect(await page.evaluate(() => window.__SAWYER_PUSH_UNSUBSCRIBED__)).toBe(true);
+  expect(await page.evaluate((key) => localStorage.getItem(key), ACCESS_STORAGE_KEY)).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test("when Supabase cannot remove push alerts, access is kept unless the carer continues", async ({ page }) => {
+  await fakePushSubscription(page);
+  const errors = await openTracker(page, { failPushUnsubscribe: true });
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
+  const forgetAccess = page.getByRole("button", { name: "Forget Access", exact: true });
+  const dialogs = [];
+  let continueAnyway = false;
+  page.on("dialog", (dialog) => {
+    dialogs.push(dialog.message());
+    if (dialog.message().startsWith("Supabase could not remove") && !continueAnyway) dialog.dismiss();
+    else dialog.accept();
+  });
+
+  await forgetAccess.click();
+  await expect.poll(() => dialogs.length).toBe(2);
+  expect(dialogs[1]).toContain("Simulated push failure");
+  expect(await page.evaluate(() => window.__SAWYER_PUSH_UNSUBSCRIBED__)).toBe(false);
+  expect(await page.evaluate((key) => localStorage.getItem(key), ACCESS_STORAGE_KEY)).toBe("verified-test-hash");
+  await expect(forgetAccess).toBeVisible();
+
+  continueAnyway = true;
+  await forgetAccess.click();
+  await expect(page.locator("#toast")).toContainText("Household access removed");
+  expect(await page.evaluate(() => window.__SAWYER_PUSH_UNSUBSCRIBED__)).toBe(true);
+  expect(await page.evaluate((key) => localStorage.getItem(key), ACCESS_STORAGE_KEY)).toBeNull();
   expect(errors).toEqual([]);
 });
 

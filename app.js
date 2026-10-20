@@ -3587,8 +3587,27 @@
   async function signOut() {
     if (state.saveBusy) { showToast("Wait for the current save to finish."); return; }
     if (state.pendingRecords.length) { showToast("Sync or resolve the saved changes before removing household access."); return; }
-    if (!confirm("Remove household access from this device? Shared records stay in Supabase, but this device's copy and any unfinished drafts are deleted.")) {
+    const pushSubscription = await existingPushSubscription();
+    const removePush = Boolean(pushSubscription || state.settings?.pushNotificationsEnabled);
+    if (!confirm(`Remove household access from this device? Shared records stay in Supabase, but this device's copy and any unfinished drafts are deleted.${removePush ? " Seizure-free push alerts on this device are turned off." : ""}`)) {
       return;
+    }
+    if (removePush) {
+      // Unsubscribe while the access hash can still authorise the request.
+      let serverRemoved = true;
+      try {
+        await invokePushSubscriptionAction("unsubscribe");
+      } catch (error) {
+        serverRemoved = false;
+        if (!confirm(`Supabase could not remove this device's push alerts (${error.message || "request failed"}). Remove household access anyway? This device stops receiving alerts, and Supabase disables its entry at the next delivery attempt.`)) {
+          return;
+        }
+      }
+      const browserRemoved = pushSubscription ? await pushSubscription.unsubscribe().catch(() => false) : true;
+      if (!serverRemoved && !browserRemoved) {
+        showToast("Push alerts could not be turned off, so household access was kept.");
+        return;
+      }
     }
     try {
       const client = state.supabaseClient || (await initSupabase());
@@ -3607,6 +3626,7 @@
         currentUserEmail: "",
         pendingLoginEmail: "",
         emergencyLocalMode: false,
+        pushNotificationsEnabled: false,
         lastSyncAt: null,
         lastSyncMessage: "Household access removed from this device."
       });
@@ -3940,6 +3960,17 @@
       showToast("Seizure-free push alerts disabled.");
     } catch (error) {
       showToast(error.message || "Push alerts could not be disabled.");
+    }
+  }
+
+  async function existingPushSubscription() {
+    if (!isPushSupported()) return null;
+    try {
+      // getRegistration resolves immediately; serviceWorker.ready never settles without a worker.
+      const registration = state.pushRegistration || (await navigator.serviceWorker.getRegistration());
+      return (await registration?.pushManager.getSubscription()) || null;
+    } catch {
+      return null;
     }
   }
 
