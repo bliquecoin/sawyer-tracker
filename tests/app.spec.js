@@ -1,3 +1,4 @@
+const fs = require("fs");
 const { test, expect } = require("@playwright/test");
 
 const HOUSEHOLD_ID = "test-household";
@@ -7,7 +8,8 @@ function fakeSupabaseConfig({
   failEventWrites = false,
   seedSeizureDaysAgo = null,
   seedSeizureDaysAgoList = null,
-  seedSeizureHoursAgo = null
+  seedSeizureHoursAgo = null,
+  seedSchedules = []
 } = {}) {
   return `
     (() => {
@@ -46,7 +48,24 @@ function fakeSupabaseConfig({
           updated_at: now,
           deleted_at: null
         }],
-        sawyer_care_schedules: [],
+        sawyer_care_schedules: ${JSON.stringify(seedSchedules)}.map((schedule) => ({
+          household_id: householdId,
+          id: schedule.id,
+          dog_id: "sawyer",
+          payload: {
+            kind: "medication",
+            dose: "",
+            unit: "",
+            effectiveFrom: "",
+            active: true,
+            createdAt: now,
+            updatedAt: now,
+            syncStatus: "synced",
+            ...schedule
+          },
+          updated_at: now,
+          deleted_at: null
+        })),
         sawyer_care_events: seededSeizuresAt.map((occurredAt, index) => ({
           household_id: householdId,
           dog_id: "sawyer",
@@ -572,6 +591,80 @@ test("conflicting edits preserve both versions and can be reviewed explicitly", 
   await page.getByRole("button", { name: "Keep this device's version", exact: true }).click();
   await expect(page.locator(".sync-banner")).toHaveCount(0);
   expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events[0].payload.body)).toBe("My unfinished edit");
+  expect(errors).toEqual([]);
+});
+
+test("shared schedule ids are escaped in Care Setup and still save", async ({ page }) => {
+  const scheduleId = 'med-shared"><img id="injected-schedule" src="x">';
+  const timeId = 'am"><b id="injected-time">x</b>';
+  const errors = await openTracker(page, {
+    seedSchedules: [{ id: scheduleId, name: "Shared schedule", times: [{ id: timeId, label: "Morning", time: "07:00" }] }]
+  });
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
+  const schedule = page.locator("div.panel").filter({ has: page.getByRole("heading", { name: "Shared schedule" }) });
+  await expect(schedule).toBeVisible();
+  await expect(page.locator("#injected-schedule, #injected-time")).toHaveCount(0);
+  expect(await page.evaluate(({ scheduleId, timeId }) => [
+    document.getElementById(`${scheduleId}-dose`)?.name,
+    document.getElementById(`${scheduleId}-${timeId}-time`)?.name
+  ], { scheduleId, timeId })).toEqual([`${scheduleId}:dose`, `${scheduleId}:${timeId}:time`]);
+  await schedule.getByLabel("Dose").fill("250");
+  await page.getByRole("button", { name: "Save Setup", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Setup saved");
+  await expect.poll(() => page.evaluate((id) =>
+    window.__SAWYER_TEST_STORES__.sawyer_care_schedules.find((row) => row.id === id)?.payload.dose, scheduleId)).toBe("250");
+  expect(errors).toEqual([]);
+});
+
+test("CSV export neutralises spreadsheet formulas in recorded text", async ({ page }) => {
+  const errors = await openTracker(page, { seedSeizureDaysAgo: 3 });
+  await page.getByRole("button", { name: "Log", exact: true }).click();
+  const note = page.locator("details.record-disclosure").filter({ hasText: "Care note" });
+  await note.locator("summary").click();
+  await page.locator("#note-title").fill('=HYPERLINK("https://example.com")');
+  await page.locator("#note-body").fill("-2+3 then @SUM(A1)");
+  await page.getByRole("button", { name: "Save Note", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Note saved");
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export CSV", exact: true }).click();
+  const csv = fs.readFileSync(await (await download).path(), "utf8");
+  expect(csv).toContain('"\'=HYPERLINK(""https://example.com"")"');
+  expect(csv).toContain('"\'-2+3 then @SUM(A1)"');
+  expect(csv).toContain('"45"');
+  expect(errors).toEqual([]);
+});
+
+test("forgetting household access removes this device's records and drafts", async ({ page }) => {
+  const errors = await openTracker(page, { seedSeizureDaysAgo: 3 });
+  const localCopy = () => page.evaluate(async (accessKey) => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("sawyer-care-tracker");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const events = await new Promise((resolve) => {
+      const request = db.transaction("events").objectStore("events").count();
+      request.onsuccess = () => resolve(request.result);
+    });
+    db.close();
+    return {
+      events,
+      drafts: Object.keys(localStorage).filter((key) => key.startsWith("sawyer-draft:")).length,
+      access: localStorage.getItem(accessKey)
+    };
+  }, ACCESS_STORAGE_KEY);
+
+  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await page.locator(".log-details summary").click();
+  await page.locator("#notes").fill("Unfinished private note");
+  await expect.poll(localCopy).toEqual({ events: 1, drafts: 1, access: "verified-test-hash" });
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Forget Access", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Household access removed");
+  expect(await localCopy()).toEqual({ events: 0, drafts: 0, access: null });
+  expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events.length)).toBe(1);
   expect(errors).toEqual([]);
 });
 

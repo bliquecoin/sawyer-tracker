@@ -101,7 +101,7 @@
   });
   const drafts = window.SawyerTrackerDrafts.create({
     storage: { getItem: (key) => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value),
-      removeItem: (key) => localStorage.removeItem(key) },
+      removeItem: (key) => localStorage.removeItem(key), keys: () => Object.keys(localStorage) },
     householdId: () => state.settings?.supabaseHouseholdId || "unconfigured",
     onDiscard: () => render()
   });
@@ -1479,7 +1479,7 @@
                 </div>
                 <div class="field">
                   <span class="label">Severity</span>
-                  <input id="seizure-severity" name="severity" type="hidden" value="${selectedSeverity}" />
+                  <input id="seizure-severity" name="severity" type="hidden" value="${escapeHtml(selectedSeverity)}" />
                   <div class="segmented" role="group" aria-label="Severity">
                     ${[1, 2, 3, 4, 5].map((n) => `<button type="button" aria-pressed="${selectedSeverity === n}" class="${selectedSeverity === n ? "active" : ""}" data-severity="${n}">${n}</button>`).join("")}
                   </div>
@@ -2321,38 +2321,44 @@
   }
 
   function renderSetupSchedule(schedule) {
+    // Schedule and time ids arrive from synced rows, so they are escaped like any other shared text.
+    // renderDateInput and renderTimeInput escape their own id and name arguments.
+    const scheduleId = escapeHtml(schedule.id);
     return `
       <div class="panel">
         <div class="panel-body">
           <h3>${escapeHtml(schedule.name)}</h3>
           <div class="grid two setup-dose-grid">
             <div class="field">
-              <label for="${schedule.id}-dose">Dose</label>
-              <input id="${schedule.id}-dose" name="${schedule.id}:dose" value="${escapeHtml(schedule.dose || "")}" placeholder="Optional" />
+              <label for="${scheduleId}-dose">Dose</label>
+              <input id="${scheduleId}-dose" name="${scheduleId}:dose" value="${escapeHtml(schedule.dose || "")}" placeholder="Optional" />
             </div>
             <div class="field">
-              <label for="${schedule.id}-unit">Unit</label>
-              <input id="${schedule.id}-unit" name="${schedule.id}:unit" value="${escapeHtml(schedule.unit || "")}" placeholder="mg, ml, capsules" />
+              <label for="${scheduleId}-unit">Unit</label>
+              <input id="${scheduleId}-unit" name="${scheduleId}:unit" value="${escapeHtml(schedule.unit || "")}" placeholder="mg, ml, capsules" />
             </div>
           </div>
           <div class="field setup-effective-date">
-            <label for="${schedule.id}-effective-from">Current regimen effective from</label>
+            <label for="${scheduleId}-effective-from">Current regimen effective from</label>
             ${renderDateInput(`${schedule.id}-effective-from`, `${schedule.id}:effectiveFrom`, schedule.effectiveFrom || "")}
             <small class="field-help">Leave blank when the start date is unknown.</small>
           </div>
           <div class="setup-list" style="margin-top: 10px;">
-            ${schedule.times.map((time) => `
+            ${schedule.times.map((time) => {
+              const timeId = escapeHtml(time.id);
+              return `
               <div class="setup-row">
                 <div class="field">
-                  <label for="${schedule.id}-${time.id}-label">${escapeHtml(time.label)}</label>
-                  <input id="${schedule.id}-${time.id}-label" name="${schedule.id}:${time.id}:label" value="${escapeHtml(time.label)}" />
+                  <label for="${scheduleId}-${timeId}-label">${escapeHtml(time.label)}</label>
+                  <input id="${scheduleId}-${timeId}-label" name="${scheduleId}:${timeId}:label" value="${escapeHtml(time.label)}" />
                 </div>
                 <div class="field">
-                  <label for="${schedule.id}-${time.id}-time">Time</label>
+                  <label for="${scheduleId}-${timeId}-time">Time</label>
                   ${renderTimeInput(`${schedule.id}-${time.id}-time`, `${schedule.id}:${time.id}:time`, time.time)}
                 </div>
               </div>
-            `).join("")}
+            `;
+            }).join("")}
           </div>
         </div>
       </div>
@@ -3581,18 +3587,30 @@
   async function signOut() {
     if (state.saveBusy) { showToast("Wait for the current save to finish."); return; }
     if (state.pendingRecords.length) { showToast("Sync or resolve the saved changes before removing household access."); return; }
+    if (!confirm("Remove household access from this device? Shared records stay in Supabase, but this device's copy and any unfinished drafts are deleted.")) {
+      return;
+    }
     try {
       const client = state.supabaseClient || (await initSupabase());
       if (client) await client.auth.signOut();
-      writeHouseholdAccessHash("");
+      // Shared records stay in Supabase. Queued with saves and syncs so none can write this device's copy back.
+      await recordWork(async () => {
+        writeHouseholdAccessHash("");
+        drafts.clearAll();
+        await dbClear("events");
+        await dbClear("schedules");
+        await dbClear("profile");
+      });
       state.supabaseSession = null;
       state.vetDocuments = [];
       await updateSettings({
         currentUserEmail: "",
         pendingLoginEmail: "",
         emergencyLocalMode: false,
+        lastSyncAt: null,
         lastSyncMessage: "Household access removed from this device."
       });
+      await hydrate();
       render();
       showToast("Household access removed.");
     } catch (error) {
@@ -5154,7 +5172,9 @@
   }
 
   function csvCell(value) {
-    const text = String(value ?? "");
+    let text = String(value ?? "");
+    // Spreadsheet apps evaluate cells starting with these characters as formulas; plain numbers are left alone.
+    if (/^[=+\-@\t\r]/.test(text) && !/^[+-]?\d+(\.\d+)?$/.test(text)) text = `'${text}`;
     return `"${text.replaceAll('"', '""')}"`;
   }
 
