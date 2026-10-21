@@ -986,6 +986,15 @@
     });
     state.animatedMarkup = animated;
 
+    // CSS would start these animations at the next frame, which can come well after the clock was read
+    // on a busy phone. Pinning their start to that reading keeps a redraw seamless however late the
+    // frame is. Scroll-driven animations run on their own timeline and are left alone.
+    app.getAnimations?.({ subtree: true }).forEach((animation) => {
+      if (animation.timeline === document.timeline && animation.startTime === null && animation.playState === "running") {
+        animation.startTime = now;
+      }
+    });
+
     bindUi();
     restoreToast(toastText);
     if (contentScroll) document.querySelector(".content").scrollTop = contentScroll;
