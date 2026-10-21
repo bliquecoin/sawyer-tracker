@@ -41,10 +41,16 @@ for backups. Free projects should still be exported periodically.
 
 ## Current Features
 
+The app has four sections, Today, Records, Patterns and Vet, plus a yellow Record button that is always reachable. Household settings, sync, push alerts, backup and care setup open from the round button at the top right.
+
+- A one-tap seizure timer that keeps the screen awake, lets you mark symptoms as they happen, highlights your vet's emergency plan after a set time, and fills in the record when the seizure ends
 - Seizure logging with minutes/seconds entry (including durations above two minutes), severity, symptoms, automatic cluster detection, trigger, recovery, and notes
 - Daily medication and supplement tracking, optional Given confirmations with carer name and time, and a shared setting to require explicit confirmation
 - Preloaded schedule for Epibrom morning/night, Phenomav morning/night, and MCT oil C8/C10 daily
-- Long-term timeline
+- Morning and night care routines with given, missed and skipped doses, and a handover note for the next carer
+- Long-term records with search and filters
+- Patterns: seizures by month, days between episodes, time of day and duration
+- A copyable vet visit summary for the last 30 or 90 days
 - Local observations for seizure gaps, milestones, time-of-day patterns, missed/late dose context, and MCT oil context
 - Background Web Push alerts for each 5-day seizure-free heart, matching the longest completed episode gap, and reaching the historical average gap
 - Private vet PDF storage shared between both phones
@@ -55,7 +61,7 @@ for backups. Free projects should still be exported periodically.
 
 Push alerts use the standards-based Push API, a persistent service worker, Supabase Edge Functions, and a once-per-minute Supabase Cron job. Each installed phone registers its own encrypted Web Push subscription.
 
-On iPhone, push requires iOS 16.4 or later and Sawyer Tracker must be opened from a Home Screen installation. Open **More > Seizure-free push alerts**, choose **Enable Push Alerts**, and then use **Send Test** to confirm delivery.
+On iPhone, push requires iOS 16.4 or later and Sawyer Tracker must be opened from a Home Screen installation. Open **Household** (the round button with your initial, top right) **> Seizure-free push alerts**, choose **Enable Push Alerts**, and then use **Send Test** to confirm delivery.
 
 The average-gap alert is a historical tracking cue, not a medical prediction. It is only enabled after at least two completed seizure-episode gaps are available.
 
@@ -65,7 +71,7 @@ The VAPID public key belongs in `config.js`. `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_
 
 Supabase is the shared source of truth for Beau and Janelle's phones. Device storage also holds drafts and pending changes. The app retries when connectivity returns, when reopened, and every 30 seconds while visible. New writes are persisted locally before upload; a failure remains visibly pending rather than being reported as shared.
 
-Updates use a conditional `updated_at` comparison against the version originally edited. If another phone changed the record, **More > Changes on this device** shows both versions. Choose **Use shared version** or **Keep this device's version**. Retries carry a stable mutation ID so a lost success response does not create a duplicate. New dose IDs are derived from the date, schedule and time slot; older dose IDs are discovered before insertion. Both phones should run the current release to benefit from these protections.
+Updates use a conditional `updated_at` comparison against the version originally edited. If another phone changed the record, **Household > Changes on this device** shows both versions. Choose **Use shared version** or **Keep this device's version**. Retries carry a stable mutation ID so a lost success response does not create a duplicate. New dose IDs are derived from the date, schedule and time slot; older dose IDs are discovered before insertion. Both phones should run the current release to benefit from these protections.
 
 The normal reset, sign-out and household-change flows are blocked while changes are unsynced. Browser/OS storage deletion can still remove local drafts and pending changes. Device recovery mode does not claim to save durable offline entries when IndexedDB is unavailable.
 
@@ -137,7 +143,7 @@ After deployment:
 1. Open the HTTPS URL in Safari on each iPhone.
 2. Enter the shared household access code.
 3. Use Safari Share > Add to Home Screen.
-4. Open from the Home Screen and tap Backup > Sync Now.
+4. Open from the Home Screen and tap Household > Sync Now.
 
 ## Development and verification
 
