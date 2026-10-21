@@ -65,6 +65,7 @@
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-soft: cubic-bezier(0.45, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --shadow-float: 0 30px 60px -22px rgba(20, 30, 40, 0.45);
   --gutter-left: max(16px, env(safe-area-inset-left, 0px));
   --gutter-right: max(16px, env(safe-area-inset-right, 0px));
@@ -2461,15 +2462,18 @@ html.ios-browser .pull-refresh {
   min-width: 0;
 }
 
+/* The card in view sits in the middle with smaller neighbours peeking in on both sides. */
 .deck {
+  --deck-card: 76vw;
+  --deck-edge: calc((100vw - var(--deck-card)) / 2);
   position: relative;
   display: flex;
-  gap: 12px;
+  gap: 14px;
   margin: 0 calc(-1 * var(--gutter-right)) 0 calc(-1 * var(--gutter-left));
-  padding: 2px var(--gutter-right) 6px var(--gutter-left);
+  padding: 14px var(--deck-edge) 26px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: var(--gutter-left) var(--gutter-right);
+  perspective: 1400px;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
 }
@@ -2479,16 +2483,34 @@ html.ios-browser .pull-refresh {
 }
 
 .deck-card {
-  flex: 0 0 86%;
-  scroll-snap-align: start;
+  position: relative;
+  flex: 0 0 var(--deck-card);
+  scroll-snap-align: center;
   scroll-snap-stop: always;
-  transform-origin: 50% 60%;
+  transform-origin: 50% 50%;
+}
+
+/* A soft lift under the card in focus; only its opacity moves, so the swipe stays smooth. */
+.deck-card::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 26px 46px -26px rgba(20, 40, 60, 0.42);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+.deck-card.is-active::after {
+  opacity: 1;
 }
 
 .deck-dots {
   display: flex;
   justify-content: center;
   gap: 6px;
+  margin-top: -10px;
 }
 
 .deck-dots i {
@@ -2496,7 +2518,7 @@ html.ios-browser .pull-refresh {
   height: 6px;
   border-radius: 999px;
   background: var(--line);
-  transition: width 0.3s var(--ease-out), background 0.3s;
+  transition: width 0.45s var(--ease-in-out), background 0.45s var(--ease-in-out);
 }
 
 .deck-dots i.on {
@@ -2504,11 +2526,18 @@ html.ios-browser .pull-refresh {
   background: var(--fg);
 }
 
-/* Cards ease into focus as they slide to the front, driven by the scroll itself rather than script. */
+/* As a card slides toward the middle it grows from a smaller, slightly turned tile to full size,
+   easing in and out, while the card leaving shrinks and turns away. The scroll position drives
+   it directly, so it follows the finger exactly. */
 @supports (animation-timeline: view()) {
   @media (prefers-reduced-motion: no-preference) {
     .deck-card {
       animation: deck-focus linear both;
+      animation-timeline: view(inline);
+    }
+
+    .deck-card::after {
+      animation: deck-lift linear both;
       animation-timeline: view(inline);
     }
   }
@@ -2516,19 +2545,56 @@ html.ios-browser .pull-refresh {
 
 @keyframes deck-focus {
   0% {
-    opacity: 0.55;
-    transform: scale(0.9) rotate(2deg);
+    opacity: 0.5;
+    transform: translateX(-10%) scale(0.82) rotateY(-12deg);
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
   }
 
-  42%,
-  58% {
+  50% {
     opacity: 1;
     transform: none;
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
   }
 
   100% {
-    opacity: 0.55;
-    transform: scale(0.9) rotate(-2deg);
+    opacity: 0.5;
+    transform: translateX(10%) scale(0.82) rotateY(12deg);
+  }
+}
+
+@keyframes deck-lift {
+  0%,
+  100% {
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  50% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+}
+
+/* Without scroll-driven animation the same sizes apply, and a card eases between them as it settles. */
+@supports not (animation-timeline: view()) {
+  .deck-card {
+    transition: transform 0.6s var(--ease-in-out), opacity 0.6s var(--ease-in-out);
+  }
+
+  .deck-card::after {
+    transition: opacity 0.6s var(--ease-in-out);
+  }
+
+  .deck-card:not(.is-active) {
+    opacity: 0.5;
+    transform: scale(0.86);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deck-card:not(.is-active) {
+    opacity: 0.6;
+    transform: scale(0.9);
   }
 }
 
@@ -2542,7 +2608,14 @@ html.ios-browser .pull-refresh {
   }
 
   .deck-card {
+    flex: none;
     animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .deck-card::after {
+    display: none;
   }
 
   .deck-tabs,

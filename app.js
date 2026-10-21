@@ -1602,11 +1602,12 @@
     `;
   }
 
-  // Deck cards are 86% of the screen on a phone, so the next card's edge shows; on wide screens they sit two across.
+  // Deck cards are 76% of the screen on a phone, centred with a neighbour showing each side;
+  // on wide screens they sit two across.
   function deckChartWidth() {
     const viewport = Math.min(window.innerWidth || 390, 1264);
     if (viewport >= 960) return chartWidth(2);
-    return Math.max(230, Math.floor((viewport - (viewport >= 760 ? 64 : 32)) * 0.86 - 40));
+    return Math.max(230, Math.floor(viewport * 0.76 - 40));
   }
 
   function chartWidth(columns = 1) {
@@ -1669,12 +1670,12 @@
             ${["Gaps", "Severity", "Time of day", "Duration"].map((label, index) => `<button class="chip" data-deck-to="${index}" type="button" aria-pressed="${index === (state.deckIndex || 0)}">${label}</button>`).join("")}
           </div>
           <div class="deck">
-            <section class="chart-card deck-card" data-deck-card="0">
+            <section class="chart-card deck-card${(state.deckIndex || 0) === 0 ? " is-active" : ""}" data-deck-card="0">
               <header><div><h3>Days Between Episodes</h3><p class="sub">Seizures within 24 hours count as one episode.</p></div></header>
               ${renderGapChart(summary, deckChartWidth())}
             </section>
 
-            <section class="chart-card deck-card severity-card" data-deck-card="1">
+            <section class="chart-card deck-card severity-card${state.deckIndex === 1 ? " is-active" : ""}" data-deck-card="1">
               <header>
                 <div><h3>Severity Over Time</h3><p class="sub">Each dot is one seizure, larger when it lasted longer. The line is a smoothed average across episodes.</p></div>
                 ${severityChange === null ? "" : `<div class="trend-now"><strong>${severity.recent.toFixed(1)}<small>recent average</small></strong><span class="tag ${severityChange < -0.2 ? "ok" : severityChange > 0.2 ? "bad" : "plain"}">${
@@ -1684,13 +1685,13 @@
               ${!severity.drawn ? "" : `<div class="legend">${renderSeverityScale("Severity")}<span><i class="ring"></i>Bigger dot, longer seizure</span></div>`}
             </section>
 
-            <section class="chart-card deck-card" data-deck-card="2">
+            <section class="chart-card deck-card${state.deckIndex === 2 ? " is-active" : ""}" data-deck-card="2">
               <header><div><h3>Time Of Day</h3><p class="sub">${timed.length ? `${clock.night} of ${timed.length} with a recorded time started between 10 pm and 6 am.` : "No seizures with a recorded time in this range."}</p></div></header>
               ${clock.html}
               <div class="legend"><span><i class="night"></i>10 pm to 6 am</span>${renderSeverityScale("Severity")}<span>Outer dots are more recent</span></div>
             </section>
 
-            <section class="chart-card deck-card" data-deck-card="3">
+            <section class="chart-card deck-card${state.deckIndex === 3 ? " is-active" : ""}" data-deck-card="3">
               <header><div><h3>Duration</h3><p class="sub">${durations.length ? `From ${formatDurationWords(Math.min(...durations))} to ${formatDurationWords(Math.max(...durations))}, average ${formatDurationWords(mean(durations))}.` : "No durations recorded in this range."}</p></div></header>
               ${renderDurationChart(inRange, rangeStart, deckChartWidth())}
             </section>
@@ -3126,6 +3127,7 @@
       state.deckIndex = index;
       tabs.forEach((tab, position) => tab.setAttribute("aria-pressed", String(position === index)));
       dots.forEach((dot, position) => dot.classList.toggle("on", position === index));
+      cards.forEach((card, position) => card.classList.toggle("is-active", position === index));
     };
     if (state.deckIndex && cards[state.deckIndex]) deck.scrollLeft = offsetOf(cards[state.deckIndex]);
     state.deckObserver?.disconnect();
@@ -3137,9 +3139,19 @@
       }, { root: deck, threshold: 0.6 });
       cards.forEach((card) => state.deckObserver.observe(card));
     }
+    // WebKit stops a smooth jump short when snap points are on, leaving the card off centre, so snapping
+    // rests until the jump has landed.
+    const restoreSnap = () => {
+      clearTimeout(deck.__snapTimer);
+      deck.style.scrollSnapType = "";
+    };
     tabs.forEach((tab) => tab.addEventListener("click", () => {
       const index = Number(tab.dataset.deckTo);
+      deck.style.scrollSnapType = "none";
       deck.scrollTo({ left: offsetOf(cards[index]), behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      clearTimeout(deck.__snapTimer);
+      deck.__snapTimer = setTimeout(restoreSnap, 800);
+      deck.addEventListener("scrollend", restoreSnap, { once: true });
       mark(index);
     }));
   }
