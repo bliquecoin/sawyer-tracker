@@ -554,11 +554,11 @@ html.ios-browser .pull-refresh {
   background: var(--leaf, rgba(255, 255, 255, 0.08));
   pointer-events: none;
   rotate: var(--r, 0deg);
-  animation: drift var(--d, 24s) ease-in-out infinite alternate;
+  animation: drift var(--d, 24s) ease-in-out var(--age, 0s) infinite alternate;
 }
 
 .boot .hero .leaf {
-  animation: settle 1.6s var(--ease-out) both, drift var(--d, 24s) 1.6s ease-in-out infinite alternate;
+  animation: settle 1.6s var(--ease-out) var(--age, 0s) both, drift var(--d, 24s) ease-in-out calc(1.6s + var(--age, 0s)) infinite alternate;
 }
 
 .orbit {
@@ -579,7 +579,7 @@ html.ios-browser .pull-refresh {
 .orbit g {
   transform-box: view-box;
   transform-origin: 50% 50%;
-  animation: spin 140s linear infinite;
+  animation: spin 140s linear var(--age, 0s) infinite;
 }
 
 .section-head {
@@ -1043,7 +1043,7 @@ html.ios-browser .pull-refresh {
 }
 
 .boot .heart.earned {
-  animation: heart-in 0.6s var(--ease-out) calc(0.7s + var(--i, 0) * 0.09s) both;
+  animation: heart-in 0.6s var(--ease-out) calc(0.7s + var(--i, 0) * 0.09s + var(--age, 0s)) both;
 }
 
 .heart-more {
@@ -1118,7 +1118,7 @@ html.ios-browser .pull-refresh {
 }
 
 .boot .rise {
-  animation: rise 0.9s var(--ease-out) calc(var(--i, 0) * 0.08s + 0.15s) both;
+  animation: rise 0.9s var(--ease-out) calc(var(--i, 0) * 0.08s + 0.15s + var(--age, 0s)) both;
 }
 
 .hero-portrait {
@@ -1213,14 +1213,14 @@ html.ios-browser .pull-refresh {
   top: 50%;
   left: 0;
   rotate: -5deg;
-  animation: bob 7s ease-in-out infinite;
+  animation: bob 7s ease-in-out var(--age, 0s) infinite;
 }
 
 .fc-two {
   right: 4%;
   bottom: 0;
   rotate: 3deg;
-  animation: bob 8s ease-in-out -3s infinite;
+  animation: bob 8s ease-in-out calc(var(--age, 0s) - 3s) infinite;
 }
 
 .lift {
@@ -1431,7 +1431,7 @@ html.ios-browser .pull-refresh {
 }
 
 .boot .ring .val {
-  animation: ring-in 1.2s var(--ease-out) 0.4s both;
+  animation: ring-in 1.2s var(--ease-out) calc(0.4s + var(--age, 0s)) both;
 }
 
 .night .ring .val {
@@ -1972,7 +1972,7 @@ html.ios-browser .pull-refresh {
   border-radius: 8px 8px 4px 4px;
   background: var(--chart);
   transform-origin: 50% 100%;
-  animation: grow 0.8s var(--ease-out) calc(var(--i, 0) * 0.04s) both;
+  animation: grow 0.8s var(--ease-out) calc(var(--i, 0) * 0.04s + var(--age, 0s)) both;
 }
 
 .month-bar.partial .mb-fill {
@@ -2163,13 +2163,13 @@ html.ios-browser .pull-refresh {
 }
 
 .chart .grow-x {
-  animation: grow-x 0.8s var(--ease-out) calc(var(--i, 0) * 0.05s) both;
+  animation: grow-x 0.8s var(--ease-out) calc(var(--i, 0) * 0.05s + var(--age, 0s)) both;
   transform-box: fill-box;
   transform-origin: 0 50%;
 }
 
 .chart .pop {
-  animation: dot-in 0.5s var(--ease-out) calc(var(--i, 0) * 0.04s) both;
+  animation: dot-in 0.5s var(--ease-out) calc(var(--i, 0) * 0.04s + var(--age, 0s)) both;
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -3294,7 +3294,7 @@ textarea:focus,
 }
 
 .dstatus.given .dmark path {
-  animation: draw 0.45s var(--ease-out) 0.05s both;
+  animation: draw 0.45s var(--ease-out) calc(0.05s + var(--age, 0s)) both;
   stroke-dasharray: 24;
 }
 
@@ -3589,7 +3589,7 @@ textarea:focus,
   inset: 8%;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(132, 172, 196, 0.22), rgba(132, 172, 196, 0) 70%);
-  animation: breath 5s ease-in-out infinite;
+  animation: breath 5s ease-in-out var(--age, 0s) infinite;
 }
 
 .timer-center {

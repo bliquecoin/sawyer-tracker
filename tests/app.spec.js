@@ -10,11 +10,16 @@ function fakeSupabaseConfig({
   seedSeizureDaysAgoList = null,
   seedSeizureHoursAgo = null,
   seedSchedules = [],
-  failPushUnsubscribe = false
+  failPushUnsubscribe = false,
+  queryDelayMs = 0
 } = {}) {
   return `
     (() => {
       const householdId = ${JSON.stringify(HOUSEHOLD_ID)};
+      const queryDelayMs = ${JSON.stringify(queryDelayMs)};
+      const answer = (result) => queryDelayMs
+        ? new Promise((resolve) => setTimeout(() => resolve(result), queryDelayMs))
+        : Promise.resolve(result);
       const nowMs = Date.now();
       const now = new Date(nowMs).toISOString();
       const seedSeizureDaysAgo = ${JSON.stringify(seedSeizureDaysAgo)};
@@ -177,7 +182,7 @@ function fakeSupabaseConfig({
             return query;
           },
           range(from, to) {
-            return Promise.resolve(execute({ from, to }));
+            return answer(execute({ from, to }));
           },
           insert(row) { state.inserted = clone(row); return query; },
           update(row) { state.updated = clone(row); return query; },
@@ -186,7 +191,7 @@ function fakeSupabaseConfig({
             return query;
           },
           then(resolve, reject) {
-            return Promise.resolve(execute()).then(resolve, reject);
+            return answer(execute()).then(resolve, reject);
           }
         };
         return query;
@@ -282,7 +287,7 @@ async function addNote(page, title, body) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=88");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=90");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
@@ -461,6 +466,36 @@ test("pulling down in the installed app shows a wordless spinner that spins whil
   await expect(page.locator(".screen")).not.toHaveClass(/refreshing/);
   await expect(spinner).toHaveCSS("opacity", "0");
   await expect(spinner).toHaveText("");
+  expect(pageErrors).toEqual([]);
+});
+
+test("reopening the app keeps the screen moving smoothly when the background sync lands", async ({ page }) => {
+  const pageErrors = await openTracker(page, { seedSeizureDaysAgoList: [40, 25, 12], queryDelayMs: 300 });
+  await expect(page.locator(".sync-pill")).toHaveText("Synced", { timeout: 15000 });
+
+  // Reopen like a returning carer: the screen is drawn from this phone's copy while the sync runs.
+  await page.reload();
+  await expect(page.locator(".sync-pill")).toHaveText("Syncing");
+  await page.locator("#app .screen").evaluate((screen) => {
+    screen.dataset.firstDraw = "true";
+    window.__firstDrawSeenAt = performance.now();
+  });
+  await expect(page.locator(".sync-pill")).toHaveText("Synced", { timeout: 15000 });
+  await expect(page.locator("#app .screen[data-first-draw]")).toHaveCount(0);
+
+  // The redraw picks up where the first draw was rather than replaying its entrance.
+  const progress = (selector, name) => page.locator(selector).first().evaluate((element, name) => {
+    const animation = element.getAnimations().find((item) => item.animationName === name);
+    return {
+      elapsed: animation.currentTime - animation.effect.getTiming().delay,
+      sinceFirstDraw: performance.now() - window.__firstDrawSeenAt,
+      state: animation.playState
+    };
+  }, name);
+  const orbit = await progress("#hero .orbit g", "spin");
+  expect(orbit.sinceFirstDraw).toBeGreaterThan(500);
+  expect(orbit.elapsed).toBeGreaterThanOrEqual(orbit.sinceFirstDraw);
+  expect((await progress('[data-view="today"] .chart .grow-x', "grow-x")).state).toBe("finished");
   expect(pageErrors).toEqual([]);
 });
 
@@ -762,7 +797,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-89");
+      const cache = await caches.open("sawyer-tracker-shell-90");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);
