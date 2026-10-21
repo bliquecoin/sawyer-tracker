@@ -261,70 +261,45 @@ async function openTracker(page, options = {}) {
   );
   await page.goto("/");
   await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Here's Sawyer's day/i })).toBeVisible();
+  await expect(page.locator("#hero h1")).toBeVisible();
   return pageErrors;
+}
+
+const tab = (page, name) =>
+  page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name, exact: true });
+const openHousehold = (page) => page.getByRole("button", { name: "Household and settings" }).click();
+const closeSheet = (page) => page.locator(".sheet .sheet-head [data-close-overlay]").click();
+const heroBackground = (page) => page.locator("#hero").evaluate((element) => getComputedStyle(element).backgroundImage);
+
+async function addNote(page, title, body) {
+  await page.getByRole("button", { name: "New record" }).click();
+  await page.locator(".menu-tile.note").click();
+  await page.locator("#note-title").fill(title);
+  await page.locator("#note-body").fill(body);
+  await page.getByRole("button", { name: "Save Note" }).click();
 }
 
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=82");
-  await expect(page.locator(".trend-chart")).toBeVisible();
-  await expect(page.locator(".pixel-trend")).toBeVisible();
-  await expect(page.locator(".pixel-calendar")).toBeVisible();
-  await expect(page.locator(".milestone-card")).toBeVisible();
-  await expect(page.locator(".seizure-free-card .streak-progress")).toBeVisible();
-  const homeStatCards = page.locator('[data-view="today"] .stat-glass-grid > .stat-card');
-  await expect(homeStatCards).toHaveCount(3);
-  await expect(homeStatCards.nth(1)).toContainText("Longest streak");
-  await expect(homeStatCards.nth(1).locator("small")).toHaveText("between episodes");
-  await expect(homeStatCards.nth(2)).toContainText("Average gap");
-  await expect(homeStatCards.nth(2).locator("small")).toHaveText("between episodes");
-  await expect(page.locator('[data-view="today"] .medication-plan')).toHaveCount(0);
-  await expect(page.locator(".day-browser")).toHaveCount(0);
-  await expect(page.locator(".monthly-outlook-card")).toHaveCount(0);
-  await expect(page.locator(".home-month-chart")).toBeVisible();
-  const homeRangeButtons = page.locator("[data-home-trend-range]");
-  await expect(homeRangeButtons).toHaveCount(3);
-  await expect(page.locator('[data-home-trend-range="6"]')).toHaveAttribute("aria-pressed", "true");
-  const homeMonthButtons = page.locator("[data-home-stats-month]");
-  await expect(homeMonthButtons).toHaveCount(6);
-  await page.locator('[data-home-trend-range="12"]').click();
-  await expect(page.locator('[data-home-trend-range="12"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(homeMonthButtons).toHaveCount(12);
-  const homeMonthScrollBeforeTap = await page.locator(".home-month-chart").evaluate((element) => {
-    element.scrollLeft = element.scrollWidth;
-    return element.scrollLeft;
-  });
-  const lastHomeMonth = await homeMonthButtons.last().getAttribute("data-home-stats-month");
-  await homeMonthButtons.last().click();
-  await expect(page.locator(`[data-home-stats-month="${lastHomeMonth}"]`)).toHaveAttribute("aria-pressed", "true");
-  const homeMonthScrollAfterTap = await page.locator(".home-month-chart").evaluate((element) => element.scrollLeft);
-  expect(homeMonthScrollAfterTap).toBeGreaterThanOrEqual(homeMonthScrollBeforeTap - 2);
-  const firstHomeMonth = await homeMonthButtons.first().getAttribute("data-home-stats-month");
-  await homeMonthButtons.first().click();
-  await expect(page.locator('[data-view="today"]')).toHaveClass(/active/);
-  await expect(page.locator(`[data-home-stats-month="${firstHomeMonth}"]`)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".trend-card [data-stats-month-detail]")).toBeVisible();
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=84");
+  const hero = page.locator("#hero");
+  await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
+  await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
+  await expect(hero.locator(".meta-average small")).toHaveText("between episodes");
+  await expect(page.locator(".routine-card")).toHaveCount(2);
+  await expect(hero.getByRole("button", { name: "Record Seizure" })).toBeVisible();
 
   const tabs = [
     ["Today", "today"],
-    ["Log", "log"],
-    ["History", "timeline"],
-    ["Stats", "insights"],
-    ["More", "backup"]
+    ["Records", "timeline"],
+    ["Patterns", "insights"],
+    ["Vet", "vet"]
   ];
-  for (const [label, tab] of tabs) {
-    await page.getByRole("button", { name: new RegExp(label, "i") }).last().click();
-    await expect(page.locator(`[data-view="${tab}"]`)).toHaveClass(/active/);
-    if (tab === "log") {
-      await expect(page.locator('[data-view="log"] .medication-plan')).toBeVisible();
-      await expect(page.locator('[data-view="log"] .medication-plan')).toContainText("Today's medication");
-    }
-    if (tab === "backup") {
-      await expect(page.getByRole("heading", { name: "Seizure-free push alerts" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Send Test" })).toBeDisabled();
-    }
+  for (const [label, view] of tabs) {
+    await tab(page, label).click();
+    await expect(page.locator(`[data-view="${view}"]`)).toHaveClass(/active/);
+    await expect(tab(page, label)).toHaveAttribute("aria-current", "page");
     const overflow = await page.evaluate(() =>
       Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) -
       document.documentElement.clientWidth
@@ -332,28 +307,26 @@ test("household login, navigation, records, and mobile layout work together", as
     expect(overflow).toBeLessThanOrEqual(1);
   }
 
-  await page.getByRole("button", { name: /Stats/i }).last().click();
-  const statsPanel = page.locator(".stats-month-panel");
-  await expect(statsPanel).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Tap a month" })).toBeVisible();
+  await tab(page, "Patterns").click();
+  await expect(page.locator(".stats-month-panel")).toBeVisible();
   await page.locator("[data-stats-range='12']").click();
   await expect(page.locator("[data-stats-range='12']")).toHaveAttribute("aria-pressed", "true");
-  const monthRows = page.locator("[data-stats-month]");
-  await expect(monthRows).toHaveCount(12);
-  await monthRows.first().click();
-  await expect(monthRows.first()).toHaveAttribute("aria-pressed", "true");
-  const statsPanelHeight = await statsPanel.evaluate((element) => element.getBoundingClientRect().height);
-  expect(statsPanelHeight).toBeLessThan(760);
+  const monthBars = page.locator("[data-stats-month]");
+  await expect(monthBars).toHaveCount(12);
+  await monthBars.first().click();
+  await expect(monthBars.first()).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-stats-month-detail]")).toBeVisible();
 
-  await page.getByRole("button", { name: /Log/i }).last().click();
-  const noteDetails = page.locator("details.record-disclosure").filter({ hasText: "Care note" });
-  await noteDetails.locator("summary").click();
-  await page.locator("#note-title").fill("Playwright appetite");
-  await page.locator("#note-body").fill("Sawyer ate dinner normally.");
-  await page.getByRole("button", { name: "Save Note" }).click();
+  await openHousehold(page);
+  await expect(page.getByRole("heading", { name: "Seizure-free push alerts" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send Test" })).toBeDisabled();
+  await closeSheet(page);
+  await expect(page.locator(".sheet")).toHaveCount(0);
+
+  await addNote(page, "Playwright appetite", "Sawyer ate dinner normally.");
   await expect(page.locator("#toast")).toContainText("Note saved");
 
-  await page.getByRole("button", { name: /History/i }).last().click();
+  await tab(page, "Records").click();
   const noteItem = page.locator("details.timeline-item.note").filter({ hasText: "Playwright appetite" });
   await expect(noteItem).toHaveCount(1);
   await noteItem.locator("summary").click();
@@ -363,7 +336,6 @@ test("household login, navigation, records, and mobile layout work together", as
   await page.getByRole("button", { name: "Update Note" }).click();
   await expect(page.locator("#toast")).toContainText("Note updated");
 
-  await page.getByRole("button", { name: /History/i }).last().click();
   const updatedNote = page.locator("details.timeline-item.note").filter({ hasText: "Playwright appetite" });
   await updatedNote.locator("summary").click();
   await expect(updatedNote).toContainText("asked for more");
@@ -372,16 +344,17 @@ test("household login, navigation, records, and mobile layout work together", as
   await expect(page.locator("#toast")).toContainText("Record deleted");
   await expect(page.locator("details.timeline-item.note").filter({ hasText: "Playwright appetite" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: /Log/i }).last().click();
+  await tab(page, "Today").click();
+  await page.getByRole("button", { name: "Log Past Seizure" }).first().click();
   await page.getByRole("button", { name: "Save seizure" }).click();
   await expect(page.locator("#toast")).toContainText("Seizure saved");
-  await page.getByRole("button", { name: /History/i }).last().click();
+  await tab(page, "Records").click();
   const seizureItem = page.locator("details.timeline-item.seizure").first();
   await seizureItem.locator("summary").click();
   await seizureItem.getByRole("button", { name: "Edit" }).click();
   await page.getByRole("button", { name: "Update seizure" }).click();
   await expect(page.locator("#toast")).toContainText("Seizure updated");
-  await page.getByRole("button", { name: /History/i }).last().click();
+  await tab(page, "Records").click();
   const editedSeizure = page.locator("details.timeline-item.seizure").first();
   await editedSeizure.locator("summary").click();
   page.once("dialog", (dialog) => dialog.accept());
@@ -392,93 +365,53 @@ test("household login, navigation, records, and mobile layout work together", as
   expect(pageErrors).toEqual([]);
 });
 
-test("seizure-free streak earns animated pixel hearts every five days", async ({ page }) => {
+test("seizure-free streak earns hearts every five days on a steady blue field", async ({ page }) => {
   const pageErrors = await openTracker(page, { seedSeizureDaysAgo: 12 });
 
-  const streakCard = page.locator(".seizure-free-card");
-  const heartRail = page.locator(".seizure-free-card .streak-hearts");
-  await expect(heartRail).toBeVisible();
-  await expect(heartRail).toHaveAttribute("aria-label", /2 seizure-free hearts earned/);
-  await expect(streakCard).toHaveClass(/calm-streak/);
-  await expect(streakCard.locator(".seizure-free-header em")).toHaveCount(0);
-  await expect(page.locator(".seizure-free-card .pixel-heart")).toHaveCount(2);
-  await expect(page.locator(".seizure-free-card .streak-progress")).toContainText("days to next heart");
-  const initialAppearance = await streakCard.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return {
-      backgroundColor: style.backgroundColor,
-      backgroundImage: style.backgroundImage,
-      backdropFilter: style.backdropFilter
-    };
-  });
+  const hero = page.locator("#hero");
+  await expect(hero).toHaveClass(/calm-streak/);
+  await expect(hero).toHaveClass(/glow-blue/);
+  await expect(hero.locator(".streak-hearts")).toHaveAttribute("aria-label", /2 seizure-free hearts earned/);
+  await expect(hero.locator(".heart.earned")).toHaveCount(2);
+  await expect(hero.locator(".streak-progress")).toContainText("3 days to next heart");
+  const initialBackground = await heroBackground(page);
   await page.waitForTimeout(750);
-  const settledAppearance = await streakCard.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return {
-      backgroundColor: style.backgroundColor,
-      backgroundImage: style.backgroundImage,
-      backdropFilter: style.backdropFilter
-    };
-  });
-  expect(initialAppearance.backgroundColor).toBe("rgb(229, 244, 233)");
-  expect(initialAppearance.backdropFilter).toBe("none");
-  expect(settledAppearance).toEqual(initialAppearance);
+  expect(initialBackground).toContain("rgb(60, 116, 148)");
+  expect(await heroBackground(page)).toBe(initialBackground);
   expect(pageErrors).toEqual([]);
 });
 
 test("longest streak and gap displays include a current streak that has passed the completed record", async ({ page }) => {
   const pageErrors = await openTracker(page, { seedSeizureDaysAgoList: [30, 20, 12] });
 
-  const longestStreakCard = page.locator('[data-view="today"] .stat-glass-grid > .stat-card').nth(1);
-  await expect(longestStreakCard.locator("strong")).toHaveText("12 days");
-  await expect(longestStreakCard.locator("small")).toHaveText("current streak");
+  await expect(page.locator("#hero .meta-longest dd")).toHaveText("12 days");
+  await expect(page.locator("#hero .meta-longest small")).toHaveText("current streak");
 
-  await page.getByRole("button", { name: /Stats/i }).last().click();
+  await tab(page, "Patterns").click();
   const longestGapMetric = page.locator(".stats-metrics .metric").filter({ hasText: "Longest gap" });
   await expect(longestGapMetric.locator("strong")).toHaveText("12 days");
   expect(pageErrors).toEqual([]);
 });
 
-test("a seizure within 24 hours keeps the counter red", async ({ page }) => {
+test("a seizure within 24 hours turns the streak field berry", async ({ page }) => {
   const pageErrors = await openTracker(page, { seedSeizureHoursAgo: 23 });
 
-  const streakCard = page.locator(".seizure-free-card");
-  await expect(streakCard).toHaveClass(/recent-seizure/);
-  await expect(streakCard).toContainText("0");
-  await expect(streakCard.locator(".seizure-free-header em")).toHaveCount(0);
-  const appearance = await streakCard.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return {
-      backgroundColor: style.backgroundColor,
-      backgroundImage: style.backgroundImage,
-      backdropFilter: style.backdropFilter
-    };
-  });
-  expect(appearance.backgroundColor).toBe("rgb(255, 233, 237)");
-  expect(appearance.backgroundImage).toContain("rgba(219, 66, 78, 0.28)");
-  expect(appearance.backgroundImage).not.toContain("rgba(220, 245, 241, 0.68)");
-  expect(appearance.backdropFilter).toBe("none");
+  const hero = page.locator("#hero");
+  await expect(hero).toHaveClass(/recent-seizure/);
+  await expect(hero).toHaveClass(/glow-berry/);
+  await expect(hero.locator(".hero-count")).toHaveText("0");
+  expect(await heroBackground(page)).toContain("rgb(172, 28, 60)");
   expect(pageErrors).toEqual([]);
 });
 
-test("the counter turns amber after 24 hours and stays amber through day four", async ({ page }) => {
+test("the streak field turns yellow after 24 hours and stays yellow through day four", async ({ page }) => {
   const pageErrors = await openTracker(page, { seedSeizureHoursAgo: 25 });
 
-  const streakCard = page.locator(".seizure-free-card");
-  await expect(streakCard).toHaveClass(/building-streak/);
-  await expect(streakCard).toContainText("1");
-  await expect(streakCard.locator(".seizure-free-header em")).toHaveCount(0);
-  const appearance = await streakCard.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return {
-      backgroundColor: style.backgroundColor,
-      backgroundImage: style.backgroundImage,
-      backdropFilter: style.backdropFilter
-    };
-  });
-  expect(appearance.backgroundColor).toBe("rgb(255, 242, 207)");
-  expect(appearance.backgroundImage).toContain("rgba(255, 179, 50, 0.34)");
-  expect(appearance.backdropFilter).toBe("none");
+  const hero = page.locator("#hero");
+  await expect(hero).toHaveClass(/building-streak/);
+  await expect(hero).toHaveClass(/glow-yellow/);
+  await expect(hero.locator(".hero-count")).toHaveText("1");
+  expect(await heroBackground(page)).toContain("rgb(244, 180, 20)");
   expect(pageErrors).toEqual([]);
 });
 
@@ -493,12 +426,7 @@ test("reset page waits for explicit confirmation", async ({ page }) => {
 
 test("a failed cloud write is durable and visibly pending", async ({ page }) => {
   const pageErrors = await openTracker(page, { failEventWrites: true });
-  await page.getByRole("button", { name: /Log/i }).last().click();
-  const noteDetails = page.locator("details.record-disclosure").filter({ hasText: "Care note" });
-  await noteDetails.locator("summary").click();
-  await page.locator("#note-title").fill("Keep this record");
-  await page.locator("#note-body").fill("This write is expected to fail.");
-  await page.getByRole("button", { name: "Save Note" }).click();
+  await addNote(page, "Keep this record", "This write is expected to fail.");
 
   await expect(page.locator("#toast")).toContainText("Saved on this device. Waiting to sync.");
   await expect(page.locator(".sync-banner")).toContainText("Waiting to sync");
@@ -507,16 +435,16 @@ test("a failed cloud write is durable and visibly pending", async ({ page }) => 
   expect(pageErrors).toEqual([]);
 });
 
-test("drafts survive navigation, foreground refresh and reload without truncating duration", async ({ page }) => {
+test("drafts survive closing, foreground refresh and reload without truncating duration", async ({ page }) => {
   const errors = await openTracker(page);
-  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await page.getByRole("button", { name: "Log Past Seizure" }).first().click();
   await page.locator("#duration-minutes").fill("12");
   await page.locator("#duration-seconds").fill("35");
   await page.locator('[data-severity="4"]').click();
-  await page.locator(".log-details summary").click();
   await page.locator("#notes").fill("Interrupted entry survives");
-  await page.getByRole("button", { name: "Today", exact: true }).click();
-  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await page.locator(".fhead").getByRole("button", { name: "Close" }).click();
+  await expect(page.locator(".seizure-focus")).toHaveCount(0);
+  await page.getByRole("button", { name: "Log Past Seizure" }).first().click();
   await expect(page.locator("#notes")).toHaveValue("Interrupted entry survives");
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await expect(page.locator("#duration-minutes")).toHaveValue("12");
@@ -528,7 +456,7 @@ test("drafts survive navigation, foreground refresh and reload without truncatin
   await page.getByRole("button", { name: "Save seizure", exact: true }).click();
   await expect(page.locator("#toast")).toContainText("Seizure saved");
   expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events[0].payload.durationSeconds)).toBe(755);
-  await page.getByRole("button", { name: "History", exact: true }).click();
+  await tab(page, "Records").click();
   const seizure = page.locator("details.timeline-item.seizure").first();
   await seizure.locator("summary").click();
   await seizure.getByRole("button", { name: "Edit", exact: true }).click();
@@ -536,15 +464,43 @@ test("drafts survive navigation, foreground refresh and reload without truncatin
   await page.getByRole("button", { name: "Update seizure", exact: true }).click();
   await expect(page.locator("#toast")).toContainText("Seizure updated");
   expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events[0].payload.durationSeconds)).toBe(755);
-  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await page.getByRole("button", { name: "Log Past Seizure" }).first().click();
   await expect(page.locator("#duration-minutes")).toHaveValue("0");
   await expect(page.locator("#notes")).toHaveValue("");
   expect(errors).toEqual([]);
 });
 
+test("the seizure timer survives hiding and fills the review with its duration and symptoms", async ({ page }) => {
+  const errors = await openTracker(page);
+  await page.locator("#hero").getByRole("button", { name: "Record Seizure" }).click();
+  await expect(page.locator(".timer-focus")).toBeVisible();
+  await page.locator('[data-mark-symptom="Paddling"]').click();
+  await page.waitForTimeout(2200);
+  await page.getByRole("button", { name: "Hide the timer and keep recording" }).click();
+  await expect(page.locator(".timer-pill")).toContainText("Recording 0:0");
+  await page.reload();
+  await expect(page.locator(".timer-focus")).toBeVisible();
+  await expect(page.locator('[data-mark-symptom="Paddling"]')).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Seizure Ended" }).click();
+  await expect(page.locator("#focus-title")).toHaveText("Seizure Timed");
+  const seconds = Number(await page.locator("#duration-seconds").inputValue());
+  expect(seconds).toBeGreaterThanOrEqual(2);
+  await expect(page.locator("#seizure-time-known")).toBeChecked();
+  await expect(page.locator('input[name="symptoms"][value="Paddling"]')).toBeChecked();
+  await page.getByRole("button", { name: "Save seizure", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Seizure saved");
+  const saved = await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events[0].payload);
+  expect(saved.symptoms).toEqual(["Paddling"]);
+  expect(saved.timeKnown).toBe(true);
+  expect(saved.durationSeconds).toBeGreaterThanOrEqual(2);
+  await expect(page.locator("#hero")).toHaveClass(/recent-seizure/);
+  expect(await page.evaluate(() => localStorage.getItem("sawyer-seizure-timer"))).toBeNull();
+  expect(errors).toEqual([]);
+});
+
 test("offline records survive reload and sync exactly once after reconnection", async ({ page, context }) => {
   const errors = await openTracker(page);
-  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await page.getByRole("button", { name: "Log Past Seizure" }).first().click();
   await context.setOffline(true);
   await page.locator("#duration-minutes").fill("5");
   await page.getByRole("button", { name: "Save seizure", exact: true }).click();
@@ -555,7 +511,7 @@ test("offline records survive reload and sync exactly once after reconnection", 
   await context.setOffline(false);
   await page.reload();
   await expect(page.locator(".sync-banner")).toContainText("Waiting to sync");
-  await page.getByRole("button", { name: "History", exact: true }).click();
+  await tab(page, "Records").click();
   await expect(page.locator("details.timeline-item.seizure")).toHaveCount(1);
   await page.evaluate(() => { window.__SAWYER_ALLOW_WRITES__ = true; window.dispatchEvent(new Event("online")); });
   await expect(page.locator(".sync-banner")).toHaveCount(0);
@@ -567,7 +523,7 @@ test("offline records survive reload and sync exactly once after reconnection", 
 
 test("dose confirmation records the carer and timestamp and prevents rapid duplicate taps", async ({ page }) => {
   const errors = await openTracker(page);
-  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await page.locator(".routine-card.morning").click();
   await page.locator("#carer-name").fill("Beau");
   const firstDose = page.locator(".medication-row").first();
   await firstDose.getByRole("button", { name: "Given", exact: true }).evaluate((button) => { button.click(); button.click(); });
@@ -579,25 +535,25 @@ test("dose confirmation records the carer and timestamp and prevents rapid dupli
   expect(Number.isFinite(Date.parse(doses[0].payload.occurredAt))).toBe(true);
   await firstDose.getByRole("button", { name: "Undo given", exact: true }).click();
   await expect(firstDose.getByRole("button", { name: "Given", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.locator("[data-routine-switch='night']").click();
+  await expect(page.locator(".routine-sheet")).toHaveClass(/tone-berry/);
+  await expect(page.locator("#sheet-title")).toHaveText("Night Routine");
+  await closeSheet(page);
+  await openHousehold(page);
   await page.getByLabel("Require confirmation for each dose").check();
   await page.getByRole("button", { name: "Save Setup", exact: true }).click();
   await expect(page.locator("#toast")).toContainText("Setup saved");
-  await page.getByRole("button", { name: "Log", exact: true }).click();
+  await closeSheet(page);
+  await page.locator(".routine-card.morning").click();
   await expect(firstDose).toContainText("Unconfirmed");
   expect(errors).toEqual([]);
 });
 
 test("conflicting edits preserve both versions and can be reviewed explicitly", async ({ page }) => {
   const errors = await openTracker(page);
-  await page.getByRole("button", { name: "Log", exact: true }).click();
-  const note = page.locator("details.record-disclosure").filter({ hasText: "Care note" });
-  await note.locator("summary").click();
-  await page.locator("#note-title").fill("Shared note");
-  await page.locator("#note-body").fill("Original");
-  await page.getByRole("button", { name: "Save Note", exact: true }).click();
+  await addNote(page, "Shared note", "Original");
   await expect(page.locator("#toast")).toContainText("Note saved");
-  await page.getByRole("button", { name: "History", exact: true }).click();
+  await tab(page, "Records").click();
   const entry = page.locator("details.timeline-item.note").first();
   await entry.locator("summary").click();
   await entry.getByRole("button", { name: "Edit", exact: true }).click();
@@ -610,12 +566,23 @@ test("conflicting edits preserve both versions and can be reviewed explicitly", 
   });
   await page.getByRole("button", { name: "Update Note", exact: true }).click();
   await expect(page.locator(".sync-banner")).toContainText("need review");
-  await page.getByRole("button", { name: "Review changes", exact: true }).click();
+  await page.getByRole("button", { name: "Review changes", exact: true }).first().click();
   await expect(page.locator(".conflict-versions")).toContainText("My unfinished edit");
   await expect(page.locator(".conflict-versions")).toContainText("Edit from the other phone");
   await page.getByRole("button", { name: "Keep this device's version", exact: true }).click();
   await expect(page.locator(".sync-banner")).toHaveCount(0);
   expect(await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events[0].payload.body)).toBe("My unfinished edit");
+  expect(errors).toEqual([]);
+});
+
+test("a handover note appears on Today for the next carer", async ({ page }) => {
+  const errors = await openTracker(page);
+  await page.locator("#handover-body").fill("Ate breakfast, a bit clingy after the walk.");
+  await page.getByRole("button", { name: "Post", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Handover posted");
+  await expect(page.locator(".handover-card blockquote")).toContainText("Ate breakfast");
+  const saved = await page.evaluate(() => window.__SAWYER_TEST_STORES__.sawyer_care_events[0].payload);
+  expect(saved).toMatchObject({ type: "note", title: "Handover", handover: true });
   expect(errors).toEqual([]);
 });
 
@@ -625,8 +592,8 @@ test("shared schedule ids are escaped in Care Setup and still save", async ({ pa
   const errors = await openTracker(page, {
     seedSchedules: [{ id: scheduleId, name: "Shared schedule", times: [{ id: timeId, label: "Morning", time: "07:00" }] }]
   });
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
-  const schedule = page.locator("div.panel").filter({ has: page.getByRole("heading", { name: "Shared schedule" }) });
+  await openHousehold(page);
+  const schedule = page.locator(".schedule-card").filter({ has: page.getByRole("heading", { name: "Shared schedule" }) });
   await expect(schedule).toBeVisible();
   await expect(page.locator("#injected-schedule, #injected-time")).toHaveCount(0);
   expect(await page.evaluate(({ scheduleId, timeId }) => [
@@ -643,14 +610,9 @@ test("shared schedule ids are escaped in Care Setup and still save", async ({ pa
 
 test("CSV export neutralises spreadsheet formulas in recorded text", async ({ page }) => {
   const errors = await openTracker(page, { seedSeizureDaysAgo: 3 });
-  await page.getByRole("button", { name: "Log", exact: true }).click();
-  const note = page.locator("details.record-disclosure").filter({ hasText: "Care note" });
-  await note.locator("summary").click();
-  await page.locator("#note-title").fill('=HYPERLINK("https://example.com")');
-  await page.locator("#note-body").fill("-2+3 then @SUM(A1)");
-  await page.getByRole("button", { name: "Save Note", exact: true }).click();
+  await addNote(page, '=HYPERLINK("https://example.com")', "-2+3 then @SUM(A1)");
   await expect(page.locator("#toast")).toContainText("Note saved");
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
+  await openHousehold(page);
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export CSV", exact: true }).click();
   const csv = fs.readFileSync(await (await download).path(), "utf8");
@@ -680,11 +642,11 @@ test("forgetting household access removes this device's records and drafts", asy
     };
   }, ACCESS_STORAGE_KEY);
 
-  await page.getByRole("button", { name: "Log", exact: true }).click();
-  await page.locator(".log-details summary").click();
+  await page.getByRole("button", { name: "Log Past Seizure" }).first().click();
   await page.locator("#notes").fill("Unfinished private note");
   await expect.poll(localCopy).toEqual({ events: 1, drafts: 1, access: "verified-test-hash" });
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
+  await page.locator(".fhead").getByRole("button", { name: "Close" }).click();
+  await openHousehold(page);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Forget Access", exact: true }).click();
   await expect(page.locator("#toast")).toContainText("Household access removed");
@@ -697,7 +659,7 @@ test("forgetting household access removes this device's records and drafts", asy
 test("forgetting household access removes this device's push alerts before the access code", async ({ page }) => {
   await fakePushSubscription(page);
   const errors = await openTracker(page);
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
+  await openHousehold(page);
   const dialogs = [];
   page.on("dialog", (dialog) => { dialogs.push(dialog.message()); dialog.accept(); });
   await page.getByRole("button", { name: "Forget Access", exact: true }).click();
@@ -716,7 +678,7 @@ test("forgetting household access removes this device's push alerts before the a
 test("when Supabase cannot remove push alerts, access is kept unless the carer continues", async ({ page }) => {
   await fakePushSubscription(page);
   const errors = await openTracker(page, { failPushUnsubscribe: true });
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /More/ }).click();
+  await openHousehold(page);
   const forgetAccess = page.getByRole("button", { name: "Forget Access", exact: true });
   const dialogs = [];
   let continueAnyway = false;
@@ -748,14 +710,14 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-82");
+      const cache = await caches.open("sawyer-tracker-shell-84");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);
     await page.reload();
     await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
     await expect(page.locator(".sync-banner")).toContainText("Offline");
-    await page.getByRole("button", { name: "Log", exact: true }).click();
+    await page.getByRole("button", { name: "Log Past Seizure" }).first().click();
     await page.getByRole("button", { name: "Save seizure", exact: true }).click();
     await expect(page.locator(".sync-banner")).toContainText("Waiting to sync");
     await page.reload();

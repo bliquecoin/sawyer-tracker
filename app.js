@@ -15,6 +15,7 @@
   const FALLBACK_APP_URL = "https://bliquecoin.github.io/sawyer-tracker/";
   const ACCESS_KEY_STORAGE = "sawyer-household-access-key-hash";
   const PUSH_DEVICE_STORAGE = "sawyer-push-device-id";
+  const TIMER_STORAGE = "sawyer-seizure-timer";
   const ACCESS_HEADER = "x-sawyer-access-key";
   const SUPABASE_TABLES = {
     dogs: "sawyer_dogs",
@@ -62,22 +63,14 @@
     aiBusy: false,
     aiInsight: null,
     aiError: "",
-    homeInsightIndex: 0,
-    homeInsightSignature: "",
-    homeInsightTimer: null,
-    homeTrendRange: "6",
-    homeSelectedMonthKey: "",
-    statsInsightIndex: 0,
-    statsInsightSignature: "",
     statsSelectedMonthKey: "",
     statsRange: "6",
+    vetRange: 30,
     vetDocuments: [],
     documentsBusy: false,
     documentsMessage: "",
     backupBusy: false,
     backupMessage: "",
-    selectedDayKey: localDateKey(new Date()),
-    pullDistance: 0,
     pullRefreshing: false,
     editingSeizureId: "",
     editingRecordId: "",
@@ -85,7 +78,16 @@
     savingFormId: "",
     pendingRecords: [],
     lastSaveStatus: "synced",
-    severity: 3
+    severity: 3,
+    overlay: null,
+    overlayFresh: false,
+    overlayCloseTimer: null,
+    seizurePrefill: null,
+    timer: null,
+    timerConfirmDiscard: false,
+    wakeLock: null,
+    lastPointer: null,
+    renderedTab: ""
   };
   const startedFromAuthRedirect = isAuthRedirectUrl();
   const memoryStores = {
@@ -107,8 +109,12 @@
   });
   try {
     const previousView = JSON.parse(sessionStorage.getItem("sawyer-view") || "null");
-    if (previousView && ["today", "log", "timeline", "insights", "backup"].includes(previousView.activeTab)) {
-      Object.assign(state, previousView);
+    if (previousView && ["today", "timeline", "insights", "vet"].includes(previousView.activeTab)) {
+      state.activeTab = previousView.activeTab;
+      state.editingSeizureId = previousView.editingSeizureId || "";
+      state.editingRecordId = previousView.editingRecordId || "";
+      state.overlay = previousView.overlay?.kind && previousView.overlay.kind !== "timer" ? previousView.overlay : null;
+      state.seizurePrefill = previousView.seizurePrefill || null;
     }
   } catch { /* Start on Today if session storage is unavailable. */ }
   setRuntimeClasses();
@@ -244,6 +250,11 @@
 
   async function init() {
     if (await resetStaleBrowserCache()) return;
+    document.documentElement.classList.add("boot");
+    setTimeout(() => document.documentElement.classList.remove("boot"), 2400);
+    state.timer = readTimer();
+    // A running seizure timer always reopens, even after the app was closed.
+    if (state.timer) state.overlay = { kind: "timer" };
     await registerServiceWorker();
     requestPersistentStorage();
     attachGlobalListeners();
@@ -321,9 +332,47 @@
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
+        requestWakeLock();
         refreshApp({ silent: true }).catch(() => safeHydrate().then(render));
       }
     });
+
+    document.addEventListener("pointerdown", (event) => {
+      state.lastPointer = { x: event.clientX, y: event.clientY };
+    }, true);
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !state.overlay) return;
+      if (state.overlay.kind === "timer") handleAction("minimize-timer");
+      else if (state.overlay.kind === "seizure" && state.editingSeizureId) cancelSeizureEdit();
+      else closeOverlay();
+    });
+
+    document.addEventListener("pointerover", (event) => {
+      const hit = event.target.closest?.(".hit");
+      if (hit) showChartTip(hit);
+    });
+    document.addEventListener("pointerout", (event) => {
+      if (event.target.closest?.(".hit")) hideChartTip();
+    });
+    document.addEventListener("focusin", (event) => {
+      if (event.target.classList?.contains("hit")) showChartTip(event.target);
+    });
+    document.addEventListener("focusout", (event) => {
+      if (event.target.classList?.contains("hit")) hideChartTip();
+    });
+
+    let resizeTimer = null;
+    let lastWidth = window.innerWidth;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (window.innerWidth === lastWidth) return;
+        lastWidth = window.innerWidth;
+        if (["insights", "vet"].includes(state.activeTab) && !state.overlay) renderPreservingContentScroll();
+      }, 250);
+    });
+    setInterval(updateTimerDisplay, 250);
 
     window.addEventListener("online", () => { render(); queueBackgroundSync(); });
     window.addEventListener("offline", render);
@@ -771,15 +820,70 @@
     ].filter(({ record }) => SYNC.pending(record));
   }
 
+  const VIEW_TABS = ["today", "timeline", "insights", "vet"];
+  const ROUTINES = {
+    morning: { label: "Morning", icon: "sun", tone: "yellow" },
+    night: { label: "Night", icon: "moon", tone: "berry" }
+  };
+  const TYPE_ICONS = { seizure: "timer", dose: "pill", note: "note", vet_visit: "vet", blood_test: "drop", regimen_change: "edit" };
+  const ICONS = {
+    home: '<path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/>',
+    list: '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.75" cy="6.5" r="1"/><circle cx="4.75" cy="12" r="1"/><circle cx="4.75" cy="17.5" r="1"/>',
+    chart: '<path d="M3.5 20h17M6.5 20v-7M11.5 20V5M16.5 20v-10"/>',
+    vet: '<path d="M6.5 3.5H5v5a4 4 0 0 0 8 0v-5h-1.5"/><path d="M9 12.5v2a5 5 0 0 0 10 0v-2"/><circle cx="19" cy="10.5" r="2"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M6 12h12"/>',
+    timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 3h5"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18"/>',
+    chev: '<path d="M9 5l7 7-7 7"/>',
+    down: '<path d="M6 9l6 6 6-6"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+    moon: '<path d="M19 14.5A7.5 7.5 0 0 1 9.5 5a7.5 7.5 0 1 0 9.5 9.5z"/>',
+    note: '<path d="M6 3.5h8.5L19 8v12a.5.5 0 0 1-.5.5h-12A.5.5 0 0 1 6 20z"/><path d="M14 3.5V8h5M9 12.5h7M9 16h5"/>',
+    drop: '<path d="M12 3.5c3.2 4 5.5 7 5.5 10a5.5 5.5 0 0 1-11 0c0-3 2.3-6 5.5-10z"/>',
+    pill: '<rect x="2.8" y="8.6" width="18.4" height="6.8" rx="3.4" transform="rotate(-38 12 12)"/><path d="M9.7 8.8l4.6 6.4"/>',
+    doc: '<path d="M6.5 3.5h8L19 8v12.5H6.5z"/><path d="M14.5 3.5V8H19"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+    heart: '<path d="M12 19.5s-7.5-4.4-7.5-10A4.2 4.2 0 0 1 12 7a4.2 4.2 0 0 1 7.5 2.5c0 5.6-7.5 10-7.5 10z"/>',
+    clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="3"/><path d="M15.5 8.5V6A2.5 2.5 0 0 0 13 3.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.2"/>',
+    edit: '<path d="M4.5 19.5l1-4.5L16 4.5l3.5 3.5L9 18.5z"/><path d="M13.5 7l3.5 3.5"/>',
+    arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    upload: '<path d="M12 15.5V4.5M7.5 9 12 4.5 16.5 9M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/>',
+    sync: '<path d="M19.5 8.5A8 8 0 0 0 5 7.5M4.5 15.5A8 8 0 0 0 19 16.5"/><path d="M19.5 4v4.5H15M4.5 20v-4.5H9"/>'
+  };
+
+  function icon(name, className = "i") {
+    return `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+  }
+
+  function filledIcon(name) {
+    return `<svg class="i" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+  }
+
+  function leaf(style) {
+    return `<i class="leaf" style="${style}" aria-hidden="true"></i>`;
+  }
+
+  function prefersReducedMotion() {
+    return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+  }
+
   function render() {
     const summary = getSummary();
     const focused = document.activeElement;
     const focusId = focused?.matches("input, textarea, select") ? focused.id : "";
     const selection = focusId && ["text", "search", "textarea"].includes(focused.type)
       ? [focused.selectionStart, focused.selectionEnd] : null;
+    const overlayScroll = document.querySelector("[data-overlay-scroll]")?.scrollTop || 0;
+    // A toast that is still showing carries over to the redrawn screen.
+    const toastText = document.querySelector("#toast.show")?.textContent || "";
     try {
       sessionStorage.setItem("sawyer-view", JSON.stringify({ activeTab: state.activeTab,
-        editingSeizureId: state.editingSeizureId, editingRecordId: state.editingRecordId }));
+        editingSeizureId: state.editingSeizureId, editingRecordId: state.editingRecordId,
+        overlay: state.overlay, seizurePrefill: state.seizurePrefill }));
     } catch { /* View recovery is optional. */ }
 
     if (shouldShowLoginScreen()) {
@@ -792,205 +896,315 @@
         </div>
       `;
       bindUi();
+      restoreToast(toastText);
       return;
     }
 
+    if (!VIEW_TABS.includes(state.activeTab)) state.activeTab = "today";
+    const fresh = state.overlayFresh;
+    const sameTab = state.renderedTab === state.activeTab;
+    const contentScroll = sameTab ? document.querySelector(".content")?.scrollTop || 0 : 0;
     app.innerHTML = `
       <div class="screen">
         <main class="content">
+          ${renderTopBar()}
           <div id="pull-refresh" class="pull-refresh" aria-live="polite">Pull to refresh</div>
-          ${renderEmergencySyncBanner()}
-          ${renderPendingBanner()}
-          <section class="view ${state.activeTab === "today" ? "active" : ""}" data-view="today">
-            ${renderToday(summary)}
-          </section>
-
-          <section class="view ${state.activeTab === "log" ? "active" : ""}" data-view="log">
-            ${renderLog()}
-          </section>
-
-          <section class="view ${state.activeTab === "timeline" ? "active" : ""}" data-view="timeline">
-            ${renderTimeline()}
-          </section>
-
-          <section class="view ${state.activeTab === "insights" ? "active" : ""}" data-view="insights">
-            ${renderInsights(summary)}
-          </section>
-
-          <section class="view ${state.activeTab === "backup" ? "active" : ""}" data-view="backup">
-            ${renderBackup()}
-          </section>
+          <div class="page">
+            ${renderEmergencySyncBanner()}
+            ${renderPendingBanner()}
+            <section class="view ${state.activeTab === "today" ? "active" : ""}" data-view="today" aria-label="Today">
+              ${renderToday(summary)}
+            </section>
+            <section class="view ${state.activeTab === "timeline" ? "active" : ""}" data-view="timeline" aria-label="Records">
+              ${renderTimeline()}
+            </section>
+            <section class="view ${state.activeTab === "insights" ? "active" : ""}" data-view="insights" aria-label="Patterns">
+              ${renderInsights(summary)}
+            </section>
+            <section class="view ${state.activeTab === "vet" ? "active" : ""}" data-view="vet" aria-label="Vet">
+              ${renderVet()}
+            </section>
+          </div>
         </main>
 
-        <nav class="bottom-nav" aria-label="Main navigation">
-          ${navButton("today", "Today", "⌂")}
-          ${navButton("log", "Log", "+")}
-          ${navButton("timeline", "History", "≡")}
-          ${navButton("insights", "Stats", "▥")}
-          ${navButton("backup", "More", "○")}
+        <nav class="tabbar" aria-label="Main navigation">
+          <div class="tabbar-in">
+            ${navButton("today", "Today", "home")}
+            ${navButton("timeline", "Records", "list")}
+            <button class="record-btn" data-overlay="menu" type="button" aria-label="New record">${icon("plus")}</button>
+            ${navButton("insights", "Patterns", "chart")}
+            ${navButton("vet", "Vet", "vet")}
+          </div>
         </nav>
+        ${renderOverlay()}
+        ${renderTimerPill()}
+        <div id="chart-tip" class="chart-tip" role="tooltip"></div>
         <div id="toast" class="toast" role="status"></div>
       </div>
     `;
 
     bindUi();
+    restoreToast(toastText);
+    if (contentScroll) document.querySelector(".content").scrollTop = contentScroll;
+    else if (!sameTab && isIosBrowser()) window.scrollTo(0, 0);
+    state.renderedTab = state.activeTab;
+    const overlayBody = document.querySelector("[data-overlay-scroll]");
+    if (overlayBody && !fresh) overlayBody.scrollTop = overlayScroll;
+    state.overlayFresh = false;
+    document.documentElement.classList.toggle("overlay-open", Boolean(state.overlay));
     const nextFocus = focusId ? document.getElementById(focusId) : null;
-    if (nextFocus?.closest(".view.active") && nextFocus.getClientRects().length) {
+    if (nextFocus?.closest(".view.active, .sheet, .focus") && nextFocus.getClientRects().length) {
       nextFocus.focus({ preventScroll: true });
       if (selection) nextFocus.setSelectionRange(...selection);
     }
-    startHomeInsightRotation();
-    centerSelectedDayPill();
+    if (fresh) {
+      requestAnimationFrame(() => {
+        document.querySelector(".sheet .sheet-head .ibtn, .focus .fhead .ibtn")?.focus({ preventScroll: true });
+      });
+    }
+    updateTimerDisplay();
   }
 
-  function navButton(tab, label, icon) {
+  function restoreToast(text) {
+    const toast = document.querySelector("#toast");
+    if (!text || !toast) return;
+    toast.textContent = text;
+    toast.classList.add("show", "steady");
+  }
+
+  function navButton(tab, label, iconName) {
     return `
       <button aria-current="${state.activeTab === tab ? "page" : "false"}" class="nav-btn ${state.activeTab === tab ? "active" : ""}" data-tab="${tab}" type="button">
-        <span aria-hidden="true">${icon}</span>${label}
+        ${icon(iconName)}<span>${label}</span>
       </button>
     `;
   }
 
-  function renderToday(summary) {
-    const installClass = state.installPrompt ? "panel install-banner ready" : "panel install-banner";
-    const now = new Date();
-    const streakTone = seizureFreeTone(summary);
-    const statusTone = streakTone === "recent-seizure" ? "attention" : streakTone === "no-history" ? "neutral" : "steady";
-
+  function renderTopBar() {
+    const name = state.profile?.name || "Sawyer";
+    const pending = state.pendingRecords.length;
+    const conflicts = state.pendingRecords.filter(({ record }) => record.syncStatus === "conflict").length;
+    const label = state.syncBusy ? "Syncing" : !navigator.onLine ? "Offline" : conflicts ? "Review changes"
+      : pending ? `${pending} waiting` : isSignedIn() ? "Synced" : "Not connected";
+    const tone = state.syncBusy ? "busy" : !navigator.onLine || pending || !isSignedIn() ? "pending" : "ok";
+    const initial = (state.settings?.carerName || name || "S").trim().charAt(0).toUpperCase() || "S";
+    const tabs = [["today", "Today"], ["timeline", "Records"], ["insights", "Patterns"], ["vet", "Vet"]];
     return `
-      <div class="home-stack">
-        <section class="home-hero glass-panel">
-          <div class="home-topline">
-            <div class="welcome-copy">
-              <p class="welcome-date">${escapeHtml(formatWelcomeDate(now))}</p>
-              <h1>
-                <span>${escapeHtml(timeOfDayGreeting(now))}.</span>
-                Here's ${escapeHtml(state.profile?.name || "Sawyer")}'s day.
-              </h1>
-              <p class="welcome-status ${statusTone}">
-                <span aria-hidden="true"></span>
-                ${escapeHtml(homeGreeting(summary))}
-              </p>
-            </div>
-            <figure class="sawyer-welcome-art">
-              <img
-                src="./assets/icons/sawyer-welcome-8bit-v4.png?v=1"
-                alt="8-bit portrait of Sawyer surrounded by his favourite treats"
-              />
-            </figure>
-          </div>
-
-          <div class="stat-glass-grid" aria-label="Tracking statistics">
-            <article class="stat-card featured milestone-card seizure-free-card ${streakTone}">
-              <i class="pixel-sparkle sparkle-one" aria-hidden="true"></i>
-              <div class="seizure-free-header">
-                <span>Seizure-free</span>
-              </div>
-              <div class="stat-value-row">
-                <strong>${summary.daysSinceLast ?? "--"}</strong>
-                ${renderStreakHearts(summary.daysSinceLast)}
-              </div>
-              <small class="seizure-free-unit">${summary.daysSinceLast === 1 ? "day" : "days"}</small>
-              ${renderSeizureFreeProgress(summary.daysSinceLast)}
-            </article>
-            <article class="stat-card">
-              <span>Longest streak</span>
-              <strong>${summary.homeLongestGapText}</strong>
-              <small>${summary.homeLongestGapIsCurrent ? "current streak" : "between episodes"}</small>
-            </article>
-            <article class="stat-card">
-              <span>Average gap</span>
-              <strong>${summary.homeAverageGapText}</strong>
-              <small>between episodes</small>
-            </article>
-          </div>
-
-          <button class="seizure-cta" data-tab="log" data-focus-seizure="true" type="button">
-            <span>Log Seizure</span>
-            <small>${escapeHtml(summary.lastSeizureText)}</small>
+      <header class="topbar">
+        <div class="topbar-in">
+          <button class="brand" data-tab="today" type="button" aria-label="${escapeHtml(name)}, go to Today">
+            <i aria-hidden="true"></i><b>${escapeHtml(name)}</b><small>Care tracker</small>
           </button>
-        </section>
-
-        ${renderSeizureTrend(summary)}
-
-        ${renderHomeInsight(summary)}
-
-        <section class="${installClass}">
-          <div class="panel-body">
-            <div class="dose-main">
-              <div>
-                <h2>Install</h2>
-                <p class="subtle">Add Sawyer Tracker to the home screen for faster access.</p>
-              </div>
-              <button class="btn primary small" data-action="install-app">Install</button>
-            </div>
+          <nav class="topnav" aria-label="Sections">
+            ${tabs.map(([tab, tabLabel]) => `<button data-tab="${tab}" type="button" aria-current="${state.activeTab === tab ? "page" : "false"}">${tabLabel}</button>`).join("")}
+          </nav>
+          <div class="top-actions">
+            <button class="sync-pill ${tone}" data-overlay="household" type="button">${escapeHtml(label)}</button>
+            <button class="btn yellow small desk-only" data-action="start-timer" type="button">${icon("timer")}Record Seizure</button>
+            <button class="avatar" data-overlay="household" type="button" aria-label="Household and settings">${escapeHtml(initial)}</button>
           </div>
-        </section>
-
-      </div>
+        </div>
+      </header>
     `;
   }
 
-  function homeGreeting(summary) {
+  function routineOf(date) {
+    return date.getHours() < 14 ? "morning" : "night";
+  }
+
+  function routineEntries(entries, routine) {
+    return entries.filter((entry) => routineOf(entry.dueAt) === routine);
+  }
+
+  function nextDoseInfo(entries) {
+    const now = new Date();
+    const upcoming = entries.filter((entry) => !entry.log && entry.dueAt >= now);
+    const first = upcoming[0] || entries[0];
+    if (!first) return null;
+    const pool = upcoming.length ? upcoming : entries;
+    return {
+      at: first.dueAt,
+      tomorrow: !upcoming.length,
+      routine: routineOf(first.dueAt),
+      names: [...new Set(pool.filter((entry) => +entry.dueAt === +first.dueAt).map((entry) => entry.schedule.name))]
+    };
+  }
+
+  function latestHandover() {
+    return state.events
+      .filter((event) => event.type === "note" && event.handover)
+      .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0] || null;
+  }
+
+  function formatDurationWords(seconds) {
+    const safe = Math.max(0, Math.round(Number(seconds) || 0));
+    if (safe < 60) return `${safe} sec`;
+    const minutes = Math.floor(safe / 60);
+    const remainder = safe % 60;
+    return remainder ? `${minutes} min ${remainder} sec` : `${minutes} min`;
+  }
+
+  function relativeTime(date) {
+    const diff = Date.now() - date;
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return `${Math.round(diff / 60000)} min ago`;
+    if (diff < DAY_MS) return `${Math.round(diff / 3600000)} h ago`;
+    const days = Math.round(diff / DAY_MS);
+    return days === 1 ? "yesterday" : `${days} days ago`;
+  }
+
+  function renderToday(summary) {
     const name = state.profile?.name || "Sawyer";
-    if (summary.daysSinceLast === null) return `Ready when ${name} needs a record.`;
-    if (summary.daysSinceLast === 0) return "You logged a seizure today. Keep notes gentle and specific.";
-    if (summary.daysSinceLast === 1) return `${name} is 1 day seizure-free.`;
-    return `${name} is ${summary.daysSinceLast} days seizure-free.`;
+    const tone = seizureFreeTone(summary);
+    const glow = { "recent-seizure": "berry", "building-streak": "yellow" }[tone] || "blue";
+    const days = summary.daysSinceLast;
+    const last = getSeizuresAsc().at(-1);
+    const entries = getTodayDoseEntries();
+    const next = nextDoseInfo(entries);
+    const handover = latestHandover();
+    const confirmedToday = entries.filter((entry) => entry.status === "given").length;
+    const exceptionsToday = entries.filter((entry) => entry.status === "missed" || entry.status === "skipped").length;
+    const recent = state.events
+      .filter((event) => event.type !== "dose" && !(event.type === "note" && event.handover))
+      .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))
+      .slice(0, 4);
+    const chip = { "recent-seizure": "Last 24 hours", "building-streak": "Building", "calm-streak": "Steady" }[tone] || "Ready";
+    const toLongest = summary.completedLongestGap !== null && summary.currentStreakDays !== null
+      ? summary.completedLongestGap - summary.currentStreakDays : null;
+    const lede = last
+      ? `Last seizure ${formatEventDateTime(last)}${last.durationSeconds ? `, ${formatDurationWords(last.durationSeconds)}` : ""}.${
+        toLongest === null ? "" : toLongest > 0
+          ? ` ${Math.ceil(toLongest)} ${Math.ceil(toLongest) === 1 ? "day" : "days"} to match the longest gap.`
+          : " This is the longest gap on record."}`
+      : "Start the timer when a seizure begins, or log one that has already happened.";
+    const title = days === null
+      ? `<span class="ln">No Seizures</span><span class="ln">Logged Yet</span>`
+      : `<span class="ln"><span class="hero-count">${days}</span> ${days === 1 ? "Day" : "Days"}</span><span class="ln">Seizure&#8209;Free</span>`;
+    const nextLabel = next ? (next.tomorrow ? `Tomorrow ${formatTime(next.at)}` : formatTime(next.at)) : "None";
+
+    return `
+      <section class="hero glow-${glow} seizure-free-card ${tone}" id="hero" aria-label="Seizure-free streak">
+        ${leaf("--s:360px;--r:-24deg;left:34%;top:-110px;--d:26s;--dx:24px;--dy:18px")}
+        ${leaf("--s:260px;--r:58deg;right:-80px;bottom:-70px;--d:30s;--dx:-18px;--dy:-14px")}
+        ${leaf("--s:150px;--r:12deg;left:-50px;bottom:26%;--d:22s")}
+        <svg class="orbit" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><g><ellipse cx="200" cy="200" rx="230" ry="80" transform="rotate(-22 200 200)"/><ellipse cx="200" cy="200" rx="250" ry="120" transform="rotate(34 200 200)"/></g></svg>
+        <figure class="hero-portrait"><img src="./assets/icons/sawyer-welcome-8bit-v4.png?v=1" alt="Pixel portrait of ${escapeHtml(name)}" /></figure>
+        <div class="hero-main">
+          <span class="notice rise" style="--i:0"><b>${escapeHtml(chip)}</b>${escapeHtml(formatDateShort(new Date()))}</span>
+          <h1 class="rise" style="--i:1">${title}</h1>
+          <p class="lede rise" style="--i:2">${escapeHtml(lede)}</p>
+          <div class="rise" style="--i:3">${renderStreakHearts(days)}</div>
+          <div class="hero-actions rise" style="--i:4">
+            <button class="btn yellow big" data-action="start-timer" type="button">${icon("timer")}Record Seizure</button>
+            <button class="btn glass big" data-overlay="seizure" type="button">Log Past Seizure</button>
+          </div>
+          <dl class="hero-meta rise" style="--i:5">
+            <div class="meta-longest"><dt>Longest streak</dt><dd>${escapeHtml(summary.homeLongestGapText)}</dd><small>${summary.homeLongestGapIsCurrent ? "current streak" : "between episodes"}</small></div>
+            <div class="meta-average"><dt>Average gap</dt><dd>${escapeHtml(summary.homeAverageGapText)}</dd><small>between episodes</small></div>
+            <div class="meta-month"><dt>This month</dt><dd>${summary.thisMonthSeizures}</dd><small>${summary.thisMonthSeizures === 1 ? "seizure" : "seizures"}</small></div>
+          </dl>
+        </div>
+        <div class="hero-side" aria-hidden="true">
+          ${next ? `<div class="float-card fc-one"><span class="k">${icon("clock")}Next dose</span><b>${escapeHtml(nextLabel)}</b><small>${escapeHtml(next.names.join(", "))}</small></div>` : ""}
+          ${handover ? `<div class="float-card fc-two"><span class="k">${icon("note")}Handover · ${escapeHtml(relativeTime(new Date(handover.occurredAt)))}</span><p>“${escapeHtml(handover.body.length > 96 ? `${handover.body.slice(0, 95).trimEnd()}…` : handover.body)}”</p></div>` : ""}
+        </div>
+      </section>
+
+      <div class="lift">
+        <div class="up-next">
+          <button class="mini" data-overlay="routine" data-routine="${next?.routine || "morning"}" type="button">
+            <span class="k">${icon("clock")}Next dose</span><b>${escapeHtml(nextLabel)}</b><small>${escapeHtml(next ? next.names.join(", ") : "No doses scheduled")}</small>
+          </button>
+          <button class="mini ${exceptionsToday ? "attention" : ""}" data-overlay="routine" data-routine="${routineOf(new Date())}" type="button">
+            <span class="k">${icon("pill")}Today's doses</span><b>${confirmedToday}/${entries.length}</b><small>${exceptionsToday ? `${exceptionsToday} missed or skipped` : "confirmed"}</small>
+          </button>
+        </div>
+        <div class="today-grid">
+          <div class="stack">
+            <div class="section-head"><h2>Today's Care</h2><span class="tag ${exceptionsToday ? "warn" : confirmedToday === entries.length && entries.length ? "ok" : "plain"}">${confirmedToday} of ${entries.length} confirmed</span></div>
+            <div class="routines">${["morning", "night"].map((routine) => renderRoutineCard(routine, entries)).join("")}</div>
+            <p class="fine">${state.profile?.doseConfirmationMode === "explicit" ? "Confirm each dose after it is given." : "Doses count as given unless marked missed. You can also confirm each one."}</p>
+          </div>
+          <div class="stack">
+            <section class="card handover-card" aria-label="Handover">
+              <div class="section-head"><p class="eyebrow">Handover</p>${handover ? `<span class="fine">${escapeHtml(relativeTime(new Date(handover.occurredAt)))}</span>` : ""}</div>
+              ${handover
+                ? `<blockquote>“${escapeHtml(handover.body)}”</blockquote>${handover.recordedBy ? `<p class="fine">From ${escapeHtml(handover.recordedBy)}</p>` : ""}`
+                : `<p class="subtle">Leave a short note for whoever looks after ${escapeHtml(name)} next.</p>`}
+              <form id="handover-form" class="inline-form" autocomplete="off">
+                <input type="hidden" name="title" value="Handover" />
+                <input type="hidden" name="handover" value="on" />
+                <label class="pill-input"><span class="sr-only">Handover note</span><input id="handover-body" name="body" maxlength="300" placeholder="Leave a note for the next carer" required /></label>
+                <button class="btn ink" type="submit">Post</button>
+              </form>
+            </section>
+            <section class="card" aria-label="Recent records">
+              <div class="section-head"><h3>Recent</h3><button class="link" data-tab="timeline" type="button">All Records${icon("chev")}</button></div>
+              <div class="row-list">
+                ${recent.length ? recent.map(renderRecentRow).join("") : `<p class="subtle">Nothing recorded yet.</p>`}
+              </div>
+            </section>
+            ${state.installPrompt ? `
+              <section class="card install-card">
+                <div class="section-head"><h3>Install</h3><button class="btn yellow small" data-action="install-app" type="button">Install</button></div>
+                <p class="subtle">Add Sawyer Tracker to the home screen for faster access.</p>
+              </section>` : ""}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   function renderStreakHearts(daysSinceLast) {
     if (!Number.isFinite(daysSinceLast)) return "";
+    const name = state.profile?.name || "Sawyer";
     const heartCount = Math.floor(daysSinceLast / 5);
-    if (heartCount <= 0) return "";
     const visibleHearts = Math.min(heartCount, 5);
-    const label = `${heartCount} seizure-free heart${heartCount === 1 ? "" : "s"} earned. Sawyer receives one heart for every 5 seizure-free days.`;
+    const remaining = 5 - (daysSinceLast % 5);
+    const label = `${heartCount} seizure-free heart${heartCount === 1 ? "" : "s"} earned. ${name} receives one heart for every 5 seizure-free days.`;
     return `
-      <span class="streak-hearts" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
-        ${Array.from({ length: visibleHearts }, (_, index) => `
-          <span class="pixel-icon pixel-heart" style="--heart-index: ${index}" aria-hidden="true"></span>
-        `).join("")}
-        ${heartCount > visibleHearts ? `<span class="heart-count" aria-hidden="true">x${heartCount}</span>` : ""}
-      </span>
-    `;
-  }
-
-  function renderSeizureFreeProgress(daysSinceLast) {
-    if (!Number.isFinite(daysSinceLast)) {
-      return `
-        <div class="streak-progress" style="--streak-progress: 0%;">
-          <span></span>
-          <small>First heart: 5 days</small>
-        </div>
-      `;
-    }
-
-    const previous = Math.floor(daysSinceLast / 5) * 5;
-    const next = previous + 5;
-    const span = Math.max(1, next - previous);
-    const progress = clamp(((daysSinceLast - previous) / span) * 100, 0, 100);
-    const remaining = Math.max(0, next - daysSinceLast);
-    const message = remaining === 0
-      ? `${next / 5} hearts earned`
-      : `${remaining} ${remaining === 1 ? "day" : "days"} to next heart`;
-
-    return `
-      <div class="streak-progress" style="--streak-progress: ${round1(progress)}%;">
-        <span></span>
-        <small>${escapeHtml(message)}</small>
+      <div class="streak-hearts" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+        <span class="hearts-row" aria-hidden="true">
+          ${Array.from({ length: visibleHearts }, (_, index) => `<span class="heart earned" style="--i:${index}">${filledIcon("heart")}</span>`).join("")}
+          ${heartCount > visibleHearts ? `<span class="heart-more">+${heartCount - visibleHearts}</span>` : ""}
+          <span class="heart next" style="--p:${round1((daysSinceLast % 5) / 5)}">${icon("heart")}${filledIcon("heart")}</span>
+        </span>
+        <small class="streak-progress">${heartCount ? `${heartCount} earned · ` : ""}${remaining} ${remaining === 1 ? "day" : "days"} to next heart</small>
       </div>
     `;
   }
 
-  function renderPixelIcon(type) {
-    return `<span class="pixel-icon pixel-${escapeHtml(type)}" aria-hidden="true"></span>`;
+  function renderRoutineCard(routine, entries) {
+    const list = routineEntries(entries, routine);
+    if (!list.length) return "";
+    const meta = ROUTINES[routine];
+    const confirmed = list.filter((entry) => entry.status === "given").length;
+    const exceptions = list.filter((entry) => entry.status === "missed" || entry.status === "skipped").length;
+    const circumference = 276.46;
+    const names = [...new Set(list.map((entry) => entry.schedule.name))];
+    return `
+      <button class="routine-card ${routine}" data-overlay="routine" data-routine="${routine}" type="button"
+        aria-label="${meta.label} routine, ${confirmed} of ${list.length} confirmed${exceptions ? `, ${exceptions} missed or skipped` : ""}">
+        ${leaf("--s:170px;--r:-20deg;left:-56px;bottom:16%;--d:26s")}
+        ${leaf("--s:120px;--r:70deg;right:-34px;top:20%;--d:30s;--dx:-12px")}
+        <header><span><b>${meta.label}</b><small>From ${escapeHtml(formatTime(list[0].dueAt))}</small></span><span class="count-badge">${list.length}</span></header>
+        <span class="ring">
+          <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="trk" cx="50" cy="50" r="44"/><circle class="val" cx="50" cy="50" r="44" stroke-dasharray="${circumference}" stroke-dashoffset="${(circumference * (1 - confirmed / list.length)).toFixed(1)}"/></svg>
+          <span>${confirmed}<small>/${list.length}</small></span>
+        </span>
+        <footer><p>${escapeHtml(names.join(", "))}</p><span class="details">${exceptions ? `${exceptions} missed` : "Open"}</span></footer>
+      </button>
+    `;
   }
 
-  function timeOfDayGreeting(date) {
-    const hour = date.getHours();
-    if (hour < 12) return "Good morning";
-    if (hour < 17) return "Good afternoon";
-    return "Good evening";
+  function renderRecentRow(event) {
+    return `
+      <button class="row" data-tab="timeline" type="button">
+        <span class="row-icon ${escapeHtml(event.type)}" aria-hidden="true">${icon(TYPE_ICONS[event.type] || "note")}</span>
+        <span class="row-text"><strong>${escapeHtml(eventTitle(event))}</strong><small>${escapeHtml(formatEventDateTime(event))}</small></span>
+        ${icon("chev", "i chev")}
+      </button>
+    `;
   }
 
   function shouldShowLoginScreen() {
@@ -1001,12 +1215,12 @@
     if (!state.storageUnavailable) return "";
 
     return `
-      <aside class="emergency-sync-banner glass-panel">
+      <aside class="banner emergency-sync-banner">
         <div>
           <strong>Safari recovery mode</strong>
           <p>The phone cache is unavailable, so Sawyer Tracker is using Supabase as the live record for this session.</p>
         </div>
-        <button class="btn secondary small" data-tab="backup" type="button">Cloud status</button>
+        <button class="btn small ghost" data-overlay="household" type="button">Cloud status</button>
       </aside>
     `;
   }
@@ -1015,17 +1229,17 @@
     const count = state.pendingRecords.length;
     const conflicts = state.pendingRecords.filter(({ record }) => record.syncStatus === "conflict").length;
     if (!count && navigator.onLine) return "";
-    return `<aside class="sync-banner" role="status">
+    return `<aside class="banner sync-banner" role="status">
       <span>${conflicts ? `${conflicts} shared change${conflicts === 1 ? "" : "s"} need review.`
         : count ? `${count} change${count === 1 ? "" : "s"} saved on this device. Waiting to sync.`
           : "Offline — new entries will be saved on this device."}</span>
-      <button class="btn secondary small" data-tab="backup" type="button">${conflicts ? "Review changes" : "Sync status"}</button>
+      <button class="btn small ghost" data-overlay="household" type="button">${conflicts ? "Review changes" : "Sync status"}</button>
     </aside>`;
   }
 
   function renderPendingRecords() {
     if (!state.pendingRecords.length) return "";
-    return `<section class="panel"><div class="panel-body"><h2>Changes on this device</h2>
+    return `<section class="household-section pending-section"><h3>Changes on this device</h3>
       <p class="subtle">Pending entries remain saved here until the shared record confirms them.</p>
       ${state.pendingRecords.map(({ storeName, record }) => {
         const remote = record.syncConflict ? SYNC.fromRemote(record.syncConflict) : null;
@@ -1037,15 +1251,15 @@
           <p>${record.syncStatus === "conflict" ? "Another phone changed this record." : "Waiting to sync"}</p>
           ${record.syncError ? `<p class="subtle">${escapeHtml(record.syncError)}</p>` : ""}
           ${record.syncStatus === "conflict" ? `<div class="conflict-versions">
-            <section><h3>This device</h3>${description(record)}</section>
-            <section><h3>Shared record</h3>${description(remote)}</section></div>
-            <div class="button-row">
-              <button class="btn secondary" data-resolve-conflict="remote" data-store="${storeName}" data-record="${escapeHtml(record.id)}">Use shared version</button>
-              <button class="btn primary" data-resolve-conflict="local" data-store="${storeName}" data-record="${escapeHtml(record.id)}">Keep this device's version</button>
+            <section><h4>This device</h4>${description(record)}</section>
+            <section><h4>Shared record</h4>${description(remote)}</section></div>
+            <div class="btn-row">
+              <button class="btn ghost" data-resolve-conflict="remote" data-store="${storeName}" data-record="${escapeHtml(record.id)}">Use shared version</button>
+              <button class="btn yellow" data-resolve-conflict="local" data-store="${storeName}" data-record="${escapeHtml(record.id)}">Keep this device's version</button>
             </div>` : ""}</article>`;
       }).join("")}
-      <button class="btn secondary" data-action="sync-now" ${navigator.onLine ? "" : "disabled"}>Sync now</button>
-    </div></section>`;
+      <button class="btn ghost" data-action="sync-now" ${navigator.onLine ? "" : "disabled"}>Sync now</button>
+    </section>`;
   }
 
   async function resolveConflict(storeName, id, choice) {
@@ -1073,606 +1287,65 @@
 
   function renderLoginScreen() {
     return `
-      <section class="login-card glass-panel">
-        <div>
+      <section class="login-card">
+        ${leaf("--s:300px;--r:30deg;right:-90px;top:-90px")}
+        ${leaf("--s:180px;--r:-20deg;left:-60px;bottom:-40px;--d:30s")}
+        <div class="login-copy">
           <p class="eyebrow">${escapeHtml(formatWelcomeDate(new Date()))}</p>
           <h1>Sawyer Tracker</h1>
-          <p class="subtle">Enter the household access code once on this device. After that, Sawyer's records sync directly with Supabase without email sign-in.</p>
+          <p>Enter the household access code once on this device. After that, Sawyer's records sync directly with Supabase without email sign-in.</p>
         </div>
 
         ${renderTrustedDeviceLogin(true)}
 
-        <p class="subtle sync-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Use the same access code on both phones to keep one shared Supabase record.")}</p>
+        <p class="login-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Use the same access code on both phones to keep one shared Supabase record.")}</p>
       </section>
     `;
   }
 
   function renderTrustedDeviceLogin(configured) {
     return `
-      <form id="access-form" class="form-grid">
+      <form id="access-form" class="form access-form">
         <div class="field">
           <label for="household-access-code">Household access code</label>
           <input id="household-access-code" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter Sawyer's code" required />
         </div>
-        <button class="btn primary" type="submit" ${configured ? "" : "disabled"}>Connect to Supabase</button>
+        <button class="btn yellow big block" type="submit" ${configured ? "" : "disabled"}>Connect to Supabase</button>
       </form>
     `;
   }
 
-  function renderSeizureTrend(summary) {
-    const monthly = getStatsMonthlyData(state.homeTrendRange);
-    const selectedMonth = getSelectedHomeMonth(monthly);
-    const previousMonth = monthly[monthly.findIndex((item) => item.key === selectedMonth.key) - 1];
-    const max = Math.max(...monthly.map((item) => item.count), 1);
-    const trendText = selectedMonth.count
-      ? `${selectedMonth.count} seizure${selectedMonth.count === 1 ? "" : "s"} in ${selectedMonth.fullLabel}${previousMonth ? `, ${formatMonthDeltaPhrase(selectedMonth.count - previousMonth.count, previousMonth.fullLabel)}.` : "."}`
-      : `No seizures logged in ${selectedMonth.fullLabel}.`;
-    const chartWidth = 300;
-    const chartHeight = 116;
-    const leftPad = 16;
-    const rightPad = 16;
-    const bottomPad = 24;
-    const topPad = 14;
-    const plotWidth = chartWidth - leftPad - rightPad;
-    const plotHeight = chartHeight - topPad - bottomPad;
-    const step = plotWidth / Math.max(monthly.length - 1, 1);
-    const points = monthly.map((item, index) => {
-      const x = leftPad + step * index;
-      const y = topPad + plotHeight - (item.count / max) * plotHeight;
-      return { ...item, x, y };
-    });
-    const labelStep = Math.max(1, Math.ceil(monthly.length / 6));
-    const trendRangeLabel = state.homeTrendRange === "all" ? "all recorded months" : `the last ${state.homeTrendRange} months`;
-    const path = points
-      .map((point, index) => `${index === 0 ? "M" : "L"} ${round1(point.x)} ${round1(point.y)}`)
-      .join(" ");
-    const areaPath = `${path} L ${round1(points.at(-1).x)} ${chartHeight - bottomPad} L ${round1(points[0].x)} ${chartHeight - bottomPad} Z`;
-
-    return `
-      <section class="trend-card glass-panel">
-        <div class="trend-topline">
-          <div class="pixel-heading-lockup trend-copy">
-            ${renderPixelIcon("trend")}
-            <div>
-              <p class="eyebrow">Seizure trend</p>
-              <h2>At a glance</h2>
-            </div>
-            <p class="subtle">${summary.totalSeizures ? `${summary.totalSeizures} seizure${summary.totalSeizures === 1 ? "" : "s"} tracked across your timeline.` : "Your graph will build as seizures are logged."}</p>
-          </div>
-          <button class="btn ghost small trend-stats-btn" data-tab="insights" type="button">Stats</button>
-        </div>
-
-        <div class="trend-section">
-          <div class="trend-chart" aria-label="Seizures over the last six months">
-            <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Monthly seizure trend">
-              <defs>
-                <linearGradient id="trendAreaGradient" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stop-color="rgba(255, 107, 87, 0.28)"></stop>
-                  <stop offset="100%" stop-color="rgba(255, 107, 87, 0.02)"></stop>
-                </linearGradient>
-                <linearGradient id="trendLineGradient" x1="0" x2="1" y1="0" y2="0">
-                  <stop offset="0%" stop-color="#ff8a5f"></stop>
-                  <stop offset="52%" stop-color="#ff6b57"></stop>
-                  <stop offset="100%" stop-color="#d94c3c"></stop>
-                </linearGradient>
-              </defs>
-              <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.25}" y2="${topPad + plotHeight * 0.25}"></line>
-              <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.5}" y2="${topPad + plotHeight * 0.5}"></line>
-              <line class="trend-grid-line" x1="${leftPad}" x2="${chartWidth - rightPad}" y1="${topPad + plotHeight * 0.75}" y2="${topPad + plotHeight * 0.75}"></line>
-              <path class="trend-area" d="${areaPath}"></path>
-              <path class="trend-line" d="${path}"></path>
-              ${points.map((point, index) => `
-                <g>
-                  <rect class="trend-bar" x="${round1(point.x - 10)}" y="${round1(topPad + plotHeight - (point.count / max) * plotHeight)}" width="20" height="${round1((point.count / max) * plotHeight)}" rx="10"></rect>
-                  <circle class="trend-dot" cx="${round1(point.x)}" cy="${round1(point.y)}" r="${point.count ? 4.5 : 3.5}"></circle>
-                  <text class="trend-count" x="${round1(point.x)}" y="${round1(Math.max(10, point.y - 8))}">${point.count}</text>
-                  ${(index === 0 || index === points.length - 1 || index % labelStep === 0) ? `<text class="trend-label" x="${round1(point.x)}" y="${chartHeight - 5}">${escapeHtml(point.label)}</text>` : ""}
-                </g>
-              `).join("")}
-            </svg>
-          </div>
-        </div>
-
-        <div class="trend-section monthly-outlook-section">
-          <div class="pixel-heading-lockup trend-copy">
-            ${renderPixelIcon("calendar")}
-            <div>
-              <p class="eyebrow">Monthly outlook</p>
-              <h2>Seizures by month</h2>
-            </div>
-            <p class="subtle">${escapeHtml(`${trendText} Showing ${trendRangeLabel}.`)}</p>
-          </div>
-          <div class="stats-range-control home-trend-range-control" aria-label="Choose homepage seizure trend range">
-            ${[
-              ["6", "6M"],
-              ["12", "12M"],
-              ["all", "All"]
-            ].map(([value, label]) => `
-              <button
-                class="${state.homeTrendRange === value ? "active" : ""}"
-                data-home-trend-range="${escapeHtml(value)}"
-                type="button"
-                aria-pressed="${state.homeTrendRange === value ? "true" : "false"}"
-              >${escapeHtml(label)}</button>
-            `).join("")}
-          </div>
-          <div class="home-month-chart" aria-label="Monthly seizure counts for ${escapeHtml(trendRangeLabel)}">
-            ${monthly.map((item, index) => `
-              <button
-                class="home-month-bar ${item.key === selectedMonth.key ? "active" : ""}"
-                data-home-stats-month="${escapeHtml(item.key)}"
-                type="button"
-                aria-pressed="${item.key === selectedMonth.key ? "true" : "false"}"
-                aria-label="${escapeHtml(`${item.fullLabel}: ${item.count} seizure${item.count === 1 ? "" : "s"}. Show month details.`)}"
-              >
-                <span class="home-month-count">${item.count}</span>
-                <span class="home-month-track" aria-hidden="true">
-                  <span class="home-month-fill" style="height: ${(item.count / max) * 100}%"></span>
-                </span>
-                <span class="home-month-name">${escapeHtml(item.label)}</span>
-                <span class="home-month-delta ${item.delta > 0 ? "up" : item.delta < 0 ? "down" : ""}">
-                  ${index === 0 ? "base" : formatSignedDelta(item.delta)}
-                </span>
-              </button>
-            `).join("")}
-          </div>
-          ${renderSelectedStatsMonth(selectedMonth)}
-        </div>
-      </section>
-    `;
-  }
-
-  function getSelectedHomeMonth(months) {
-    if (!months.length) return null;
-    const selected = months.find((item) => item.key === state.homeSelectedMonthKey);
-    if (selected) return selected;
-    const latestWithSeizure = [...months].reverse().find((item) => item.count > 0);
-    const fallback = latestWithSeizure || months.at(-1);
-    state.homeSelectedMonthKey = fallback.key;
-    return fallback;
-  }
-
-  function renderHomeInsight(summary) {
-    const insights = buildHomeInsights(summary);
-    const signature = insights.map((insight) => `${insight.title}:${insight.body}`).join("|");
-    if (signature !== state.homeInsightSignature) {
-      state.homeInsightSignature = signature;
-      state.homeInsightIndex = 0;
-    }
-    state.homeInsightIndex = clamp(state.homeInsightIndex, 0, Math.max(0, insights.length - 1));
-    const insight = insights[state.homeInsightIndex];
-
-    return `
-      <section class="home-insight glass-panel" data-home-insight aria-roledescription="carousel" aria-label="Dynamic insights">
-        <div class="home-insight-topline">
-          <p class="eyebrow">Live insight</p>
-          <button class="btn ghost small" data-tab="insights" type="button">More</button>
-        </div>
-        <div class="home-insight-copy" aria-live="polite">
-          <h2 data-home-insight-title>${escapeHtml(insight.title)}</h2>
-          <p class="subtle" data-home-insight-body>${escapeHtml(insight.body)}</p>
-        </div>
-        <div class="home-insight-controls">
-          <button class="insight-arrow" data-insight-direction="-1" type="button" aria-label="Previous insight">←</button>
-          <div class="insight-dots" aria-label="Choose insight">
-            ${insights.map((item, index) => `
-              <button
-                class="${index === state.homeInsightIndex ? "active" : ""}"
-                data-insight-index="${index}"
-                type="button"
-                aria-label="Insight ${index + 1}: ${escapeHtml(item.title)}"
-                aria-current="${index === state.homeInsightIndex ? "true" : "false"}"
-              ></button>
-            `).join("")}
-          </div>
-          <button class="insight-arrow" data-insight-direction="1" type="button" aria-label="Next insight">→</button>
-          <span class="insight-counter" data-insight-counter>${state.homeInsightIndex + 1} of ${insights.length}</span>
-        </div>
-      </section>
-    `;
-  }
-
-  function renderMonthStrip() {
-    const today = new Date();
-    const selectedDate = dayKeyToDate(state.selectedDayKey);
-    const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-    const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
-    const seizureDays = new Set(
-      state.events
-        .filter((event) => event.type === "seizure")
-        .map((event) => localDateKey(new Date(event.occurredAt)))
-    );
-    const days = Array.from({ length: daysInMonth }, (_, index) => {
-      const date = new Date(monthStart);
-      date.setDate(index + 1);
-      const isToday = date.toDateString() === today.toDateString();
-      const dayKey = localDateKey(date);
-      const isSelected = dayKey === state.selectedDayKey;
-      const hasSeizure = seizureDays.has(dayKey);
-      return `
-        <button class="day-pill ${isSelected ? "active" : ""} ${isToday ? "today" : ""} ${hasSeizure ? "marked" : ""}" data-day="${escapeHtml(dayKey)}" type="button" aria-label="${escapeHtml(date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }))}${hasSeizure ? ", seizure logged" : ""}">
-          <span>${escapeHtml(date.toLocaleDateString(undefined, { weekday: "short" }))}</span>
-          <strong>${date.getDate()}</strong>
-        </button>
-      `;
-    });
-
-    return `
-      <div class="month-strip-wrap" aria-label="${escapeHtml(selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }))}">
-        <div class="day-browser-heading">
-          <div>
-            <p class="eyebrow">${escapeHtml(selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }))}</p>
-            <h2>${escapeHtml(formatDateShort(selectedDate))}</h2>
-          </div>
-          <span class="day-position">${selectedDate.getDate()} of ${daysInMonth}</span>
-        </div>
-        <div class="month-strip" data-month-strip>
-          ${days.join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  function renderDayOverview(dayKey) {
-    const date = dayKeyToDate(dayKey);
-    const events = eventsForDay(dayKey);
-    const doses = getTodayDoseEntries(date);
-    const seizures = events.filter((event) => event.type === "seizure");
-    const careRecords = events.filter((event) => ["note", "vet_visit", "blood_test"].includes(event.type));
-    const exceptions = doses.filter((entry) => entry.status === "missed" || entry.status === "skipped");
-    const headline = exceptions.length
-      ? `${exceptions.length} dose exception${exceptions.length === 1 ? "" : "s"}`
-      : doses.every((entry) => entry.status === "given") ? "Medication confirmed"
-        : state.profile?.doseConfirmationMode === "explicit" ? "Confirmation needed" : "Medication assumed given";
-    const eventList = events.length
-      ? events.map((event) => `<li>${escapeHtml(eventTitle(event))}<span>${escapeHtml(formatEventTime(event))}</span></li>`).join("")
-      : `<li>No care records<span>${doses.length} scheduled</span></li>`;
-
-    return `
-      <div class="day-overview">
-        <div class="day-overview-heading">
-          <p class="eyebrow">Day overview</p>
-          <span class="status-pill assumed">${escapeHtml(headline)}</span>
-        </div>
-        <div class="overview-metrics">
-          <div><strong>${seizures.length}</strong><span>Seizures</span></div>
-          <div><strong>${exceptions.length}</strong><span>Missed</span></div>
-          <div><strong>${careRecords.length}</strong><span>Care</span></div>
-        </div>
-        <ul class="overview-list">${eventList}</ul>
-      </div>
-    `;
-  }
-
-  function renderMedicationPlan(entries) {
-    const exceptions = entries.filter((entry) => entry.status === "missed" || entry.status === "skipped");
-    const groups = [];
-    entries.forEach((entry) => {
-      const key = entry.time.label || formatTime(entry.dueAt);
-      let group = groups.find((item) => item.key === key);
-      if (!group) {
-        group = { key, label: entry.time.label || "Scheduled", entries: [] };
-        groups.push(group);
-      }
-      group.entries.push(entry);
-    });
-
-    return `
-      <section class="plan-card care-card medication-plan">
-        <div class="medication-plan-heading">
-          <div>
-            <p class="eyebrow">Today's medication</p>
-            <h2>Daily check</h2>
-            <p class="subtle">${state.profile?.doseConfirmationMode === "explicit" ? "Confirm each dose after it is given." : "Assumed given unless marked missed. You can also confirm a dose."}</p>
-          </div>
-          <span class="status-pill ${exceptions.length ? "missed" : "assumed"}">
-            ${exceptions.length ? `${exceptions.length} missed` : `${entries.filter((entry) => entry.status === "given").length} confirmed`}
-          </span>
-        </div>
-        <div class="field carer-field"><label for="carer-name">Recording as</label>
-          <input id="carer-name" maxlength="60" autocomplete="given-name" placeholder="Your name" value="${escapeHtml(state.settings.carerName || "")}" /></div>
-        <div class="dose-groups">
-          ${groups.map(renderDoseGroup).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function renderDoseGroup(group) {
-    const times = [...new Set(group.entries.map((entry) => formatTime(entry.dueAt)))];
-    return `
-      <section class="dose-group">
-        <header>
-          <strong>${escapeHtml(group.label)}</strong>
-          <span>${escapeHtml(times.join(", "))}</span>
-        </header>
-        <div>
-          ${group.entries.map(renderDoseRow).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function renderDoseRow(entry) {
-    const hasException = entry.status === "missed" || entry.status === "skipped";
-    const details = [entry.statusText, entry.doseText].filter(Boolean).join(" · ");
+  function renderDoseRow(entry, index = 0) {
     const attribution = entry.log?.recordedBy
       ? `${entry.log.recordedBy} · ${formatTime(new Date(entry.log.occurredAt))}` : "";
-    return `<article class="medication-row ${hasException ? "missed" : ""}">
-      <div class="medication-copy"><strong>${escapeHtml(entry.schedule.name)}</strong>
-        <span class="medication-meta"><span class="medication-state ${entry.pillClass}">${escapeHtml(details)}</span></span>
-        ${attribution ? `<small>${escapeHtml(attribution)}</small>` : ""}
-        ${entry.log && SYNC.pending(entry.log) ? `<small>${entry.log.syncStatus === "conflict" ? "Needs review in More" : "Waiting to sync"}</small>` : ""}
-      </div>
-      <div class="dose-actions">${entry.log
-        ? `<button class="missed-toggle ${hasException ? "active" : ""}" data-clear-dose="${escapeHtml(entry.log.id)}" type="button">${hasException ? "Undo missed" : "Undo given"}</button>`
-        : `<button class="btn secondary small" data-dose="${escapeHtml(entry.key)}" data-status="given" type="button">Given</button>
-           <button class="missed-toggle" data-dose="${escapeHtml(entry.key)}" data-status="missed" type="button">Mark missed</button>`}
-      </div></article>`;
+    const meta = [entry.doseText, formatTime(entry.dueAt)].filter(Boolean).join(" · ");
+    const statusLine = `<span class="dstatus ${entry.pillClass}">${entry.log ? `<span class="dmark">${icon(entry.status === "given" ? "check" : "minus")}</span>` : ""}${escapeHtml(entry.statusText)}${attribution ? ` · ${escapeHtml(attribution)}` : ""}</span>`;
+    return `<li class="medication-row ${entry.pillClass}" style="--i:${index}">
+      <div class="drow-top"><span class="dname">${escapeHtml(entry.schedule.name)}</span><span class="dmeta">${escapeHtml(meta)}</span></div>
+      ${entry.log
+        ? `<div class="dstate">${statusLine}<button class="undo" data-clear-dose="${escapeHtml(entry.log.id)}" type="button">Undo ${escapeHtml(entry.status)}</button></div>
+           ${SYNC.pending(entry.log) ? `<small class="dsync">${entry.log.syncStatus === "conflict" ? "Needs review in Household" : "Waiting to sync"}</small>` : ""}`
+        : `<div class="dstate">${statusLine}</div>
+           <div class="dose-buttons">
+             <button class="dose-btn primary" data-dose="${escapeHtml(entry.key)}" data-status="given" type="button">${icon("check")}Given</button>
+             <button class="dose-btn" data-dose="${escapeHtml(entry.key)}" data-status="missed" type="button">Missed</button>
+             <button class="dose-btn" data-dose="${escapeHtml(entry.key)}" data-status="skipped" type="button">Skipped</button>
+           </div>`}
+    </li>`;
   }
 
-  function renderLog() {
-    const now = new Date();
-    const todayEntries = getTodayDoseEntries(now);
-    const editingSeizure = state.events.find((event) => event.id === state.editingSeizureId && event.type === "seizure");
-    const seizureDate = editingSeizure ? new Date(editingSeizure.occurredAt) : now;
-    const durationSeconds = Math.max(0, editingSeizure?.durationSeconds || 0);
-    const localDate = toDateInputValue(seizureDate);
-    const localTime = toTimeInputValue(seizureDate);
-    const timeKnown = editingSeizure ? editingSeizure.timeKnown !== false : false;
-    const selectedSeverity = editingSeizure?.severity || state.severity;
-    const editingRecord = state.events.find(
-      (event) =>
-        event.id === state.editingRecordId &&
-        ["note", "vet_visit", "blood_test"].includes(event.type)
-    );
-    const recordDate = editingRecord ? new Date(editingRecord.occurredAt) : now;
-    const recordLocalDate = toDateInputValue(recordDate);
-    const recordLocalTime = toTimeInputValue(recordDate);
-
+  function renderRoutineBody(routine, entries = getTodayDoseEntries()) {
+    const list = routineEntries(entries, routine);
+    const confirmed = list.filter((entry) => entry.status === "given").length;
     return `
-      <div class="stack desktop-two">
-        <section class="panel">
-          <div class="panel-body">
-            <div class="dose-main log-heading">
-              <div>
-                <p class="eyebrow">${editingSeizure ? "Update record" : "Quick record"}</p>
-                <h2>${editingSeizure ? "Edit seizure" : "Log seizure"}</h2>
-                <p class="subtle">Date, duration and severity. Everything else is optional.</p>
-              </div>
-              ${editingSeizure ? `<button class="btn ghost small" data-action="cancel-seizure-edit" type="button">Cancel</button>` : ""}
-            </div>
-
-            <form id="seizure-form" class="form-grid seizure-form">
-              <input type="hidden" name="id" value="${escapeHtml(editingSeizure?.id || "")}" />
-
-              <section class="log-section">
-                <div class="quick-when-grid">
-                  <div class="field">
-                    <label for="seizure-date">Date</label>
-                    ${renderDateInput("seizure-date", "date", localDate, true)}
-                  </div>
-                  <label class="quick-time-toggle" for="seizure-time-known">
-                    <span class="label">Approximate time</span>
-                    <span class="quick-time-control">
-                      <span data-time-status>${timeKnown ? "Included" : "Not needed"}</span>
-                      <input id="seizure-time-known" name="timeKnown" type="checkbox" data-time-known ${timeKnown ? "checked" : ""} />
-                    </span>
-                  </label>
-                </div>
-                <div class="field optional-time-field" data-optional-time ${timeKnown ? "" : "hidden"}>
-                  <label for="seizure-time">Approximate time</label>
-                  ${renderTimeInput("seizure-time", "time", localTime)}
-                </div>
-              </section>
-
-              <section class="log-section seizure-measures">
-                <div class="duration-wheel">
-                  <div class="duration-wheel-heading"><span class="label">Duration</span>
-                    <output id="duration-output">${formatDuration(durationSeconds)}</output></div>
-                  <div class="grid two duration-inputs">
-                    <div class="field"><label for="duration-minutes">Minutes</label>
-                      <input id="duration-minutes" name="durationMinutes" type="number" min="0" step="1" inputmode="numeric" value="${Math.floor(durationSeconds / 60)}" required /></div>
-                    <div class="field"><label for="duration-seconds">Seconds</label>
-                      <input id="duration-seconds" name="durationSeconds" type="number" min="0" max="59" step="1" inputmode="numeric" value="${durationSeconds % 60}" required /></div>
-                  </div>
-                </div>
-                <div class="field">
-                  <span class="label">Severity</span>
-                  <input id="seizure-severity" name="severity" type="hidden" value="${escapeHtml(selectedSeverity)}" />
-                  <div class="segmented" role="group" aria-label="Severity">
-                    ${[1, 2, 3, 4, 5].map((n) => `<button type="button" aria-pressed="${selectedSeverity === n}" class="${selectedSeverity === n ? "active" : ""}" data-severity="${n}">${n}</button>`).join("")}
-                  </div>
-                </div>
-              </section>
-
-              <div class="button-row log-submit-row">
-                <button class="btn primary" type="submit">${editingSeizure ? "Update seizure" : "Save seizure"}</button>
-                ${editingSeizure ? `<button class="btn danger" data-delete-event="${escapeHtml(editingSeizure.id)}" type="button">Delete seizure</button>` : ""}
-              </div>
-
-              <details class="log-details" ${editingSeizure ? "open" : ""}>
-                <summary>
-                  <span>
-                    <strong>Symptoms, care and notes</strong>
-                    <small>Optional details for Sawyer's history.</small>
-                  </span>
-                </summary>
-                <div class="log-details-body">
-                <div class="field">
-                  <span class="label">Symptoms</span>
-                  <div class="checks">
-                    ${SYMPTOMS.map((symptom) => `
-                      <label class="check-chip">
-                        <input type="checkbox" name="symptoms" value="${escapeHtml(symptom)}" ${editingSeizure?.symptoms?.includes(symptom) ? "checked" : ""} /> ${escapeHtml(symptom)}
-                      </label>
-                    `).join("")}
-                  </div>
-                </div>
-                <div class="field">
-                  <label for="trigger">Possible trigger</label>
-                  <select id="trigger" name="trigger">
-                    ${TRIGGERS.map((trigger) => `<option value="${escapeHtml(trigger)}" ${editingSeizure?.trigger === trigger ? "selected" : ""}>${escapeHtml(trigger)}</option>`).join("")}
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="rescue">Medication or care given during/after</label>
-                  <textarea id="rescue" name="rescue" placeholder="Example: stayed with him, cooled room, called vet">${escapeHtml(editingSeizure?.rescue || "")}</textarea>
-                </div>
-                <div class="field">
-                  <label for="recovery">Recovery notes</label>
-                  <textarea id="recovery" name="recovery" placeholder="Example: pacing for 20 minutes, ate after">${escapeHtml(editingSeizure?.recovery || "")}</textarea>
-                </div>
-                <div class="field">
-                  <label for="notes">Notes</label>
-                  <textarea id="notes" name="notes">${escapeHtml(editingSeizure?.notes || "")}</textarea>
-                </div>
-                </div>
-              </details>
-            </form>
-          </div>
-        </section>
-
-        ${renderMedicationPlan(todayEntries)}
-
-        <section class="panel document-library-panel">
-          <div class="panel-body">
-            ${renderVetDocuments(localDate)}
-          </div>
-        </section>
-
-        <section class="panel other-records-panel">
-          <div class="panel-body">
-            <div class="records-heading">
-              <p class="eyebrow">Other records</p>
-              <h2>Add to Sawyer's history</h2>
-              <p class="subtle">Open the record you need. The others stay out of the way.</p>
-            </div>
-
-            <div class="record-accordions">
-              <details class="record-disclosure" data-record-disclosure ${editingRecord?.type === "note" ? "open" : ""}>
-                <summary>
-                  <span>
-                    <strong>Care note</strong>
-                    <small>Appetite, behaviour or a general observation</small>
-                  </span>
-                </summary>
-                <form id="note-form" class="form-grid record-form">
-                  <input type="hidden" name="id" value="${escapeHtml(editingRecord?.type === "note" ? editingRecord.id : "")}" />
-                  <div class="field">
-                    <label for="note-title">Title</label>
-                    <input id="note-title" name="title" value="${escapeHtml(editingRecord?.type === "note" ? editingRecord.title || "" : "")}" placeholder="Appetite, behaviour, vet call" />
-                  </div>
-                  <div class="field">
-                    <label for="note-body">Note</label>
-                    <textarea id="note-body" name="body" required>${escapeHtml(editingRecord?.type === "note" ? editingRecord.body || "" : "")}</textarea>
-                  </div>
-                  <div class="button-row">
-                    <button class="btn primary" type="submit">${editingRecord?.type === "note" ? "Update Note" : "Save Note"}</button>
-                    ${editingRecord?.type === "note" ? `<button class="btn secondary" data-action="cancel-record-edit" type="button">Cancel</button>` : ""}
-                  </div>
-                </form>
-              </details>
-
-              <details class="record-disclosure" data-record-disclosure ${editingRecord?.type === "vet_visit" ? "open" : ""}>
-                <summary>
-                  <span>
-                    <strong>Vet visit</strong>
-                    <small>Appointment details, weight and treatment plan</small>
-                  </span>
-                </summary>
-                <form id="vet-form" class="form-grid record-form">
-                  <input type="hidden" name="id" value="${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.id : "")}" />
-                  <div class="grid two date-time-grid">
-                    <div class="field">
-                      <label for="vet-date">Date</label>
-                      ${renderDateInput("vet-date", "date", editingRecord?.type === "vet_visit" ? recordLocalDate : localDate, true)}
-                    </div>
-                    <div class="field">
-                      <label for="vet-time">Time</label>
-                      ${renderTimeInput("vet-time", "time", editingRecord?.type === "vet_visit" ? recordLocalTime : localTime)}
-                    </div>
-                  </div>
-                  <div class="field">
-                    <label for="vet-clinic">Clinic or vet</label>
-                    <input id="vet-clinic" name="clinic" value="${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.clinic || "" : "")}" placeholder="Vet name or clinic" />
-                  </div>
-                  <div class="field">
-                    <label for="vet-reason">Reason</label>
-                    <input id="vet-reason" name="reason" value="${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.reason || "" : "")}" placeholder="Checkup, seizure review, medication review" required />
-                  </div>
-                  <div class="field">
-                    <label for="vet-weight">Weight</label>
-                    <input id="vet-weight" name="weight" value="${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.weight || "" : "")}" placeholder="Example: 24.8 kg" />
-                  </div>
-                  <div class="field">
-                    <label for="vet-plan">Plan / medication changes</label>
-                    <textarea id="vet-plan" name="plan" placeholder="Next steps, dosage changes, follow-up date">${escapeHtml(editingRecord?.type === "vet_visit" ? editingRecord.plan || "" : "")}</textarea>
-                  </div>
-                  <div class="button-row">
-                    <button class="btn primary" type="submit">${editingRecord?.type === "vet_visit" ? "Update Vet Visit" : "Save Vet Visit"}</button>
-                    ${editingRecord?.type === "vet_visit" ? `<button class="btn secondary" data-action="cancel-record-edit" type="button">Cancel</button>` : ""}
-                  </div>
-                </form>
-              </details>
-
-              <details class="record-disclosure" data-record-disclosure ${editingRecord?.type === "blood_test" ? "open" : ""}>
-                <summary>
-                  <span>
-                    <strong>Blood test</strong>
-                    <small>Levels, panel results and the vet's interpretation</small>
-                  </span>
-                </summary>
-                <form id="blood-test-form" class="form-grid record-form">
-                  <input type="hidden" name="id" value="${escapeHtml(editingRecord?.type === "blood_test" ? editingRecord.id : "")}" />
-                  <div class="grid two date-time-grid">
-                    <div class="field">
-                      <label for="blood-date">Date</label>
-                      ${renderDateInput("blood-date", "date", editingRecord?.type === "blood_test" ? recordLocalDate : localDate, true)}
-                    </div>
-                    <div class="field">
-                      <label for="blood-time">Time</label>
-                      ${renderTimeInput("blood-time", "time", editingRecord?.type === "blood_test" ? recordLocalTime : localTime)}
-                    </div>
-                  </div>
-                  <div class="field">
-                    <label for="blood-panel">Test / panel</label>
-                    <input id="blood-panel" name="panel" value="${escapeHtml(editingRecord?.type === "blood_test" ? editingRecord.panel || "" : "")}" placeholder="Phenobarbital level, bromide level, liver panel" required />
-                  </div>
-                  ${renderLabLevelFields("Phenobarbital", "phenobarbital", editingRecord?.type === "blood_test" ? editingRecord.phenobarbital : null)}
-                  ${renderLabLevelFields("Bromide", "bromide", editingRecord?.type === "blood_test" ? editingRecord.bromide : null)}
-                  ${
-                    editingRecord?.type === "blood_test" &&
-                    !editingRecord.phenobarbital &&
-                    editingRecord.phenobarbitalLevel
-                      ? `<p class="subtle">Legacy phenobarbital entry: ${escapeHtml(editingRecord.phenobarbitalLevel)}</p>`
-                      : ""
-                  }
-                  ${
-                    editingRecord?.type === "blood_test" &&
-                    !editingRecord.bromide &&
-                    editingRecord.bromideLevel
-                      ? `<p class="subtle">Legacy bromide entry: ${escapeHtml(editingRecord.bromideLevel)}</p>`
-                      : ""
-                  }
-                  <div class="field">
-                    <label for="blood-results">Results</label>
-                    <textarea id="blood-results" name="results" placeholder="Paste key results or lab notes">${escapeHtml(editingRecord?.type === "blood_test" ? editingRecord.results || "" : "")}</textarea>
-                  </div>
-                  <div class="field">
-                    <label for="blood-notes">Notes</label>
-                    <textarea id="blood-notes" name="notes" placeholder="Vet interpretation, recheck timing, changes">${escapeHtml(editingRecord?.type === "blood_test" ? editingRecord.notes || "" : "")}</textarea>
-                  </div>
-                  <div class="button-row">
-                    <button class="btn primary" type="submit">${editingRecord?.type === "blood_test" ? "Update Blood Test" : "Save Blood Test"}</button>
-                    ${editingRecord?.type === "blood_test" ? `<button class="btn secondary" data-action="cancel-record-edit" type="button">Cancel</button>` : ""}
-                  </div>
-                </form>
-              </details>
-            </div>
-          </div>
-        </section>
+      <div>
+        <h2 class="routine-title" id="sheet-title">${ROUTINES[routine].label} Routine</h2>
+        <p class="routine-sub">${list.length ? `From ${escapeHtml(formatTime(list[0].dueAt))} · ${list.length} dose${list.length === 1 ? "" : "s"} · ${confirmed} confirmed` : "No doses at this time of day."}</p>
       </div>
+      <div class="field carer-field"><label for="carer-name">Recording as</label>
+        <input id="carer-name" maxlength="60" autocomplete="given-name" placeholder="Your name" value="${escapeHtml(state.settings.carerName || "")}" /></div>
+      <ul class="dose-list medication-plan">${list.map(renderDoseRow).join("")}</ul>
+      <p class="fine">${state.profile?.doseConfirmationMode === "explicit" ? "Confirm each dose after it is given." : "Doses count as given unless marked missed."} Each record keeps your name and the time.</p>
     `;
   }
 
@@ -1684,28 +1357,23 @@
 
     return `
       <section class="vet-documents">
-        <div class="dose-main">
+        <div class="section-head">
           <div>
-            <h2>Vet Documents</h2>
-            <p class="subtle">Private PDFs shared between both phones.</p>
+            <h3>Documents</h3>
+            <p class="fine">Private PDFs shared between both phones.</p>
           </div>
-          <span class="status-pill">${documents.length} stored</span>
+          <span class="tag plain">${documents.length} stored</span>
         </div>
 
-        <details class="record-disclosure document-upload-disclosure">
-          <summary>
-            <span>
-              <strong>Upload a PDF</strong>
-              <small>Visit summaries, lab results and prescriptions</small>
-            </span>
-          </summary>
-          <form id="vet-document-form" class="form-grid record-form document-upload-form">
+        <details class="disclosure document-upload-disclosure">
+          <summary>${icon("upload")}<span><strong>Upload a PDF</strong><small>Visit summaries, lab results and prescriptions</small></span>${icon("chev", "i chev")}</summary>
+          <form id="vet-document-form" class="form document-upload-form">
             <div class="field">
               <label for="vet-document-file">PDF document</label>
               <input id="vet-document-file" name="file" type="file" accept="application/pdf,.pdf" required />
               <small class="field-help">PDF only, up to 20 MB.</small>
             </div>
-            <div class="grid two">
+            <div class="row2">
               <div class="field">
                 <label for="vet-document-category">Document type</label>
                 <select id="vet-document-category" name="category">
@@ -1721,7 +1389,7 @@
               <label for="vet-document-notes">Notes</label>
               <input id="vet-document-notes" name="notes" placeholder="Optional description" />
             </div>
-            <button class="btn primary" type="submit" ${state.documentsBusy ? "disabled" : ""}>
+            <button class="btn yellow" type="submit" ${state.documentsBusy ? "disabled" : ""}>
               ${state.documentsBusy ? "Uploading..." : "Upload PDF"}
             </button>
           </form>
@@ -1729,7 +1397,7 @@
 
         ${message}
 
-        <div class="document-list">
+        <div class="row-list document-list">
           ${
             documents.length
               ? documents.map(renderVetDocument).join("")
@@ -1768,16 +1436,17 @@
       ? formatDateShort(localTimeToDate(document.document_date, "12:00"))
       : "Date not set";
     return `
-      <article class="document-row">
-        <div class="document-copy">
+      <article class="row document-row">
+        <span class="row-icon vet_visit" aria-hidden="true">${icon("doc")}</span>
+        <span class="row-text">
           <strong>${escapeHtml(document.file_name || "Vet document.pdf")}</strong>
-          <span>${escapeHtml(category)} · ${escapeHtml(date)} · ${escapeHtml(formatFileSize(document.size_bytes))}</span>
-          ${document.notes ? `<p>${escapeHtml(document.notes)}</p>` : ""}
-        </div>
-        <div class="button-row">
-          <button class="btn secondary small" data-view-vet-document="${escapeHtml(document.id)}" type="button">Open</button>
-          <button class="btn ghost small" data-delete-vet-document="${escapeHtml(document.id)}" type="button">Delete</button>
-        </div>
+          <small>${escapeHtml(category)} · ${escapeHtml(date)} · ${escapeHtml(formatFileSize(document.size_bytes))}</small>
+          ${document.notes ? `<small>${escapeHtml(document.notes)}</small>` : ""}
+        </span>
+        <span class="row-actions">
+          <button class="btn small ghost" data-view-vet-document="${escapeHtml(document.id)}" type="button">Open</button>
+          <button class="btn small ghost" data-delete-vet-document="${escapeHtml(document.id)}" type="button">Delete</button>
+        </span>
       </article>
     `;
   }
@@ -1789,53 +1458,52 @@
     const totalRecords = state.events.length;
 
     return `
-      <div class="stack history-view">
-        <section class="panel history-controls">
-          <div class="panel-body">
-            <div class="history-heading">
-              <div>
-                <p class="eyebrow">Sawyer's record</p>
-                <h2>History</h2>
-              </div>
-              <span class="status-pill">${totalRecords} total</span>
-            </div>
-
-            <form id="history-search-form" class="history-search" role="search">
-              <input
-                name="query"
-                type="search"
-                aria-label="Search history"
-                placeholder="Search seizures, notes, results..."
-                value="${escapeHtml(state.timelineSearch)}"
-              />
-              <button class="btn secondary small" type="submit">Search</button>
-              ${state.timelineSearch ? `<button class="btn ghost small" data-action="clear-history-search" type="button">Clear</button>` : ""}
-            </form>
-
-            <div class="filters">
-              ${TIMELINE_FILTERS.map((filter) => `
-                <button class="history-filter ${state.timelineFilter === filter.id ? "active" : ""}" data-filter="${filter.id}" type="button">
-                  <span>${escapeHtml(filter.label)}</span>
-                  <small>${timelineFilterCount(filter.id)}</small>
-                </button>
-              `).join("")}
-            </div>
+      <div class="records-layout history-view">
+        <div class="records-head">
+          <div class="section-head">
+            <h2>Records</h2>
+            <span class="tag plain">${totalRecords} total</span>
           </div>
-        </section>
 
-        ${
-          groups.length
-            ? `<div class="history-groups">${groups.map(renderTimelineGroup).join("")}</div>`
-            : `<div class="empty">No records match this view.</div>`
-        }
+          <form id="history-search-form" class="search" role="search">
+            ${icon("search")}
+            <input
+              name="query"
+              type="search"
+              aria-label="Search records"
+              placeholder="Search notes, triggers, results"
+              value="${escapeHtml(state.timelineSearch)}"
+            />
+            <button class="btn small ink" type="submit">Search</button>
+          </form>
+          ${state.timelineSearch ? `<button class="link" data-action="clear-history-search" type="button">Clear search</button>` : ""}
 
-        ${
-          events.length > visibleEvents.length
-            ? `<button class="btn secondary history-more" data-action="history-more" type="button">Load ${Math.min(HISTORY_PAGE_SIZE, events.length - visibleEvents.length)} older records</button>`
-            : events.length
-              ? `<p class="history-end">Showing all ${events.length} matching record${events.length === 1 ? "" : "s"}.</p>`
-              : ""
-        }
+          <div class="chips filters" role="group" aria-label="Filter records">
+            ${TIMELINE_FILTERS.map((filter) => `
+              <button class="chip history-filter ${state.timelineFilter === filter.id ? "active" : ""}" data-filter="${filter.id}" type="button" aria-pressed="${state.timelineFilter === filter.id}">
+                <span>${escapeHtml(filter.label)}</span>
+                <small>${timelineFilterCount(filter.id)}</small>
+              </button>
+            `).join("")}
+          </div>
+          <p class="fine">Tap a record for details, edits and deletion.</p>
+        </div>
+
+        <div class="records-list">
+          ${
+            groups.length
+              ? groups.map(renderTimelineGroup).join("")
+              : `<div class="empty">${icon("search")}<strong>No records match this view</strong><span>Try another word or filter.</span></div>`
+          }
+
+          ${
+            events.length > visibleEvents.length
+              ? `<button class="btn ghost block history-more" data-action="history-more" type="button">Load ${Math.min(HISTORY_PAGE_SIZE, events.length - visibleEvents.length)} older records</button>`
+              : events.length
+                ? `<p class="fine history-end">Showing all ${events.length} matching record${events.length === 1 ? "" : "s"}.</p>`
+                : ""
+          }
+        </div>
       </div>
     `;
   }
@@ -1843,11 +1511,11 @@
   function renderTimelineGroup(group) {
     return `
       <section class="history-day">
-        <header class="history-day-heading">
+        <header class="day-head">
           <h3>${escapeHtml(formatHistoryDate(group.date))}</h3>
           <span>${group.events.length} record${group.events.length === 1 ? "" : "s"}</span>
         </header>
-        <div class="timeline-list">
+        <div class="row-list timeline-list">
           ${group.events.map(renderTimelineItem).join("")}
         </div>
       </section>
@@ -1855,224 +1523,290 @@
   }
 
   function renderTimelineItem(event) {
+    const pending = SYNC.pending(event);
     return `
       <details class="timeline-item ${escapeHtml(event.type)}">
         <summary>
-          <span class="timeline-marker" aria-hidden="true"></span>
-          <span class="timeline-summary-copy">
+          <span class="row-icon ${escapeHtml(event.type)}" aria-hidden="true">${icon(TYPE_ICONS[event.type] || "note")}</span>
+          <span class="row-text">
             <strong>${escapeHtml(eventTitle(event))}</strong>
             <span class="timeline-meta">${escapeHtml(formatEventTime(event))}</span>
+          </span>
+          <span class="row-side">
+            ${isAutomaticCluster(event) ? `<span class="tag warn">Cluster</span>` : ""}
+            ${event.type === "note" && event.handover ? `<span class="tag plain">Handover</span>` : ""}
+            ${pending ? `<span class="tag warn">${event.syncStatus === "conflict" ? "Review" : "Waiting"}</span>` : ""}
+            ${icon("chev", "i chev")}
           </span>
         </summary>
         <div class="timeline-item-body">
           ${eventDetail(event)}
-          <div class="timeline-actions">
-            ${event.type === "seizure" ? `<button class="btn secondary small" data-edit-seizure="${escapeHtml(event.id)}">Edit</button>` : ""}
-            ${["note", "vet_visit", "blood_test"].includes(event.type) ? `<button class="btn secondary small" data-edit-record="${escapeHtml(event.id)}">Edit</button>` : ""}
-            <button class="btn ghost small" data-delete-event="${escapeHtml(event.id)}">Delete</button>
+          <div class="btn-row timeline-actions">
+            ${event.type === "seizure" ? `<button class="btn small ghost" data-edit-seizure="${escapeHtml(event.id)}">${icon("edit")}Edit</button>` : ""}
+            ${["note", "vet_visit", "blood_test"].includes(event.type) ? `<button class="btn small ghost" data-edit-record="${escapeHtml(event.id)}">${icon("edit")}Edit</button>` : ""}
+            <button class="btn small danger" data-delete-event="${escapeHtml(event.id)}">Delete</button>
           </div>
         </div>
       </details>
     `;
   }
 
+  function chartWidth(columns = 1) {
+    const viewport = Math.min(window.innerWidth || 390, 1264);
+    const content = Math.min(viewport - (viewport >= 760 ? 64 : 32), 1200);
+    const twoColumns = columns === 2 && viewport >= 960;
+    return Math.max(250, Math.floor((twoColumns ? (content - 16) / 2 : content) - 40));
+  }
+
+  function shortDate(event) {
+    return new Date(event.occurredAt).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  }
+
   function renderInsights(summary) {
     const monthly = getStatsMonthlyData(state.statsRange);
     const selectedMonth = getSelectedStatsMonth(monthly);
     const max = Math.max(...monthly.map((item) => item.count), 1);
-    const patternCards = buildStatsPatternCards(summary, selectedMonth, monthly);
+    const rangeStart = monthly.length ? localTimeToDate(`${monthly[0].key}-01`, "00:00") : new Date(0);
+    const seizures = getSeizuresAsc();
+    const inRange = seizures.filter((event) => new Date(event.occurredAt) >= rangeStart);
+    const timed = inRange.filter((event) => event.timeKnown !== false);
+    const durations = inRange.map((event) => Number(event.durationSeconds) || 0).filter(Boolean);
+    const clock = renderClockChart(timed, Math.min(320, chartWidth(2)));
+    const nearMissed = countSeizuresNearMissedDose(seizures).total;
+    const insights = buildInsights(summary).slice(0, 6);
 
     return `
-      <div class="stack">
-        <section class="panel stats-hero-panel">
-          <div class="panel-body">
-            <div class="stats-hero-heading">
-              <div>
-                <p class="eyebrow">Pattern dashboard</p>
-                <h2>Sawyer's stats</h2>
-              </div>
-              <span>${escapeHtml(selectedMonth.fullLabel)}</span>
-            </div>
-            <div class="metric-row stats-metrics">
-              <div class="metric">
-                <span>Seizures</span>
-                <strong>${summary.totalSeizures}</strong>
-              </div>
-              <div class="metric">
-                <span>Current gap</span>
-                <strong>${summary.daysSinceLast === null ? "--" : `${summary.daysSinceLast}d`}</strong>
-              </div>
-              <div class="metric">
-                <span>Average gap</span>
-                <strong>${summary.averageGapText}</strong>
-              </div>
-              <div class="metric">
-                <span>Longest gap</span>
-                <strong>${summary.longestGapText}</strong>
-              </div>
-            </div>
+      <div class="stack patterns">
+        <div class="section-head">
+          <h2>Patterns</h2>
+          <div class="chips stats-range-control" role="group" aria-label="Choose range">
+            ${[["6", "6 months"], ["12", "12 months"], ["all", "All"]].map(([value, label]) => `
+              <button class="chip" data-stats-range="${value}" type="button" aria-pressed="${state.statsRange === value ? "true" : "false"}">${label}</button>
+            `).join("")}
           </div>
-        </section>
+        </div>
 
-        <section class="panel stats-month-panel">
-          <div class="panel-body">
-            <div class="stats-panel-heading">
-              <div>
-                <p class="eyebrow">Seizures by month</p>
-                <h2>Tap a month</h2>
-              </div>
-              <div class="stats-range-control" aria-label="Choose stats range">
-                ${[
-                  ["6", "6M"],
-                  ["12", "12M"],
-                  ["all", "All"]
-                ].map(([value, label]) => `
-                  <button
-                    class="${state.statsRange === value ? "active" : ""}"
-                    data-stats-range="${escapeHtml(value)}"
-                    type="button"
-                    aria-pressed="${state.statsRange === value ? "true" : "false"}"
-                  >${escapeHtml(label)}</button>
-                `).join("")}
-              </div>
-            </div>
-            <div class="stats-month-chart" aria-label="Monthly seizure counts">
+        <div class="summary-tiles stats-metrics">
+          ${leaf("--s:220px;--r:20deg;left:-60px;top:-80px")}
+          <div class="tile metric"><small>Current gap</small><strong>${summary.daysSinceLast === null ? "--" : `${summary.daysSinceLast} ${summary.daysSinceLast === 1 ? "day" : "days"}`}</strong><em>since the last seizure</em></div>
+          <div class="tile metric"><small>Average gap</small><strong>${escapeHtml(summary.homeAverageGapText)}</strong><em>between episodes</em></div>
+          <div class="tile metric total"><small>Longest gap</small><strong>${escapeHtml(summary.longestGapText)}</strong><em>${summary.longestGapIsCurrent ? "current streak" : "between episodes"}</em></div>
+          <button class="tile cta" data-tab="vet" data-scroll="visit-summary" type="button">${icon("arrow")}Vet Summary</button>
+        </div>
+
+        <div class="charts">
+          <section class="chart-card wide stats-month-panel">
+            <header><div><h3>Seizures By Month</h3><p class="sub">${inRange.length} logged in this range. Tap a month for detail.</p></div></header>
+            <div class="month-chart" aria-label="Monthly seizure counts">
               ${monthly.map((item, index) => `
-                <button
-                  class="stats-month-bar ${item.key === selectedMonth.key ? "active" : ""}"
-                  data-stats-month="${escapeHtml(item.key)}"
-                  type="button"
-                  aria-pressed="${item.key === selectedMonth.key ? "true" : "false"}"
-                  aria-label="${escapeHtml(`${item.fullLabel}: ${item.count} seizure${item.count === 1 ? "" : "s"}`)}"
-                >
-                  <span class="stats-month-count">${item.count}</span>
-                  <span class="stats-month-track" aria-hidden="true">
-                    <span class="stats-month-fill" style="height: ${(item.count / max) * 100}%"></span>
-                  </span>
-                  <span class="stats-month-name">${escapeHtml(item.label)}</span>
-                  <span class="stats-month-delta ${item.delta > 0 ? "up" : item.delta < 0 ? "down" : ""}">
-                    ${index === 0 ? "base" : formatSignedDelta(item.delta)}
-                  </span>
+                <button class="month-bar ${item.key === selectedMonth.key ? "active" : ""} ${index === monthly.length - 1 ? "partial" : ""}"
+                  data-stats-month="${escapeHtml(item.key)}" type="button" aria-pressed="${item.key === selectedMonth.key ? "true" : "false"}"
+                  aria-label="${escapeHtml(`${item.fullLabel}: ${item.count} seizure${item.count === 1 ? "" : "s"}${index === monthly.length - 1 ? ", so far" : ""}`)}">
+                  <span class="mb-count">${item.count}</span>
+                  <span class="mb-track" aria-hidden="true"><span class="mb-fill" style="height:${(item.count / max) * 100}%;--i:${index}"></span></span>
+                  <span class="mb-label">${escapeHtml(item.label)}</span>
                 </button>
               `).join("")}
             </div>
+            <div class="legend"><span><i></i>Seizures logged</span><span><i class="striped"></i>This month so far</span></div>
             ${renderSelectedStatsMonth(selectedMonth)}
-          </div>
-        </section>
+          </section>
 
-        <section class="stats-pattern-grid" aria-label="Pattern breakdown">
-          ${patternCards.map((card) => `
-            <article class="stats-pattern-card ${escapeHtml(card.tone || "")}">
-              <span>${escapeHtml(card.label)}</span>
-              <strong>${escapeHtml(card.value)}</strong>
-              <p>${escapeHtml(card.body)}</p>
-            </article>
-          `).join("")}
-        </section>
+          <section class="chart-card">
+            <header><div><h3>Days Between Episodes</h3><p class="sub">Seizures within 24 hours count as one episode.</p></div></header>
+            ${renderGapChart(summary, chartWidth(2))}
+          </section>
+
+          <section class="chart-card">
+            <header><div><h3>Time Of Day</h3><p class="sub">${timed.length ? `${clock.night} of ${timed.length} with a recorded time started between 10 pm and 6 am.` : "No seizures with a recorded time in this range."}</p></div></header>
+            ${clock.html}
+            <div class="legend"><span><i class="night"></i>10 pm to 6 am</span><span>Outer dots are more recent</span></div>
+          </section>
+
+          <section class="chart-card">
+            <header><div><h3>Duration</h3><p class="sub">${durations.length ? `From ${formatDurationWords(Math.min(...durations))} to ${formatDurationWords(Math.max(...durations))}, average ${formatDurationWords(mean(durations))}.` : "No durations recorded in this range."}</p></div></header>
+            ${renderDurationChart(inRange, rangeStart, chartWidth(2))}
+          </section>
+
+          <section class="chart-card">
+            <header><div><h3>Observations</h3><p class="sub">From the records you have kept.</p></div></header>
+            <ul class="observations">
+              <li class="${nearMissed ? "flag" : ""}"><span><strong>Dose context.</strong> ${nearMissed
+                ? `${nearMissed} logged seizure${nearMissed === 1 ? "" : "s"} occurred within 24 hours after a missed or late dose record.`
+                : "No logged seizures are near a missed or late dose record."}</span></li>
+              ${insights.map((insight) => `<li><span><strong>${escapeHtml(insight.title)}.</strong> ${escapeHtml(insight.body)}</span></li>`).join("")}
+            </ul>
+          </section>
+        </div>
 
         ${renderAiInsightPanel()}
+        <p class="disclaim">${icon("info")}<span>These are patterns in what has been recorded. They don't predict the next seizure or show a cause. Share them with your vet.</span></p>
       </div>
     `;
   }
 
   function renderSelectedStatsMonth(month) {
     return `
-      <div class="stats-month-detail" data-stats-month-detail>
+      <div class="month-detail" data-stats-month-detail>
         <div>
-          <span class="detail-kicker">${escapeHtml(month.fullLabel)}</span>
-          <h3>${month.count ? `${month.count} seizure${month.count === 1 ? "" : "s"} logged` : "No seizures logged"}</h3>
+          <span class="eyebrow">${escapeHtml(month.fullLabel)}</span>
+          <h4>${month.count ? `${month.count} seizure${month.count === 1 ? "" : "s"} logged` : "No seizures logged"}</h4>
           <p class="subtle">${escapeHtml(month.summary)}</p>
         </div>
-        <div class="stats-detail-grid">
-          <div>
-            <span>Severity</span>
-            <strong>${month.averageSeverityText}</strong>
-          </div>
-          <div>
-            <span>Duration</span>
-            <strong>${month.averageDurationText}</strong>
-          </div>
-          <div>
-            <span>Clusters</span>
-            <strong>${month.clusterCount}</strong>
-          </div>
-          <div>
-            <span>Usual time</span>
-            <strong>${escapeHtml(month.timeWindowText)}</strong>
-          </div>
+        <div class="detail-grid">
+          <div><span>Severity</span><strong>${month.averageSeverityText}</strong></div>
+          <div><span>Duration</span><strong>${month.averageDurationText}</strong></div>
+          <div><span>Clusters</span><strong>${month.clusterCount}</strong></div>
+          <div><span>Usual time</span><strong>${escapeHtml(month.timeWindowText)}</strong></div>
         </div>
       </div>
     `;
   }
 
-  function buildStatsPatternCards(summary, selectedMonth, months) {
-    const seizures = getSeizuresAsc();
-    const gaps = getSeizureGaps(seizures);
-    const latestBlood = latestEventOfType("blood_test");
-    const latestVet = latestEventOfType("vet_visit");
-    const previousMonth = months[months.findIndex((item) => item.key === selectedMonth.key) - 1];
-    const cards = [];
-
-    cards.push({
-      label: "Selected month",
-      value: `${selectedMonth.count}`,
-      body: previousMonth
-        ? formatMonthDeltaSentence(selectedMonth.count - previousMonth.count, previousMonth.fullLabel)
-        : `${selectedMonth.fullLabel} is the first month in this view.`,
-      tone: selectedMonth.count ? "warm" : "calm"
-    });
-
-    if (summary.daysSinceLast === null) {
-      cards.push({
-        label: "Current gap",
-        value: "--",
-        body: "Log Sawyer's first seizure to start tracking seizure-free spacing.",
-        tone: "calm"
-      });
-    } else {
-      const averageGap = gaps.length ? mean(gaps.map((gap) => gap.days)) : null;
-      cards.push({
-        label: "Current gap",
-        value: `${summary.daysSinceLast} days`,
-        body: averageGap
-          ? `${round1(Math.abs(summary.daysSinceLast - averageGap))} days ${summary.daysSinceLast >= averageGap ? "above" : "below"} the completed-gap average.`
-          : "A second seizure log will unlock gap comparisons.",
-        tone: summary.daysSinceLast >= (averageGap || 0) ? "positive" : "warm"
-      });
+  function renderGapChart(summary, width) {
+    const gaps = CORE.seizureEpisodeGaps(getSeizuresAsc(), CLUSTER_WINDOW_MS);
+    const rows = [];
+    if (summary.currentStreakDays !== null && gaps.length) {
+      rows.push({ label: "Now", days: summary.currentStreakDays, open: true, tip: `Current gap · ${round1(summary.currentStreakDays)} days, still open` });
     }
-
-    cards.push({
-      label: "Cluster watch",
-      value: `${selectedMonth.clusterCount}`,
-      body: selectedMonth.clusterCount
-        ? `${selectedMonth.clusterCount} seizure${selectedMonth.clusterCount === 1 ? " was" : "s were"} flagged as part of a 24-hour cluster in ${selectedMonth.fullLabel}.`
-        : `No cluster flags inside ${selectedMonth.fullLabel}.`,
-      tone: selectedMonth.clusterCount ? "alert" : "positive"
+    gaps.slice(-7).reverse().forEach((gap) => rows.push({
+      label: `${shortDate(gap.from)} – ${shortDate(gap.to)}`,
+      days: gap.days,
+      tip: `${formatDateShort(new Date(gap.from.occurredAt))} to ${formatDateShort(new Date(gap.to.occurredAt))} · ${round1(gap.days)} days`
+    }));
+    if (!gaps.length) return `<p class="subtle">Gaps appear after the second seizure episode.</p>`;
+    const average = mean(gaps.map((gap) => gap.days));
+    const left = Math.min(118, width * 0.34);
+    const right = 52;
+    const rowHeight = 34;
+    const height = 6 + rows.length * rowHeight + 30;
+    const maxDays = Math.max(...rows.map((row) => row.days), average) * 1.04;
+    const x = (days) => left + (days / maxDays) * (width - left - right);
+    let marks = "";
+    rows.forEach((row, index) => {
+      const cy = 6 + index * rowHeight + rowHeight / 2;
+      marks += `<text x="${left - 12}" y="${cy + 4}" text-anchor="end" class="${row.open ? "strong" : ""}">${escapeHtml(row.label)}</text>`;
+      marks += `<rect class="gap-bar grow-x ${row.open ? "open" : ""}" style="--i:${index}" x="${left}" y="${cy - 8}" width="${Math.max(4, x(row.days) - left).toFixed(1)}" height="16" rx="8"/>`;
+      marks += `<text x="${(x(row.days) + 8).toFixed(1)}" y="${cy + 4}" class="strong">${Math.round(row.days)} d</text>`;
+      marks += `<rect class="hit" tabindex="0" x="0" y="${cy - rowHeight / 2}" width="${width}" height="${rowHeight}" data-tip="${escapeHtml(row.tip)}"/>`;
     });
+    const ax = x(average);
+    marks += `<line class="ref" x1="${ax.toFixed(1)}" x2="${ax.toFixed(1)}" y1="6" y2="${height - 22}"/><text x="${ax.toFixed(1)}" y="${height - 6}" text-anchor="middle">Average ${round1(average)} d</text>`;
+    return `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Days between seizure episodes">${marks}</svg></div>
+      <div class="legend"><span><i></i>Completed gaps</span><span><i class="open"></i>Current gap, still open</span><span><i class="dash"></i>Average of completed gaps</span></div>`;
+  }
 
-    const missedNearSeizures = countSeizuresNearMissedDose(seizures);
-    cards.push({
-      label: "Dose context",
-      value: `${missedNearSeizures.total}`,
-      body: missedNearSeizures.total
-        ? `Logged seizure${missedNearSeizures.total === 1 ? "" : "s"} occurred within 24 hours after a missed or late dose record.`
-        : "No logged seizures are currently near a missed or late dose record.",
-      tone: missedNearSeizures.total ? "warm" : "positive"
-    });
-
-    if (latestBlood || latestVet) {
-      const latest = [latestBlood, latestVet]
-        .filter(Boolean)
-        .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0];
-      cards.push({
-        label: "Medical context",
-        value: latest.type === "blood_test" ? "Blood" : "Vet",
-        body: `${eventTitle(latest)} was saved on ${formatDateShort(new Date(latest.occurredAt))}. Compare it against month changes here.`,
-        tone: "calm"
-      });
+  function renderClockChart(seizures, size) {
+    const center = size / 2;
+    const radius = size / 2 - 30;
+    const angle = (hours) => (hours / 24) * Math.PI * 2 - Math.PI / 2;
+    const point = (hours, r) => [center + Math.cos(angle(hours)) * r, center + Math.sin(angle(hours)) * r];
+    const sector = (from, to, inner, outer) => {
+      const [a, b] = point(from, outer);
+      const [c, d] = point(to, outer);
+      const [e, f] = point(to, inner);
+      const [g, h] = point(from, inner);
+      return `M${a},${b}A${outer},${outer} 0 0 1 ${c},${d}L${e},${f}A${inner},${inner} 0 0 0 ${g},${h}Z`;
+    };
+    let marks = `<path class="night" d="${sector(22, 30, radius * 0.3, radius)}"/>`;
+    [radius, radius * 0.65, radius * 0.3].forEach((r) => { marks += `<circle class="grid" cx="${center}" cy="${center}" r="${r}" fill="none"/>`; });
+    for (let hour = 0; hour < 24; hour += 1) {
+      const [x1, y1] = point(hour, radius);
+      const [x2, y2] = point(hour, radius + (hour % 6 === 0 ? 7 : 4));
+      marks += `<line class="axis" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
     }
+    [[0, "12 am"], [6, "6 am"], [12, "12 pm"], [18, "6 pm"]].forEach(([hour, label]) => {
+      const [x, y] = point(hour, radius + 18);
+      marks += `<text x="${x}" y="${y + 4}" text-anchor="middle">${label}</text>`;
+    });
+    let night = 0;
+    seizures.forEach((seizure, index) => {
+      const date = new Date(seizure.occurredAt);
+      const hours = date.getHours() + date.getMinutes() / 60;
+      if (hours >= 22 || hours < 6) night += 1;
+      const r = radius * 0.38 + (seizures.length > 1 ? (index / (seizures.length - 1)) * radius * 0.54 : radius * 0.54);
+      const [x, y] = point(hours, r);
+      marks += `<circle class="dot pop" style="--i:${index}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6.5"/>`;
+      marks += `<circle class="hit" tabindex="0" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="13" data-tip="${escapeHtml(`${formatEventDateTime(seizure)} · ${formatDurationWords(seizure.durationSeconds)}`)}"/>`;
+    });
+    return {
+      night,
+      html: `<div class="chart clock-chart" style="max-width:${size}px"><svg viewBox="0 0 ${size} ${size}" role="img" aria-label="Time of day for each seizure">${marks}</svg></div>`
+    };
+  }
 
-    return cards.slice(0, 5);
+  function renderDurationChart(seizures, rangeStart, width) {
+    const points = seizures.filter((event) => Number(event.durationSeconds) > 0);
+    if (!points.length) return `<p class="subtle">Durations appear once seizures are logged.</p>`;
+    const height = 200;
+    const left = 46;
+    const right = 10;
+    const top = 12;
+    const bottom = 28;
+    const innerWidth = width - left - right;
+    const innerHeight = height - top - bottom;
+    const end = Date.now();
+    const start = Math.min(+rangeStart, +new Date(points[0].occurredAt));
+    const maxSeconds = Math.ceil(Math.max(120, ...points.map((event) => event.durationSeconds)) / 60) * 60;
+    const step = maxSeconds > 300 ? 120 : maxSeconds > 120 ? 60 : 30;
+    const x = (time) => left + ((time - start) / Math.max(1, end - start)) * innerWidth;
+    const y = (seconds) => top + innerHeight - (seconds / maxSeconds) * innerHeight;
+    let marks = "";
+    for (let value = 0; value <= maxSeconds; value += step) {
+      const label = value === 0 ? "0" : value % 60 === 0 ? `${value / 60} min` : `${value}s`;
+      marks += `<line class="grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text x="${left - 8}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${label}</text>`;
+    }
+    const firstMonth = new Date(start);
+    const months = (new Date().getFullYear() - firstMonth.getFullYear()) * 12 + new Date().getMonth() - firstMonth.getMonth() + 1;
+    const every = Math.max(1, Math.ceil(months / 7));
+    for (let index = 0; index < months; index += every) {
+      const date = new Date(firstMonth.getFullYear(), firstMonth.getMonth() + index, 1);
+      if (+date < start) continue;
+      marks += `<text x="${x(+date).toFixed(1)}" y="${height - 8}" text-anchor="middle">${escapeHtml(date.toLocaleDateString(undefined, { month: "short" }))}</text>`;
+    }
+    const average = mean(points.map((event) => event.durationSeconds));
+    marks += `<line class="ref" x1="${left}" x2="${width - right}" y1="${y(average).toFixed(1)}" y2="${y(average).toFixed(1)}"/><text x="${width - right}" y="${(y(average) - 7).toFixed(1)}" text-anchor="end">Average ${formatDurationWords(average)}</text>`;
+    points.forEach((event, index) => {
+      const cx = x(+new Date(event.occurredAt)).toFixed(1);
+      const cy = y(event.durationSeconds).toFixed(1);
+      marks += `<circle class="dot pop" style="--i:${index}" cx="${cx}" cy="${cy}" r="6"/><circle class="hit" tabindex="0" cx="${cx}" cy="${cy}" r="13" data-tip="${escapeHtml(`${formatEventDateTime(event)} · ${formatDurationWords(event.durationSeconds)} · severity ${event.severity || "--"}`)}"/>`;
+    });
+    return `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Seizure durations over time">${marks}</svg></div>`;
+  }
+
+  function renderLineChart(points, width, unit) {
+    if (!points.length) return `<p class="fine">No values recorded yet.</p>`;
+    const height = 130;
+    const left = 36;
+    const right = 14;
+    const top = 16;
+    const bottom = 24;
+    const innerWidth = width - left - right;
+    const innerHeight = height - top - bottom;
+    const t0 = +new Date(points[0].at);
+    const t1 = +new Date(points.at(-1).at);
+    const values = points.map((point) => point.value);
+    const low = Math.min(...values);
+    const high = Math.max(...values);
+    const padding = (high - low) * 0.25 || Math.max(1, high * 0.1);
+    const v0 = Math.max(0, low - padding);
+    const v1 = high + padding;
+    const x = (time) => left + (t1 === t0 ? innerWidth / 2 : ((time - t0) / (t1 - t0)) * innerWidth);
+    const y = (value) => top + innerHeight - ((value - v0) / (v1 - v0)) * innerHeight;
+    let marks = "";
+    [v0, (v0 + v1) / 2, v1].forEach((value) => {
+      marks += `<line class="grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text x="${left - 6}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${round1(value)}</text>`;
+    });
+    const path = points.map((point, index) => `${index ? "L" : "M"}${x(+new Date(point.at)).toFixed(1)},${y(point.value).toFixed(1)}`).join("");
+    if (points.length > 1) marks += `<path class="area" d="${path}L${x(t1).toFixed(1)},${top + innerHeight}L${x(t0).toFixed(1)},${top + innerHeight}Z"/><path class="line" d="${path}"/>`;
+    points.forEach((point, index) => {
+      const cx = x(+new Date(point.at)).toFixed(1);
+      const cy = y(point.value).toFixed(1);
+      const anchor = points.length === 1 ? "middle" : index === 0 ? "start" : index === points.length - 1 ? "end" : "middle";
+      marks += `<circle class="dot pop" style="--i:${index}" cx="${cx}" cy="${cy}" r="5"/><text x="${cx}" y="${height - 6}" text-anchor="${anchor}">${escapeHtml(new Date(point.at).toLocaleDateString(undefined, { day: "numeric", month: "short" }))}</text>`;
+      marks += `<circle class="hit" tabindex="0" cx="${cx}" cy="${cy}" r="12" data-tip="${escapeHtml(`${formatDateShort(new Date(point.at))} · ${point.value} ${unit}`.trim())}"/>`;
+    });
+    return `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Level over time">${marks}</svg></div>`;
   }
 
   function getSelectedStatsMonth(months) {
@@ -2085,154 +1819,557 @@
     return fallback;
   }
 
-  function formatSignedDelta(value) {
-    if (value > 0) return `+${value}`;
-    return String(value);
-  }
-
-  function formatMonthDeltaSentence(value, comparisonLabel) {
-    if (value > 0) return `${value} more than ${comparisonLabel}.`;
-    if (value < 0) return `${Math.abs(value)} fewer than ${comparisonLabel}.`;
-    return `No change from ${comparisonLabel}.`;
-  }
-
-  function formatMonthDeltaPhrase(value, comparisonLabel) {
-    if (value > 0) return `${value} more than ${comparisonLabel}`;
-    if (value < 0) return `${Math.abs(value)} fewer than ${comparisonLabel}`;
-    return `no change from ${comparisonLabel}`;
-  }
-
   function renderAiInsightPanel() {
     const insight = state.aiInsight;
     const canRun = hasSupabaseConfig() && isSignedIn();
 
     return `
-      <section class="panel ai-panel">
-        <div class="panel-body">
-          <div class="dose-main">
-            <div>
-              <p class="eyebrow">AI review</p>
-              <h2>${escapeHtml(insight?.title || "Ask AI to review Sawyer's records")}</h2>
-            </div>
-            <button class="btn primary small" data-action="generate-ai" ${state.aiBusy || !canRun ? "disabled" : ""}>
-              ${state.aiBusy ? "Reviewing..." : "Run AI"}
-            </button>
+      <section class="card ai-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">AI review</p>
+            <h3>${escapeHtml(insight?.title || "Ask AI to review Sawyer's records")}</h3>
           </div>
-          <p class="subtle">${escapeHtml(insight?.summary || (canRun ? "Uses synced Supabase records to draft pattern notes and vet questions." : "Connect Supabase before using AI review."))}</p>
-          ${state.aiError ? `<p class="subtle danger-text">${escapeHtml(state.aiError)}</p>` : ""}
-          ${insight?.bullets?.length ? `
-            <div class="insight-list ai-list">
-              ${insight.bullets.map((item) => `
-                <article class="insight">
-                  <strong>${escapeHtml(item.title || "Observation")}</strong>
-                  <p class="subtle">${escapeHtml(item.detail || item.body || "")}</p>
-                </article>
-              `).join("")}
-            </div>
-          ` : ""}
-          ${insight?.questions?.length ? `
-            <div class="ai-questions">
-              <p class="eyebrow">Ask your vet</p>
-              <ul>${insight.questions.map((question) => `<li>${escapeHtml(question)}</li>`).join("")}</ul>
-            </div>
-          ` : ""}
-          <p class="subtle">AI can notice patterns, but it cannot diagnose or replace your vet.</p>
+          <button class="btn yellow small" data-action="generate-ai" ${state.aiBusy || !canRun ? "disabled" : ""}>
+            ${state.aiBusy ? "Reviewing..." : "Run AI"}
+          </button>
         </div>
+        <p class="subtle">${escapeHtml(insight?.summary || (canRun ? "Uses synced Supabase records to draft pattern notes and vet questions." : "Connect Supabase before using AI review."))}</p>
+        ${state.aiError ? `<p class="subtle danger-text">${escapeHtml(state.aiError)}</p>` : ""}
+        ${insight?.bullets?.length ? `
+          <ul class="observations">
+            ${insight.bullets.map((item) => `<li><span><strong>${escapeHtml(item.title || "Observation")}.</strong> ${escapeHtml(item.detail || item.body || "")}</span></li>`).join("")}
+          </ul>
+        ` : ""}
+        ${insight?.questions?.length ? `
+          <div class="ai-questions">
+            <p class="eyebrow">Ask your vet</p>
+            <ul>${insight.questions.map((question) => `<li>${escapeHtml(question)}</li>`).join("")}</ul>
+          </div>
+        ` : ""}
+        <p class="fine">AI can notice patterns, but it cannot diagnose or replace your vet.</p>
       </section>
     `;
   }
 
-  function renderBackup() {
-    const notificationText =
-      "Notification" in window ? Notification.permission : "Not supported";
-    const pushSupported = isPushSupported();
-    const pushEnabled =
-      pushSupported &&
-      state.settings?.pushNotificationsEnabled &&
-      Notification.permission === "granted";
-    const pushStatus = !pushSupported
-      ? "Not supported"
-      : Notification.permission === "denied"
-        ? "Blocked"
-        : pushEnabled
-          ? "On"
-          : "Off";
-    const lastBackup = state.settings?.lastBackupAt
-      ? formatDateTime(new Date(state.settings.lastBackupAt))
-      : "No backup yet";
+  function visitSummaryData(days) {
+    const since = Date.now() - days * DAY_MS;
+    const seizures = getSeizuresAsc().filter((event) => +new Date(event.occurredAt) >= since);
+    const episodes = seizures.length ? CORE.seizureEpisodeGaps(seizures, CLUSTER_WINDOW_MS).length + 1 : 0;
+    const exceptions = state.events
+      .filter((event) => event.type === "dose" && (event.status === "missed" || event.status === "skipped"))
+      .filter((event) => +new Date(event.dueAt || event.occurredAt) >= since)
+      .sort((a, b) => new Date(a.dueAt || a.occurredAt) - new Date(b.dueAt || b.occurredAt));
+    const durations = seizures.map((event) => Number(event.durationSeconds) || 0).filter(Boolean);
+    const blood = latestEventOfType("blood_test");
+    const visit = latestEventOfType("vet_visit");
+    const summary = getSummary();
+    return { days, seizures, episodes, exceptions, durations, blood, visit, summary };
+  }
+
+  function bloodLevelsText(test) {
+    const parts = [
+      formatLabLevel(test.phenobarbital) || test.phenobarbitalLevel ? `phenobarbital ${formatLabLevel(test.phenobarbital) || test.phenobarbitalLevel}` : "",
+      formatLabLevel(test.bromide) || test.bromideLevel ? `bromide ${formatLabLevel(test.bromide) || test.bromideLevel}` : ""
+    ].filter(Boolean);
+    return parts.join(", ") || test.panel || "results saved";
+  }
+
+  function visitSummaryText(data) {
+    const name = state.profile?.name || "Sawyer";
+    const lines = [`${name}: care summary for the last ${data.days} days (to ${formatDateShort(new Date())})`, ""];
+    lines.push(`Seizures: ${data.seizures.length} (${data.episodes} episode${data.episodes === 1 ? "" : "s"}).${data.durations.length ? ` Average duration ${formatDurationWords(mean(data.durations))}.` : ""}`);
+    data.seizures.slice().reverse().forEach((event) => {
+      lines.push(`- ${formatEventDateTime(event)}: ${formatDurationWords(event.durationSeconds)}, severity ${event.severity || "--"}${event.symptoms?.length ? `, ${event.symptoms.join(", ").toLowerCase()}` : ""}${isAutomaticCluster(event) ? ", cluster" : ""}`);
+    });
+    lines.push(`Current gap: ${data.summary.daysSinceLast === null ? "no seizures logged" : `${data.summary.daysSinceLast} days`}. Longest gap: ${data.summary.longestGapText}.`, "");
+    lines.push(`Missed or skipped doses: ${data.exceptions.length}.`);
+    data.exceptions.forEach((event) => lines.push(`- ${event.medicationName || "Dose"} ${event.label ? event.label.toLowerCase() : ""}, ${formatDateShort(new Date(event.dueAt || event.occurredAt))}: ${event.status}`));
+    if (data.blood) lines.push("", `Latest blood test ${formatDateShort(new Date(data.blood.occurredAt))}: ${bloodLevelsText(data.blood)}.`);
+    if (data.visit) lines.push(`Last vet visit ${formatDateShort(new Date(data.visit.occurredAt))}: ${data.visit.reason || "visit"}${data.visit.weight ? `, weight ${data.visit.weight}` : ""}.`);
+    return lines.join("\n");
+  }
+
+  function renderVet() {
+    const visits = state.events.filter((event) => event.type === "vet_visit").sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt));
+    const tests = state.events.filter((event) => event.type === "blood_test").sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
+    const history = [...visits, ...tests].sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt));
+    const latest = visits[0];
+    const data = visitSummaryData(state.vetRange);
+    const columns = window.innerWidth >= 620 ? 2 : 1;
+    const inner = chartWidth(2);
+    const lineWidth = Math.max(220, Math.floor((inner - (columns - 1) * 12) / columns - 28));
+    const series = (key) => tests.filter((test) => Number.isFinite(test[key]?.value)).map((test) => ({ at: test.occurredAt, value: test[key].value, unit: test[key].unit || "" }));
+    const pheno = series("phenobarbital");
+    const bromide = series("bromide");
+    const doseRate = (() => {
+      const since = Date.now() - state.vetRange * DAY_MS;
+      const logged = state.events.filter((event) => event.type === "dose" && +new Date(event.dueAt || event.occurredAt) >= since);
+      return logged.length;
+    })();
 
     return `
-      <div class="stack">
-        ${renderPendingRecords()}
-        <section class="panel">
-          <div class="panel-body">
-            <h2>Care Setup</h2>
-            <form id="setup-form" class="form-grid">
-              <div class="field">
-                <label for="dog-name">Dog name</label>
-                <input id="dog-name" name="dogName" value="${escapeHtml(state.profile?.name || "Sawyer")}" required />
-              </div>
-              <label class="check-chip"><input name="confirmDoses" type="checkbox" ${state.profile?.doseConfirmationMode === "explicit" ? "checked" : ""} /> Require confirmation for each dose</label>
-              <div class="setup-list">
-                ${state.schedules.map(renderSetupSchedule).join("")}
-              </div>
-              <button class="btn primary" type="submit">Save Setup</button>
-            </form>
+      <div class="vet-grid">
+        <section class="vet-hero on-color" aria-label="Vet visits">
+          ${leaf("--s:240px;--r:30deg;right:-70px;top:-80px")}
+          ${leaf("--s:140px;--r:-10deg;left:30%;bottom:-70px;--d:28s")}
+          <p class="eyebrow">${latest ? "Last visit" : "Vet"}</p>
+          <h2>${latest ? escapeHtml(latest.reason || "Vet Visit") : "Keep Visits Together"}</h2>
+          ${latest ? `
+            <dl class="vet-meta">
+              <div><dt>Date</dt><dd>${escapeHtml(formatDateShort(new Date(latest.occurredAt)))}</dd></div>
+              <div><dt>Clinic</dt><dd>${escapeHtml(latest.clinic || "--")}</dd></div>
+              <div><dt>Weight</dt><dd>${escapeHtml(latest.weight || "--")}</dd></div>
+            </dl>
+            ${latest.plan ? `<p class="vet-plan">${escapeHtml(latest.plan)}</p>` : ""}
+          ` : `<p class="vet-plan">Record visits, blood tests and PDFs here, then copy a summary before the next appointment.</p>`}
+          <div class="btn-row">
+            <button class="btn yellow" data-overlay="vet_visit" type="button">${icon("plus")}Add Visit</button>
+            <button class="btn glass" data-overlay="blood_test" type="button">${icon("drop")}Add Blood Test</button>
           </div>
         </section>
 
-        <section class="panel">
-          <div class="panel-body">
-            <h2>Seizure-free push alerts</h2>
-            <p class="subtle">Receive an alert when Sawyer earns a new 5-day heart, matches his longest completed streak, or reaches his historical average gap—even when the app is closed.</p>
-            ${isIosBrowser() ? `<p class="subtle danger-text">On iPhone, add Sawyer Tracker to the Home Screen and open it from its icon before enabling push alerts.</p>` : ""}
-            <div class="metric-row">
-              <div class="metric">
-                <span>Status</span>
-                <strong>${escapeHtml(pushStatus)}</strong>
-              </div>
-              <div class="metric">
-                <span>Permission</span>
-                <strong>${escapeHtml(capitalize(notificationText))}</strong>
-              </div>
-              <div class="metric">
-                <span>Delivery</span>
-                <strong>Background</strong>
-              </div>
+        <section class="card visit-summary" id="visit-summary" aria-label="Visit summary">
+          <div class="section-head">
+            <div><h3>Visit Summary</h3><p class="fine">Built from your records. Copy it into an email or read it out at the visit.</p></div>
+            <div class="chips" role="group" aria-label="Summary range">
+              ${[30, 90].map((days) => `<button class="chip" data-vet-range="${days}" type="button" aria-pressed="${state.vetRange === days}">${days} days</button>`).join("")}
             </div>
-            <div class="button-row" style="margin-top: 12px;">
-              <button class="btn primary" data-action="enable-push">Enable Push Alerts</button>
-              <button class="btn secondary" data-action="test-push" ${pushEnabled ? "" : "disabled"}>Send Test</button>
-              <button class="btn secondary" data-action="disable-push">Disable</button>
-            </div>
-            <p class="subtle" style="margin-top: 10px;">Average-gap alerts describe Sawyer's recorded history only. They are not a medical prediction.</p>
           </div>
+          <div class="summary-card">
+            <div class="summary-grid">
+              <div><small>Seizures</small><strong>${data.seizures.length}</strong></div>
+              <div><small>Episodes</small><strong>${data.episodes}</strong></div>
+              <div><small>Average length</small><strong>${data.durations.length ? formatDurationWords(mean(data.durations)) : "--"}</strong></div>
+              <div><small>Dose exceptions</small><strong>${data.exceptions.length}</strong></div>
+            </div>
+            <div class="summary-section"><h4>Seizures</h4>${data.seizures.length
+              ? `<ul>${data.seizures.slice().reverse().map((event) => `<li>${escapeHtml(formatEventDateTime(event))}: ${escapeHtml(formatDurationWords(event.durationSeconds))}, severity ${escapeHtml(event.severity || "--")}${isAutomaticCluster(event) ? " · cluster" : ""}</li>`).join("")}</ul>`
+              : `<p class="fine">None in this period.</p>`}</div>
+            <div class="summary-section"><h4>Missed or skipped doses</h4>${data.exceptions.length
+              ? `<ul>${data.exceptions.map((event) => `<li>${escapeHtml(event.medicationName || "Dose")}${event.label ? ` ${escapeHtml(event.label.toLowerCase())}` : ""}, ${escapeHtml(formatDateShort(new Date(event.dueAt || event.occurredAt)))}: ${escapeHtml(event.status)}</li>`).join("")}</ul>`
+              : `<p class="fine">${doseRate ? "None recorded." : "No dose records in this period."}</p>`}</div>
+            ${data.blood || data.visit ? `<div class="summary-section"><h4>Latest results</h4><ul>
+              ${data.blood ? `<li>Blood test ${escapeHtml(formatDateShort(new Date(data.blood.occurredAt)))}: ${escapeHtml(bloodLevelsText(data.blood))}</li>` : ""}
+              ${data.visit?.weight ? `<li>Weight ${escapeHtml(data.visit.weight)} on ${escapeHtml(formatDateShort(new Date(data.visit.occurredAt)))}</li>` : ""}
+            </ul></div>` : ""}
+          </div>
+          <div class="btn-row"><button class="btn yellow" data-action="copy-summary" type="button">${icon("copy")}Copy Summary</button></div>
+          <div id="summary-fallback"></div>
         </section>
 
-        ${renderCloudSync()}
-
-        <section class="panel">
-          <div class="panel-body">
-            <h2>Backup</h2>
-            <p class="subtle">Last backup: ${escapeHtml(lastBackup)}</p>
-            <p class="subtle">Complete backups include every cloud record, deletion marker and private vet PDF.</p>
-            ${state.backupMessage ? `<p class="subtle sync-message">${escapeHtml(state.backupMessage)}</p>` : ""}
-            <div class="button-row">
-              <button class="btn primary" data-action="export-json" ${state.backupBusy ? "disabled" : ""}>${state.backupBusy ? "Working..." : "Download Complete Backup"}</button>
-              <button class="btn secondary" data-action="import-json" ${state.backupBusy ? "disabled" : ""}>Restore Backup</button>
-              <button class="btn secondary" data-action="export-csv" ${state.backupBusy ? "disabled" : ""}>Export CSV</button>
-            </div>
+        <section class="card" aria-label="Blood levels">
+          <div class="section-head"><h3>Blood Levels</h3><span class="fine">${tests.length} test${tests.length === 1 ? "" : "s"}</span></div>
+          <div class="bloods">
+            <div class="blood"><h4>Phenobarbital</h4><p class="blood-now">${pheno.length ? escapeHtml(pheno.at(-1).value) : "--"}<small>${escapeHtml(pheno.at(-1)?.unit || "")}</small></p>${renderLineChart(pheno, lineWidth, pheno.at(-1)?.unit || "")}</div>
+            <div class="blood"><h4>Bromide</h4><p class="blood-now">${bromide.length ? escapeHtml(bromide.at(-1).value) : "--"}<small>${escapeHtml(bromide.at(-1)?.unit || "")}</small></p>${renderLineChart(bromide, lineWidth, bromide.at(-1)?.unit || "")}</div>
           </div>
+          <p class="fine">Values as entered from lab reports. Two measures, two charts.</p>
         </section>
 
-        <section class="panel danger-zone">
-          <div class="panel-body">
-            <h2>Reset</h2>
-            <p class="subtle">This only clears records on this device.</p>
-            <button class="btn danger" data-action="reset-data">Clear Local Data</button>
-          </div>
+        <section class="card document-library-panel">
+          ${renderVetDocuments(toDateInputValue(new Date()))}
+        </section>
+
+        <section class="card wide" aria-label="Visit and test history">
+          <div class="section-head"><h3>Visits And Tests</h3><span class="fine">${history.length} saved</span></div>
+          <div class="row-list timeline-list">${history.length ? history.map(renderTimelineItem).join("") : `<p class="subtle">No vet visits or blood tests saved yet.</p>`}</div>
         </section>
       </div>
+    `;
+  }
+
+  function renderOverlay() {
+    const overlay = state.overlay;
+    if (!overlay) return "";
+    const enter = state.overlayFresh ? " enter" : "";
+    if (overlay.kind === "timer") return state.timer ? renderTimerOverlay(enter) : "";
+    if (overlay.kind === "seizure") return renderSeizureOverlay(enter);
+    const sheet = renderSheet(overlay);
+    if (!sheet) return "";
+    return `
+      <div class="scrim${enter}" data-close-overlay></div>
+      <div class="sheet ${sheet.className || ""}${enter}" role="dialog" aria-modal="true" aria-labelledby="sheet-title">${sheet.html}</div>
+    `;
+  }
+
+  function sheetHead(title) {
+    return `<div class="grab" aria-hidden="true"></div><div class="sheet-head"><h2 id="sheet-title">${title}</h2><button class="ibtn" data-close-overlay type="button" aria-label="Close">${icon("close")}</button></div>`;
+  }
+
+  function renderSheet(overlay) {
+    if (overlay.kind === "menu") {
+      const routine = routineOf(new Date());
+      return {
+        className: "menu-sheet",
+        html: `${sheetHead("New Record")}<div class="sheet-body" data-overlay-scroll><div class="menu-grid">
+          <div class="menu-tile big">${leaf("--s:200px;--r:30deg;right:-50px;top:-70px")}${icon("timer")}<b>Seizure</b><p>Start the timer now, or log one that has already happened.</p>
+            <div class="btn-row"><button class="btn yellow" data-action="start-timer" type="button">${icon("timer")}Start Timer</button><button class="btn glass" data-overlay="seizure" type="button">Log Past Seizure</button></div></div>
+          <button class="menu-tile dose" data-overlay="routine" data-routine="${routine}" type="button">${icon("pill")}<b>Dose</b><p>${ROUTINES[routine].label} routine</p></button>
+          <button class="menu-tile note" data-overlay="note" type="button">${icon("note")}<b>Note</b><p>Observation or handover</p></button>
+          <button class="menu-tile vet" data-overlay="vet_visit" type="button">${icon("vet")}<b>Vet Visit</b><p>Reason, plan and weight</p></button>
+          <button class="menu-tile blood" data-overlay="blood_test" type="button">${icon("drop")}<b>Blood Test</b><p>Levels and results</p></button>
+        </div></div>`
+      };
+    }
+    if (overlay.kind === "routine") {
+      const routine = ROUTINES[overlay.routine] ? overlay.routine : "morning";
+      const tone = ROUTINES[routine].tone;
+      return {
+        className: `routine-sheet on-color tone-${tone}`,
+        html: `
+          <div class="layer layer-yellow" style="opacity:${tone === "yellow" ? 1 : 0}"></div>
+          <div class="layer layer-berry" style="opacity:${tone === "berry" ? 1 : 0}"></div>
+          ${leaf("--s:260px;--r:-30deg;right:-90px;top:-60px;--d:26s")}
+          ${leaf("--s:180px;--r:60deg;left:-60px;bottom:10%;--d:30s")}
+          <div class="grab" aria-hidden="true"></div>
+          <div class="sheet-head">
+            <div class="routine-switch" role="group" aria-label="Routine">
+              ${Object.entries(ROUTINES).map(([key, meta]) => `<button data-routine-switch="${key}" type="button" aria-pressed="${key === routine}">${icon(meta.icon)}${meta.label}</button>`).join("")}
+            </div>
+            <button class="ibtn glass" data-close-overlay type="button" aria-label="Close">${icon("close")}</button>
+          </div>
+          <div class="sheet-body ${state.overlayFresh ? "unfold" : ""}" id="routine-body" data-overlay-scroll>${renderRoutineBody(routine)}</div>`
+      };
+    }
+    if (overlay.kind === "note" || overlay.kind === "vet_visit" || overlay.kind === "blood_test") {
+      return { className: "form-sheet", html: renderRecordForm(overlay.kind) };
+    }
+    if (overlay.kind === "household") {
+      return { className: "household-sheet", html: `${sheetHead("Household")}<div class="sheet-body" data-overlay-scroll>${renderHousehold()}</div>` };
+    }
+    return null;
+  }
+
+  function renderRecordForm(kind) {
+    const now = new Date();
+    const editing = state.events.find((event) => event.id === state.editingRecordId && event.type === kind);
+    const recordDate = editing ? new Date(editing.occurredAt) : now;
+    const localDate = toDateInputValue(recordDate);
+    const localTime = toTimeInputValue(recordDate);
+    const cancel = editing ? `<button class="btn ghost" data-action="cancel-record-edit" type="button">Cancel</button>` : "";
+
+    if (kind === "note") {
+      return `${sheetHead(editing ? "Edit Note" : "New Note")}<div class="sheet-body" data-overlay-scroll>
+        <form id="note-form" class="form record-form">
+          <input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" />
+          <div class="field">
+            <label for="note-title">Title</label>
+            <input id="note-title" name="title" value="${escapeHtml(editing?.title || "")}" placeholder="Appetite, behaviour, vet call" />
+          </div>
+          <div class="field">
+            <label for="note-body">Note</label>
+            <textarea id="note-body" name="body" required>${escapeHtml(editing?.body || "")}</textarea>
+          </div>
+          <label class="switch-row" for="note-handover">
+            <span>Show as handover on Today<small>The next carer sees it first when they open the app.</small></span>
+            <input id="note-handover" class="switch" name="handover" type="checkbox" ${editing?.handover ? "checked" : ""} />
+          </label>
+          <div class="btn-row">
+            <button class="btn yellow big" type="submit">${editing ? "Update Note" : "Save Note"}</button>
+            ${cancel}
+          </div>
+        </form></div>`;
+    }
+
+    if (kind === "vet_visit") {
+      return `${sheetHead(editing ? "Edit Vet Visit" : "Vet Visit")}<div class="sheet-body" data-overlay-scroll>
+        <form id="vet-form" class="form record-form">
+          <input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" />
+          <div class="row2">
+            <div class="field"><label for="vet-date">Date</label>${renderDateInput("vet-date", "date", localDate, true)}</div>
+            <div class="field"><label for="vet-time">Time</label>${renderTimeInput("vet-time", "time", localTime)}</div>
+          </div>
+          <div class="field">
+            <label for="vet-clinic">Clinic or vet</label>
+            <input id="vet-clinic" name="clinic" value="${escapeHtml(editing?.clinic || "")}" placeholder="Vet name or clinic" />
+          </div>
+          <div class="field">
+            <label for="vet-reason">Reason</label>
+            <input id="vet-reason" name="reason" value="${escapeHtml(editing?.reason || "")}" placeholder="Checkup, seizure review, medication review" required />
+          </div>
+          <div class="field">
+            <label for="vet-weight">Weight</label>
+            <input id="vet-weight" name="weight" value="${escapeHtml(editing?.weight || "")}" placeholder="Example: 24.8 kg" />
+          </div>
+          <div class="field">
+            <label for="vet-plan">Plan or medication changes</label>
+            <textarea id="vet-plan" name="plan" placeholder="Next steps, dose changes, follow-up date">${escapeHtml(editing?.plan || "")}</textarea>
+          </div>
+          <div class="btn-row">
+            <button class="btn yellow big" type="submit">${editing ? "Update Vet Visit" : "Save Vet Visit"}</button>
+            ${cancel}
+          </div>
+        </form></div>`;
+    }
+
+    return `${sheetHead(editing ? "Edit Blood Test" : "Blood Test")}<div class="sheet-body" data-overlay-scroll>
+      <form id="blood-test-form" class="form record-form">
+        <input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" />
+        <div class="row2">
+          <div class="field"><label for="blood-date">Date</label>${renderDateInput("blood-date", "date", localDate, true)}</div>
+          <div class="field"><label for="blood-time">Time</label>${renderTimeInput("blood-time", "time", localTime)}</div>
+        </div>
+        <div class="field">
+          <label for="blood-panel">Test or panel</label>
+          <input id="blood-panel" name="panel" value="${escapeHtml(editing?.panel || "")}" placeholder="Phenobarbital level, bromide level, liver panel" required />
+        </div>
+        ${renderLabLevelFields("Phenobarbital", "phenobarbital", editing?.phenobarbital || null)}
+        ${renderLabLevelFields("Bromide", "bromide", editing?.bromide || null)}
+        ${editing && !editing.phenobarbital && editing.phenobarbitalLevel ? `<p class="fine">Earlier phenobarbital entry: ${escapeHtml(editing.phenobarbitalLevel)}</p>` : ""}
+        ${editing && !editing.bromide && editing.bromideLevel ? `<p class="fine">Earlier bromide entry: ${escapeHtml(editing.bromideLevel)}</p>` : ""}
+        <div class="field">
+          <label for="blood-results">Results</label>
+          <textarea id="blood-results" name="results" placeholder="Paste key results or lab notes">${escapeHtml(editing?.results || "")}</textarea>
+        </div>
+        <div class="field">
+          <label for="blood-notes">Notes</label>
+          <textarea id="blood-notes" name="notes" placeholder="Vet interpretation, recheck timing, changes">${escapeHtml(editing?.notes || "")}</textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn yellow big" type="submit">${editing ? "Update Blood Test" : "Save Blood Test"}</button>
+          ${cancel}
+        </div>
+      </form></div>`;
+  }
+
+  function focusOrigin() {
+    const point = state.lastPointer;
+    return point ? `--ox:${Math.round(point.x)}px;--oy:${Math.round(point.y)}px` : "--ox:50%;--oy:100%";
+  }
+
+  function renderSeizureOverlay(enter) {
+    const now = new Date();
+    const editing = state.events.find((event) => event.id === state.editingSeizureId && event.type === "seizure");
+    const prefill = editing ? null : state.seizurePrefill;
+    const seizureDate = editing ? new Date(editing.occurredAt) : prefill ? new Date(prefill.occurredAt) : now;
+    const durationSeconds = Math.max(0, editing ? editing.durationSeconds || 0 : prefill?.durationSeconds || 0);
+    const timeKnown = editing ? editing.timeKnown !== false : Boolean(prefill);
+    const selectedSeverity = editing?.severity || state.severity;
+    const symptoms = editing?.symptoms || prefill?.symptoms || [];
+    const trigger = editing?.trigger || "Unknown";
+    const title = editing ? "Edit Seizure" : prefill ? "Seizure Timed" : "Log Seizure";
+
+    return `
+      <div class="focus seizure-focus${enter}" role="dialog" aria-modal="true" aria-labelledby="focus-title" style="${focusOrigin()}" data-overlay-scroll>
+        ${leaf("--s:420px;--r:-30deg;left:-140px;top:-120px;--d:30s")}
+        ${leaf("--s:300px;--r:50deg;right:-120px;bottom:-60px;--d:34s")}
+        <div class="focus-in on-color">
+          <div class="fhead">
+            <span class="tag glass">${editing ? "Update record" : prefill ? "From the timer" : "Quick record"}</span>
+            <button class="ibtn glass" data-action="${editing ? "cancel-seizure-edit" : "close-overlay"}" type="button" aria-label="Close">${icon("close")}</button>
+          </div>
+          <h2 class="ftitle" id="focus-title">${title}</h2>
+          <form id="seizure-form" class="form seizure-form">
+            <input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" />
+            <div class="row2 stack-sm">
+              <div class="field">
+                <label for="seizure-date">Date</label>
+                ${renderDateInput("seizure-date", "date", toDateInputValue(seizureDate), true)}
+              </div>
+              <label class="switch-row quick-time-toggle" for="seizure-time-known">
+                <span>Time known<small data-time-status>${timeKnown ? "Included" : "Not needed"}</small></span>
+                <input id="seizure-time-known" class="switch" name="timeKnown" type="checkbox" data-time-known ${timeKnown ? "checked" : ""} />
+              </label>
+            </div>
+            <div class="field optional-time-field" data-optional-time ${timeKnown ? "" : "hidden"}>
+              <label for="seizure-time">Approximate time</label>
+              ${renderTimeInput("seizure-time", "time", toTimeInputValue(seizureDate))}
+            </div>
+            <div class="fsec">
+              <p class="flabel"><span>Duration</span><output id="duration-output">${formatDuration(durationSeconds)}</output></p>
+              <div class="duration duration-inputs">
+                <div class="stepper">
+                  <button data-step="duration-minutes" data-delta="-1" type="button" aria-label="One minute less">${icon("minus")}</button>
+                  <label class="sr-only" for="duration-minutes">Minutes</label>
+                  <input id="duration-minutes" name="durationMinutes" type="number" min="0" step="1" inputmode="numeric" value="${Math.floor(durationSeconds / 60)}" required />
+                  <span class="unit">min</span>
+                  <button data-step="duration-minutes" data-delta="1" type="button" aria-label="One minute more">${icon("plus")}</button>
+                </div>
+                <div class="stepper">
+                  <button data-step="duration-seconds" data-delta="-5" type="button" aria-label="Five seconds less">${icon("minus")}</button>
+                  <label class="sr-only" for="duration-seconds">Seconds</label>
+                  <input id="duration-seconds" name="durationSeconds" type="number" min="0" max="59" step="1" inputmode="numeric" value="${durationSeconds % 60}" required />
+                  <span class="unit">sec</span>
+                  <button data-step="duration-seconds" data-delta="5" type="button" aria-label="Five seconds more">${icon("plus")}</button>
+                </div>
+              </div>
+            </div>
+            <div class="fsec">
+              <p class="flabel"><span>Severity</span><span>1 mild · 5 severe</span></p>
+              <input id="seizure-severity" name="severity" type="hidden" value="${escapeHtml(selectedSeverity)}" />
+              <div class="round-chips" role="group" aria-label="Severity">
+                ${[1, 2, 3, 4, 5].map((n) => `<button type="button" aria-pressed="${Number(selectedSeverity) === n}" class="round-chip ${Number(selectedSeverity) === n ? "active" : ""}" data-severity="${n}">${n}</button>`).join("")}
+              </div>
+            </div>
+            <div class="fsec">
+              <p class="flabel">Symptoms</p>
+              <div class="text-chips">
+                ${SYMPTOMS.map((symptom) => `<label class="text-chip"><input type="checkbox" name="symptoms" value="${escapeHtml(symptom)}" ${symptoms.includes(symptom) ? "checked" : ""} />${escapeHtml(symptom)}</label>`).join("")}
+              </div>
+            </div>
+            <div class="fsec">
+              <p class="flabel">Possible trigger</p>
+              <div class="text-chips">
+                ${TRIGGERS.map((item) => `<label class="text-chip"><input type="radio" name="trigger" value="${escapeHtml(item)}" ${trigger === item ? "checked" : ""} />${escapeHtml(item)}</label>`).join("")}
+              </div>
+            </div>
+            <div class="field">
+              <label for="rescue">Care given</label>
+              <textarea id="rescue" name="rescue" placeholder="Example: stayed with him, cooled the room, called the vet">${escapeHtml(editing?.rescue || "")}</textarea>
+            </div>
+            <div class="field">
+              <label for="recovery">Recovery</label>
+              <textarea id="recovery" name="recovery" placeholder="Example: pacing for 20 minutes, ate after">${escapeHtml(editing?.recovery || "")}</textarea>
+            </div>
+            <div class="field">
+              <label for="notes">Notes</label>
+              <textarea id="notes" name="notes">${escapeHtml(editing?.notes || "")}</textarea>
+            </div>
+            <div class="focus-actions">
+              <button class="btn yellow big block" type="submit">${editing ? "Update seizure" : "Save seizure"}</button>
+              ${editing ? `<button class="btn glass block" data-delete-event="${escapeHtml(editing.id)}" type="button">Delete seizure</button>` : ""}
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderTimerOverlay(enter) {
+    const plan = String(state.profile?.emergencyPlan || "").trim();
+    const minutes = clamp(Number(state.profile?.emergencyPlanMinutes) || 5, 1, 30);
+    return `
+      <div class="focus timer-focus${enter}" role="dialog" aria-modal="true" aria-label="Seizure timer" style="${focusOrigin()}" data-overlay-scroll>
+        ${leaf("--s:420px;--r:-30deg;left:-140px;top:-120px;--d:30s")}
+        ${leaf("--s:300px;--r:50deg;right:-120px;bottom:-60px;--d:34s")}
+        <div class="focus-in on-color">
+          <div class="fhead">
+            <span class="tag live">Recording</span>
+            <button class="ibtn glass" data-action="minimize-timer" type="button" aria-label="Hide the timer and keep recording">${icon("down")}</button>
+          </div>
+          <div class="timer-wrap">
+            <div class="breath"></div>
+            <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="arc-trk" cx="50" cy="50" r="48"/><circle class="arc-val" id="timer-arc" cx="50" cy="50" r="48" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/></svg>
+            <div class="timer-center">
+              <div class="timer" id="timer-out" role="timer">0:00</div>
+              <div class="timer-sub">Started ${escapeHtml(formatTime(new Date(state.timer.start)))}</div>
+            </div>
+          </div>
+          <div class="plan" id="timer-plan" data-limit="${minutes * 60}">
+            ${icon("info")}
+            <span>${plan ? `<b>Your vet's plan.</b> ${escapeHtml(plan)}` : `The ring fills at ${minutes} minute${minutes === 1 ? "" : "s"}. Add your vet's emergency plan in Household to show it here.`}</span>
+          </div>
+          <div>
+            <p class="flabel">Tap what you see. It goes into the record.</p>
+            <div class="text-chips">
+              ${SYMPTOMS.map((symptom) => `<button class="text-chip" data-mark-symptom="${escapeHtml(symptom)}" type="button" aria-pressed="${state.timer.symptoms.includes(symptom)}">${escapeHtml(symptom)}</button>`).join("")}
+            </div>
+          </div>
+          <div class="focus-actions">
+            <button class="btn yellow big block" data-action="end-timer" type="button">${icon("check")}Seizure Ended</button>
+            ${state.timerConfirmDiscard
+              ? `<div class="focus-confirm"><span>Discard this recording? The time won't be saved.</span><div class="btn-row"><button class="btn white" data-action="discard-timer" type="button">Discard</button><button class="btn glass" data-action="keep-timer" type="button">Keep Recording</button></div></div>`
+              : `<button class="btn glass block" data-action="ask-discard-timer" type="button">Discard</button>`}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderTimerPill() {
+    if (!state.timer || state.overlay?.kind === "timer") return "";
+    return `<button class="timer-pill" data-action="restore-timer" type="button"><span class="dot" aria-hidden="true"></span><span id="timer-pill-text">Recording</span><span class="return">Return</span></button>`;
+  }
+
+  function updateTimerDisplay() {
+    if (!state.timer) return;
+    const seconds = Math.max(0, (Date.now() - state.timer.start) / 1000);
+    const clock = `${Math.floor(seconds / 60)}:${pad(Math.floor(seconds % 60))}`;
+    const output = document.querySelector("#timer-out");
+    if (output) output.textContent = clock;
+    const plan = document.querySelector("#timer-plan");
+    const limit = Number(plan?.dataset.limit) || 300;
+    document.querySelector("#timer-arc")?.setAttribute("stroke-dashoffset", Math.max(0, 100 - (seconds / limit) * 100).toFixed(2));
+    plan?.classList.toggle("alert", seconds >= limit);
+    const pill = document.querySelector("#timer-pill-text");
+    if (pill) pill.textContent = `Recording ${clock}`;
+  }
+
+  function renderHousehold() {
+    const notificationText = "Notification" in window ? Notification.permission : "Not supported";
+    const pushSupported = isPushSupported();
+    const pushEnabled = pushSupported && state.settings?.pushNotificationsEnabled && Notification.permission === "granted";
+    const pushStatus = !pushSupported ? "Not supported" : Notification.permission === "denied" ? "Blocked" : pushEnabled ? "On" : "Off";
+    const lastBackup = state.settings?.lastBackupAt ? formatDateTime(new Date(state.settings.lastBackupAt)) : "No backup yet";
+
+    return `
+      ${renderPendingRecords()}
+      ${state.installPrompt ? `<section class="household-section"><h3>Install</h3><p class="subtle">Add Sawyer Tracker to the home screen for faster access.</p><button class="btn yellow" data-action="install-app" type="button">Install</button></section>` : ""}
+
+      <section class="household-section">
+        <h3>Care Setup</h3>
+        <form id="setup-form" class="form">
+          <div class="field">
+            <label for="dog-name">Dog name</label>
+            <input id="dog-name" name="dogName" value="${escapeHtml(state.profile?.name || "Sawyer")}" required />
+          </div>
+          <label class="switch-row" for="confirm-doses">
+            <span>Require confirmation for each dose<small>Otherwise doses count as given unless marked missed.</small></span>
+            <input id="confirm-doses" class="switch" name="confirmDoses" type="checkbox" ${state.profile?.doseConfirmationMode === "explicit" ? "checked" : ""} />
+          </label>
+          <div class="field">
+            <label for="emergency-plan">Emergency plan from your vet</label>
+            <textarea id="emergency-plan" name="emergencyPlan" maxlength="300" placeholder="What your vet told you to do, and when to call">${escapeHtml(state.profile?.emergencyPlan || "")}</textarea>
+            <small class="field-help">Shown on the seizure timer on both phones.</small>
+          </div>
+          <div class="field">
+            <label for="emergency-minutes">Highlight the plan after this many minutes</label>
+            <input id="emergency-minutes" name="emergencyPlanMinutes" type="number" min="1" max="30" step="1" inputmode="numeric" value="${escapeHtml(state.profile?.emergencyPlanMinutes || 5)}" />
+          </div>
+          <div class="setup-list">
+            ${state.schedules.map(renderSetupSchedule).join("")}
+          </div>
+          <button class="btn yellow big" type="submit">Save Setup</button>
+        </form>
+      </section>
+
+      <section class="household-section">
+        <h3>Seizure-free push alerts</h3>
+        <p class="subtle">Receive an alert when ${escapeHtml(state.profile?.name || "Sawyer")} earns a new 5-day heart, matches the longest completed streak, or reaches the historical average gap, even when the app is closed.</p>
+        ${isIosBrowser() ? `<p class="subtle danger-text">On iPhone, add Sawyer Tracker to the Home Screen and open it from its icon before enabling push alerts.</p>` : ""}
+        <div class="stat-row">
+          <div><small>Status</small><strong>${escapeHtml(pushStatus)}</strong></div>
+          <div><small>Permission</small><strong>${escapeHtml(capitalize(notificationText))}</strong></div>
+          <div><small>Delivery</small><strong>Background</strong></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn yellow" data-action="enable-push">Enable Push Alerts</button>
+          <button class="btn ghost" data-action="test-push" ${pushEnabled ? "" : "disabled"}>Send Test</button>
+          <button class="btn ghost" data-action="disable-push">Disable</button>
+        </div>
+        <p class="fine">Average-gap alerts describe the recorded history only. They are not a medical prediction.</p>
+      </section>
+
+      ${renderCloudSync()}
+
+      <section class="household-section">
+        <h3>Backup</h3>
+        <p class="subtle">Last backup: ${escapeHtml(lastBackup)}</p>
+        <p class="fine">Complete backups include every cloud record, deletion marker and private vet PDF.</p>
+        ${state.backupMessage ? `<p class="subtle">${escapeHtml(state.backupMessage)}</p>` : ""}
+        <div class="btn-row">
+          <button class="btn yellow" data-action="export-json" ${state.backupBusy ? "disabled" : ""}>${state.backupBusy ? "Working..." : "Download Complete Backup"}</button>
+          <button class="btn ghost" data-action="import-json" ${state.backupBusy ? "disabled" : ""}>Restore Backup</button>
+          <button class="btn ghost" data-action="export-csv" ${state.backupBusy ? "disabled" : ""}>Export CSV</button>
+        </div>
+      </section>
+
+      <section class="household-section danger-zone">
+        <h3>This Device</h3>
+        <p class="subtle">Clearing local data only affects this device.</p>
+        <button class="btn danger" data-action="reset-data">Clear Local Data</button>
+      </section>
     `;
   }
 
@@ -2264,58 +2401,45 @@
         : "Enter Sawyer's household access code before logging records. New entries are saved only when Supabase is connected.";
 
     return `
-      <section class="panel">
-        <div class="panel-body">
-          <h2>Supabase Sync</h2>
-          <div class="metric-row">
-            <div class="metric">
-              <span>Status</span>
-              <strong>${escapeHtml(syncStatus)}</strong>
-            </div>
-            <div class="metric">
-              <span>Access</span>
-              <strong>${escapeHtml(signedInEmail() || "--")}</strong>
-            </div>
-            <div class="metric">
-              <span>Last sync</span>
-              <strong>${escapeHtml(lastSync)}</strong>
-            </div>
-          </div>
-          <p class="subtle sync-message">${escapeHtml(sourceMessage)}</p>
-          ${syncMessage ? `<p class="subtle sync-message">${escapeHtml(syncMessage)}</p>` : ""}
-
-          <details class="sync-advanced">
-            <summary>Advanced connection settings</summary>
-            <form id="sync-config-form" class="form-grid sync-form">
-              <div class="field">
-                <label for="supabase-url">Project URL</label>
-                <input id="supabase-url" name="supabaseUrl" inputmode="url" value="${escapeHtml(state.settings?.supabaseUrl || "")}" placeholder="https://your-project.supabase.co" />
-              </div>
-              <div class="field">
-                <label for="supabase-anon-key">Publishable key</label>
-                <input id="supabase-anon-key" name="supabaseAnonKey" value="${escapeHtml(state.settings?.supabaseAnonKey || "")}" placeholder="sb_publishable_..." />
-              </div>
-              <div class="field">
-                <label for="supabase-household-id">Household ID</label>
-                <input id="supabase-household-id" name="supabaseHouseholdId" value="${escapeHtml(state.settings?.supabaseHouseholdId || "")}" placeholder="Created by the Supabase setup SQL" />
-              </div>
-              <button class="btn primary" type="submit">Save Sync Setup</button>
-            </form>
-          </details>
-
-          ${
-            storedAccess
-              ? `
-                <div class="button-row sync-actions">
-                  <button class="btn primary" data-action="sync-now" ${state.syncBusy ? "disabled" : ""}>Sync Now</button>
-                  <button class="btn secondary" data-action="sign-out">Forget Access</button>
-                </div>
-              `
-              : `
-                <div class="sync-form">${renderTrustedDeviceLogin(configured)}</div>
-              `
-          }
+      <section class="household-section">
+        <h3>Supabase Sync</h3>
+        <div class="stat-row">
+          <div><small>Status</small><strong>${escapeHtml(syncStatus)}</strong></div>
+          <div><small>Access</small><strong>${escapeHtml(signedInEmail() || "--")}</strong></div>
+          <div><small>Last sync</small><strong>${escapeHtml(lastSync)}</strong></div>
         </div>
+        <p class="subtle">${escapeHtml(sourceMessage)}</p>
+        ${syncMessage ? `<p class="subtle">${escapeHtml(syncMessage)}</p>` : ""}
+
+        <details class="disclosure sync-advanced">
+          <summary><span><strong>Advanced connection settings</strong></span>${icon("chev", "i chev")}</summary>
+          <form id="sync-config-form" class="form sync-form">
+            <div class="field">
+              <label for="supabase-url">Project URL</label>
+              <input id="supabase-url" name="supabaseUrl" inputmode="url" value="${escapeHtml(state.settings?.supabaseUrl || "")}" placeholder="https://your-project.supabase.co" />
+            </div>
+            <div class="field">
+              <label for="supabase-anon-key">Publishable key</label>
+              <input id="supabase-anon-key" name="supabaseAnonKey" value="${escapeHtml(state.settings?.supabaseAnonKey || "")}" placeholder="sb_publishable_..." />
+            </div>
+            <div class="field">
+              <label for="supabase-household-id">Household ID</label>
+              <input id="supabase-household-id" name="supabaseHouseholdId" value="${escapeHtml(state.settings?.supabaseHouseholdId || "")}" placeholder="Created by the Supabase setup SQL" />
+            </div>
+            <button class="btn yellow" type="submit">Save Sync Setup</button>
+          </form>
+        </details>
+
+        ${
+          storedAccess
+            ? `
+              <div class="btn-row sync-actions">
+                <button class="btn yellow" data-action="sync-now" ${state.syncBusy ? "disabled" : ""}>${icon("sync")}Sync Now</button>
+                <button class="btn ghost" data-action="sign-out">Forget Access</button>
+              </div>
+            `
+            : renderTrustedDeviceLogin(configured)
+        }
       </section>
     `;
   }
@@ -2325,42 +2449,38 @@
     // renderDateInput and renderTimeInput escape their own id and name arguments.
     const scheduleId = escapeHtml(schedule.id);
     return `
-      <div class="panel">
-        <div class="panel-body">
-          <h3>${escapeHtml(schedule.name)}</h3>
-          <div class="grid two setup-dose-grid">
-            <div class="field">
-              <label for="${scheduleId}-dose">Dose</label>
-              <input id="${scheduleId}-dose" name="${scheduleId}:dose" value="${escapeHtml(schedule.dose || "")}" placeholder="Optional" />
-            </div>
-            <div class="field">
-              <label for="${scheduleId}-unit">Unit</label>
-              <input id="${scheduleId}-unit" name="${scheduleId}:unit" value="${escapeHtml(schedule.unit || "")}" placeholder="mg, ml, capsules" />
-            </div>
+      <div class="schedule-card">
+        <h4>${escapeHtml(schedule.name)}</h4>
+        <div class="row2 setup-dose-grid">
+          <div class="field">
+            <label for="${scheduleId}-dose">Dose</label>
+            <input id="${scheduleId}-dose" name="${scheduleId}:dose" value="${escapeHtml(schedule.dose || "")}" placeholder="Optional" />
           </div>
-          <div class="field setup-effective-date">
-            <label for="${scheduleId}-effective-from">Current regimen effective from</label>
-            ${renderDateInput(`${schedule.id}-effective-from`, `${schedule.id}:effectiveFrom`, schedule.effectiveFrom || "")}
-            <small class="field-help">Leave blank when the start date is unknown.</small>
-          </div>
-          <div class="setup-list" style="margin-top: 10px;">
-            ${schedule.times.map((time) => {
-              const timeId = escapeHtml(time.id);
-              return `
-              <div class="setup-row">
-                <div class="field">
-                  <label for="${scheduleId}-${timeId}-label">${escapeHtml(time.label)}</label>
-                  <input id="${scheduleId}-${timeId}-label" name="${scheduleId}:${timeId}:label" value="${escapeHtml(time.label)}" />
-                </div>
-                <div class="field">
-                  <label for="${scheduleId}-${timeId}-time">Time</label>
-                  ${renderTimeInput(`${schedule.id}-${time.id}-time`, `${schedule.id}:${time.id}:time`, time.time)}
-                </div>
-              </div>
-            `;
-            }).join("")}
+          <div class="field">
+            <label for="${scheduleId}-unit">Unit</label>
+            <input id="${scheduleId}-unit" name="${scheduleId}:unit" value="${escapeHtml(schedule.unit || "")}" placeholder="mg, ml, capsules" />
           </div>
         </div>
+        <div class="field setup-effective-date">
+          <label for="${scheduleId}-effective-from">Current regimen effective from</label>
+          ${renderDateInput(`${schedule.id}-effective-from`, `${schedule.id}:effectiveFrom`, schedule.effectiveFrom || "")}
+          <small class="field-help">Leave blank when the start date is unknown.</small>
+        </div>
+        ${schedule.times.map((time) => {
+          const timeId = escapeHtml(time.id);
+          return `
+          <div class="row2 setup-row">
+            <div class="field">
+              <label for="${scheduleId}-${timeId}-label">${escapeHtml(time.label)}</label>
+              <input id="${scheduleId}-${timeId}-label" name="${scheduleId}:${timeId}:label" value="${escapeHtml(time.label)}" />
+            </div>
+            <div class="field">
+              <label for="${scheduleId}-${timeId}-time">Time</label>
+              ${renderTimeInput(`${schedule.id}-${time.id}-time`, `${schedule.id}:${time.id}:time`, time.time)}
+            </div>
+          </div>
+        `;
+        }).join("")}
       </div>
     `;
   }
@@ -2389,36 +2509,67 @@
     });
     document.querySelectorAll("[data-tab]").forEach((button) => {
       button.addEventListener("click", () => {
+        const changed = state.activeTab !== button.dataset.tab;
         state.activeTab = button.dataset.tab;
+        state.overlay = null;
+        state.seizurePrefill = null;
+        state.editingSeizureId = "";
+        state.editingRecordId = "";
         render();
-        if (button.dataset.focusSeizure) {
-          setTimeout(() => document.querySelector("#seizure-date")?.focus(), 50);
+        if (changed) document.querySelector(".view.active")?.classList.add("enter");
+        if (button.dataset.scroll) {
+          requestAnimationFrame(() => document.getElementById(button.dataset.scroll)?.scrollIntoView({
+            block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth"
+          }));
         }
       });
     });
 
-    document.querySelectorAll("[data-dose]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        if (state.saveBusy) return;
-        state.saveBusy = true;
-        button.disabled = true;
-        try { await logDose(button.dataset.dose, button.dataset.status); }
-        catch (error) { reportCloudSaveFailure(error); }
-        finally { state.saveBusy = false; button.disabled = false; }
-      });
-    });
-
-    document.querySelectorAll("[data-day]").forEach((button) => {
+    document.querySelectorAll("[data-overlay]").forEach((button) => {
       button.addEventListener("click", () => {
-        if (state.selectedDayKey === button.dataset.day) return;
-        state.selectedDayKey = button.dataset.day;
-        renderPreservingContentScroll();
+        state.editingSeizureId = "";
+        state.editingRecordId = "";
+        openOverlay(button.dataset.overlay, button.dataset.routine ? { routine: button.dataset.routine } : {});
+      });
+    });
+    document.querySelectorAll("[data-close-overlay]").forEach((element) => {
+      element.addEventListener("click", () => closeOverlay());
+    });
+    document.querySelectorAll("[data-routine-switch]").forEach((button) => {
+      button.addEventListener("click", () => switchRoutine(button.dataset.routineSwitch));
+    });
+    document.querySelectorAll("[data-mark-symptom]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!state.timer) return;
+        const symptom = button.dataset.markSymptom;
+        const index = state.timer.symptoms.indexOf(symptom);
+        if (index >= 0) state.timer.symptoms.splice(index, 1);
+        else state.timer.symptoms.push(symptom);
+        saveTimer();
+        button.setAttribute("aria-pressed", String(index < 0));
+      });
+    });
+    document.querySelectorAll("[data-step]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const minutes = document.querySelector("#duration-minutes");
+        const seconds = document.querySelector("#duration-seconds");
+        if (!minutes || !seconds) return;
+        const delta = Number(button.dataset.delta || 0) * (button.dataset.step === "duration-minutes" ? 60 : 1);
+        const total = Math.max(0, (Number(minutes.value) || 0) * 60 + (Number(seconds.value) || 0) + delta);
+        minutes.value = String(Math.floor(total / 60));
+        seconds.value = String(total % 60);
+        minutes.dispatchEvent(new Event("input", { bubbles: true }));
+        seconds.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    });
+    document.querySelectorAll("[data-vet-range]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.vetRange = Number(button.dataset.vetRange) || 30;
+        render();
       });
     });
 
-    document.querySelectorAll("[data-clear-dose]").forEach((button) => {
-      button.addEventListener("click", () => removeEvent(button.dataset.clearDose, "Dose cleared."));
-    });
+    bindDoseButtons(document);
 
     document.querySelectorAll("[data-delete-event]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -2501,39 +2652,6 @@
       updateOptionalTime();
     }
 
-    document.querySelectorAll("[data-record-disclosure]").forEach((disclosure) => {
-      disclosure.addEventListener("toggle", () => {
-        if (!disclosure.open) return;
-        document.querySelectorAll("[data-record-disclosure]").forEach((other) => {
-          if (other !== disclosure) other.open = false;
-        });
-      });
-    });
-
-    document.querySelectorAll("[data-insight-direction]").forEach((button) => {
-      button.addEventListener("click", () => {
-        showHomeInsight(state.homeInsightIndex + Number(button.dataset.insightDirection || 0));
-      });
-    });
-
-    document.querySelectorAll("[data-insight-index]").forEach((button) => {
-      button.addEventListener("click", () => {
-        showHomeInsight(Number(button.dataset.insightIndex || 0));
-      });
-    });
-
-    document.querySelectorAll("[data-stats-insight-direction]").forEach((button) => {
-      button.addEventListener("click", () => {
-        showStatsInsight(state.statsInsightIndex + Number(button.dataset.statsInsightDirection || 0));
-      });
-    });
-
-    document.querySelectorAll("[data-stats-insight-index]").forEach((button) => {
-      button.addEventListener("click", () => {
-        showStatsInsight(Number(button.dataset.statsInsightIndex || 0));
-      });
-    });
-
     document.querySelectorAll("[data-stats-range]").forEach((button) => {
       button.addEventListener("click", () => {
         state.statsRange = button.dataset.statsRange || "6";
@@ -2549,75 +2667,9 @@
       });
     });
 
-    document.querySelectorAll("[data-home-trend-range]").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.homeTrendRange = button.dataset.homeTrendRange || "6";
-        state.homeSelectedMonthKey = "";
-        renderPreservingContentScroll();
-      });
-    });
-
-    document.querySelectorAll("[data-home-stats-month]").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.homeSelectedMonthKey = button.dataset.homeStatsMonth || "";
-        renderPreservingContentScroll();
-      });
-    });
-
-    const homeInsight = document.querySelector("[data-home-insight]");
-    if (homeInsight) {
-      let touchStartX = 0;
-      let touchStartY = 0;
-      homeInsight.addEventListener(
-        "touchstart",
-        (event) => {
-          touchStartX = event.touches[0]?.clientX || 0;
-          touchStartY = event.touches[0]?.clientY || 0;
-        },
-        { passive: true }
-      );
-      homeInsight.addEventListener(
-        "touchend",
-        (event) => {
-          const touch = event.changedTouches[0];
-          if (!touch) return;
-          const deltaX = touch.clientX - touchStartX;
-          const deltaY = touch.clientY - touchStartY;
-          if (Math.abs(deltaX) < 45 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
-          showHomeInsight(state.homeInsightIndex + (deltaX < 0 ? 1 : -1));
-        },
-        { passive: true }
-      );
-    }
-
-    const statsInsight = document.querySelector("[data-stats-insight]");
-    if (statsInsight) {
-      let touchStartX = 0;
-      let touchStartY = 0;
-      statsInsight.addEventListener(
-        "touchstart",
-        (event) => {
-          touchStartX = event.touches[0]?.clientX || 0;
-          touchStartY = event.touches[0]?.clientY || 0;
-        },
-        { passive: true }
-      );
-      statsInsight.addEventListener(
-        "touchend",
-        (event) => {
-          const touch = event.changedTouches[0];
-          if (!touch) return;
-          const deltaX = touch.clientX - touchStartX;
-          const deltaY = touch.clientY - touchStartY;
-          if (Math.abs(deltaX) < 45 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
-          showStatsInsight(state.statsInsightIndex + (deltaX < 0 ? 1 : -1));
-        },
-        { passive: true }
-      );
-    }
-
     bindSaveForm("#seizure-form", saveSeizure);
     bindSaveForm("#note-form", saveNote);
+    bindSaveForm("#handover-form", saveNote);
     bindSaveForm("#vet-form", saveVetVisit);
     bindSaveForm("#blood-test-form", saveBloodTest);
     document.querySelector("#vet-document-form")?.addEventListener("submit", uploadVetDocument);
@@ -2638,10 +2690,33 @@
       button.addEventListener("click", () => deleteVetDocument(button.dataset.deleteVetDocument));
     });
 
-    document.querySelector("#carer-name")?.addEventListener("input", (event) => {
+    if (state.seizurePrefill && state.overlay?.kind === "seizure") {
+      // Keep the timed values as a draft so closing the review does not lose them.
+      document.querySelector("#seizure-form")?.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    bindHeroParallax();
+    bindPullRefresh();
+  }
+
+  function bindDoseButtons(root) {
+    root.querySelectorAll("[data-dose]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (state.saveBusy) return;
+        state.saveBusy = true;
+        button.disabled = true;
+        try { await logDose(button.dataset.dose, button.dataset.status); }
+        catch (error) { reportCloudSaveFailure(error); }
+        finally { state.saveBusy = false; button.disabled = false; }
+      });
+    });
+
+    root.querySelectorAll("[data-clear-dose]").forEach((button) => {
+      button.addEventListener("click", () => removeEvent(button.dataset.clearDose, "Dose cleared."));
+    });
+
+    root.querySelector("#carer-name")?.addEventListener("input", (event) => {
       updateSettings({ carerName: event.target.value.trim().slice(0, 60) }).catch(() => {});
     });
-    bindPullRefresh();
   }
 
   function bindSaveForm(selector, handler) {
@@ -2671,112 +2746,195 @@
     });
   }
 
-  function centerSelectedDayPill() {
-    if (state.activeTab !== "today") return;
-    requestAnimationFrame(() => {
-      const strip = document.querySelector("[data-month-strip]");
-      const active = strip?.querySelector(".day-pill.active");
-      if (!strip || !active) return;
-      strip.scrollLeft = active.offsetLeft - strip.clientWidth / 2 + active.clientWidth / 2;
-    });
+  function bindHeroParallax() {
+    const hero = document.querySelector("#hero");
+    if (!hero || prefersReducedMotion()) return;
+    const scroller = isIosBrowser() ? window : document.querySelector(".content");
+    if (!scroller || scroller.__heroParallaxBound === hero) return;
+    scroller.__heroParallaxBound = hero;
+    let queued = false;
+    scroller.addEventListener("scroll", () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        const current = document.querySelector("#hero");
+        if (!current) return;
+        const top = scroller === window ? window.scrollY : scroller.scrollTop;
+        current.style.setProperty("--py", `${Math.min(top, 700) * 0.22}px`);
+      });
+    }, { passive: true });
   }
 
-  function showHomeInsight(index, options = {}) {
-    const container = document.querySelector("[data-home-insight]");
-    if (!container) return;
-    const insights = buildHomeInsights(getSummary());
-    if (!insights.length) return;
-
-    const signature = insights.map((insight) => `${insight.title}:${insight.body}`).join("|");
-    if (signature !== state.homeInsightSignature) {
-      state.homeInsightSignature = signature;
-      index = 0;
-    }
-
-    state.homeInsightIndex = ((index % insights.length) + insights.length) % insights.length;
-    const insight = insights[state.homeInsightIndex];
-    const copy = container.querySelector(".home-insight-copy");
-    const title = container.querySelector("[data-home-insight-title]");
-    const body = container.querySelector("[data-home-insight-body]");
-    const counter = container.querySelector("[data-insight-counter]");
-    if (title) title.textContent = insight.title;
-    if (body) body.textContent = insight.body;
-    if (counter) counter.textContent = `${state.homeInsightIndex + 1} of ${insights.length}`;
-    if (copy) {
-      copy.classList.remove("changing");
-      void copy.offsetWidth;
-      copy.classList.add("changing");
-    }
-
-    container.querySelectorAll("[data-insight-index]").forEach((button) => {
-      const active = Number(button.dataset.insightIndex) === state.homeInsightIndex;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-current", active ? "true" : "false");
-    });
-
-    if (options.restart !== false) startHomeInsightRotation();
+  function openOverlay(kind, extra = {}) {
+    // A sheet opened during another sheet's closing animation must not be closed by it.
+    clearTimeout(state.overlayCloseTimer);
+    state.overlay = { kind, ...extra };
+    state.overlayFresh = true;
+    state.timerConfirmDiscard = false;
+    render();
   }
 
-  function startHomeInsightRotation() {
-    clearInterval(state.homeInsightTimer);
-    state.homeInsightTimer = null;
-    if (state.activeTab !== "today" || !document.querySelector("[data-home-insight]")) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
-    if (buildHomeInsights(getSummary()).length < 2) return;
-
-    state.homeInsightTimer = setInterval(() => {
-      if (!document.hidden) showHomeInsight(state.homeInsightIndex + 1, { restart: false });
-    }, 10000);
+  function closeOverlay() {
+    const finish = () => {
+      state.overlay = null;
+      state.seizurePrefill = null;
+      state.editingSeizureId = "";
+      state.editingRecordId = "";
+      state.timerConfirmDiscard = false;
+      render();
+    };
+    const panel = document.querySelector(".sheet, .focus");
+    if (!panel || prefersReducedMotion()) {
+      finish();
+      return;
+    }
+    panel.classList.add("leaving");
+    document.querySelector(".scrim")?.classList.add("leaving");
+    clearTimeout(state.overlayCloseTimer);
+    state.overlayCloseTimer = setTimeout(finish, 240);
   }
 
-  function showStatsInsight(index) {
-    const container = document.querySelector("[data-stats-insight]");
-    if (!container) return;
-    const insights = buildInsights(getSummary());
-    if (!insights.length) return;
-
-    const signature = insights.map((insight) => `${insight.title}:${insight.body}`).join("|");
-    if (signature !== state.statsInsightSignature) {
-      state.statsInsightSignature = signature;
-      index = 0;
+  function switchRoutine(routine) {
+    if (!ROUTINES[routine] || state.overlay?.kind !== "routine" || state.overlay.routine === routine) return;
+    state.overlay = { kind: "routine", routine };
+    const sheet = document.querySelector(".routine-sheet");
+    const body = sheet?.querySelector("#routine-body");
+    if (!sheet || !body || prefersReducedMotion()) {
+      render();
+      return;
     }
-
-    state.statsInsightIndex = ((index % insights.length) + insights.length) % insights.length;
-    const insight = insights[state.statsInsightIndex];
-    const copy = container.querySelector(".stats-observation-copy");
-    const kicker = container.querySelector("[data-stats-insight-kicker]");
-    const title = container.querySelector("[data-stats-insight-title]");
-    const body = container.querySelector("[data-stats-insight-body]");
-    const counter = container.querySelector("[data-stats-insight-counter]");
-    if (kicker) kicker.textContent = `Observation ${String(state.statsInsightIndex + 1).padStart(2, "0")}`;
-    if (title) title.textContent = insight.title;
-    if (body) body.textContent = insight.body;
-    if (counter) counter.textContent = `${state.statsInsightIndex + 1} of ${insights.length}`;
-    if (copy) {
-      copy.classList.remove("changing");
-      void copy.offsetWidth;
-      copy.classList.add("changing");
-    }
-
-    container.querySelectorAll("[data-stats-insight-index]").forEach((button) => {
-      const active = Number(button.dataset.statsInsightIndex) === state.statsInsightIndex;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-current", active ? "true" : "false");
+    // Change the colour field in place so it dissolves from day to night instead of redrawing.
+    const tone = ROUTINES[routine].tone;
+    sheet.classList.remove("tone-yellow", "tone-berry");
+    sheet.classList.add(`tone-${tone}`);
+    sheet.querySelector(".layer-yellow").style.opacity = tone === "yellow" ? "1" : "0";
+    sheet.querySelector(".layer-berry").style.opacity = tone === "berry" ? "1" : "0";
+    sheet.querySelectorAll("[data-routine-switch]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.routineSwitch === routine));
     });
+    body.classList.remove("unfold");
+    body.innerHTML = renderRoutineBody(routine);
+    void body.offsetWidth;
+    body.classList.add("unfold");
+    body.scrollTop = 0;
+    bindDoseButtons(body);
+  }
+
+  function readTimer() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(TIMER_STORAGE) || "null");
+      if (!saved || !Number.isFinite(saved.start) || Date.now() - saved.start > 6 * 60 * 60 * 1000) return null;
+      return { start: saved.start, symptoms: Array.isArray(saved.symptoms) ? saved.symptoms.filter((item) => SYMPTOMS.includes(item)) : [] };
+    } catch {
+      return null;
+    }
+  }
+
+  function saveTimer() {
+    try {
+      if (state.timer) localStorage.setItem(TIMER_STORAGE, JSON.stringify(state.timer));
+      else localStorage.removeItem(TIMER_STORAGE);
+    } catch { /* The timer still runs for this session. */ }
+  }
+
+  async function requestWakeLock() {
+    if (!state.timer || state.wakeLock || !navigator.wakeLock || document.visibilityState !== "visible") return;
+    try {
+      state.wakeLock = await navigator.wakeLock.request("screen");
+      state.wakeLock.addEventListener?.("release", () => { state.wakeLock = null; });
+    } catch {
+      state.wakeLock = null;
+    }
+  }
+
+  function releaseWakeLock() {
+    try { state.wakeLock?.release(); } catch { /* Already released. */ }
+    state.wakeLock = null;
+  }
+
+  function startTimer() {
+    if (!state.timer) {
+      state.timer = { start: Date.now(), symptoms: [] };
+      saveTimer();
+    }
+    requestWakeLock();
+    state.editingSeizureId = "";
+    openOverlay("timer");
+  }
+
+  function endTimer() {
+    if (!state.timer) return;
+    const seconds = Math.max(1, Math.round((Date.now() - state.timer.start) / 1000));
+    state.seizurePrefill = {
+      occurredAt: new Date(state.timer.start).toISOString(),
+      durationSeconds: seconds,
+      symptoms: state.timer.symptoms.slice()
+    };
+    state.timer = null;
+    saveTimer();
+    releaseWakeLock();
+    state.editingSeizureId = "";
+    // The timed values replace an older unfinished new-seizure draft.
+    drafts.clearFor("seizure-form");
+    state.overlay = { kind: "seizure" };
+    state.overlayFresh = false;
+    render();
+    document.querySelector(".seizure-focus .focus-in")?.classList.add("enter");
+  }
+
+  function discardTimer() {
+    state.timer = null;
+    saveTimer();
+    releaseWakeLock();
+    state.overlay = null;
+    state.timerConfirmDiscard = false;
+    render();
+    showToast("Recording discarded.");
+  }
+
+  async function copyVisitSummary() {
+    const text = visitSummaryText(visitSummaryData(state.vetRange));
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Summary copied.");
+    } catch {
+      const holder = document.querySelector("#summary-fallback");
+      if (holder) {
+        holder.innerHTML = `<textarea class="copy-fallback" readonly aria-label="Visit summary text">${escapeHtml(text)}</textarea>`;
+        const area = holder.querySelector("textarea");
+        area.focus();
+        area.select();
+      }
+      showToast("Copying is not available here. The summary text is selected below.");
+    }
+  }
+
+  function showChartTip(target) {
+    const tip = document.querySelector("#chart-tip");
+    if (!tip || !target.dataset.tip) return;
+    const rect = target.getBoundingClientRect();
+    tip.textContent = target.dataset.tip;
+    tip.style.left = `${clamp(rect.left + rect.width / 2, 120, window.innerWidth - 120)}px`;
+    tip.style.top = `${rect.top + Math.min(rect.height / 2, 14)}px`;
+    tip.classList.add("show");
+  }
+
+  function hideChartTip() {
+    document.querySelector("#chart-tip")?.classList.remove("show");
   }
 
   function renderPreservingContentScroll() {
     const restoreScroll = captureContentScroll();
     render();
     restoreScroll();
-    centerSelectedDayPill();
   }
 
   function captureContentScroll() {
     const content = document.querySelector(".content");
     const useWindowScroll = isIosBrowser();
     const scrollTop = useWindowScroll ? window.scrollY || 0 : content?.scrollTop || 0;
-    const horizontalScrolls = [".home-month-chart", ".stats-month-chart"]
+    const horizontalScrolls = [".month-chart", ".chips.filters"]
       .map((selector) => {
         const element = document.querySelector(selector);
         return element ? { selector, scrollLeft: element.scrollLeft } : null;
@@ -2886,15 +3044,21 @@
   }
 
   async function handleAction(action) {
-    if (action === "quick-note") {
-      state.activeTab = "log";
+    if (action === "quick-note") openOverlay("note");
+    if (action === "start-timer") startTimer();
+    if (action === "end-timer") endTimer();
+    if (action === "minimize-timer") {
+      state.overlay = null;
       render();
-      setTimeout(() => {
-        const noteTitle = document.querySelector("#note-title");
-        if (noteTitle?.closest("details")) noteTitle.closest("details").open = true;
-        noteTitle?.focus();
-      }, 50);
     }
+    if (action === "restore-timer") openOverlay("timer");
+    if (action === "ask-discard-timer" || action === "keep-timer") {
+      state.timerConfirmDiscard = action === "ask-discard-timer";
+      render();
+    }
+    if (action === "discard-timer") discardTimer();
+    if (action === "close-overlay") closeOverlay();
+    if (action === "copy-summary") copyVisitSummary();
     if (action === "install-app") installApp();
     if (action === "enable-push") enablePushNotifications();
     if (action === "test-push") testPushNotification();
@@ -3014,6 +3178,7 @@
         updatedAt: timestamp,
         syncStatus: "local"
       });
+      if (state.editingSeizureId === id || state.editingRecordId === id) state.overlay = null;
       if (state.editingSeizureId === id) state.editingSeizureId = "";
       if (state.editingRecordId === id) state.editingRecordId = "";
       await hydrate();
@@ -3035,15 +3200,13 @@
 
     state.editingSeizureId = existing.id;
     state.editingRecordId = "";
+    state.seizurePrefill = null;
     state.severity = existing.severity || 3;
-    state.activeTab = "log";
-    render();
-    setTimeout(() => document.querySelector("#seizure-date")?.focus(), 50);
+    openOverlay("seizure");
   }
 
   function cancelSeizureEdit() {
-    state.editingSeizureId = "";
-    render();
+    closeOverlay();
   }
 
   function editRecord(id) {
@@ -3056,13 +3219,11 @@
     }
     state.editingRecordId = id;
     state.editingSeizureId = "";
-    state.activeTab = "log";
-    render();
+    openOverlay(record.type);
   }
 
   function cancelRecordEdit() {
-    state.editingRecordId = "";
-    render();
+    closeOverlay();
   }
 
   async function saveSeizure(event) {
@@ -3103,11 +3264,15 @@
     try {
       record.syncBaseUpdatedAt = form.get("_baseUpdatedAt") || null;
       await persistEventMutation(record, () => drafts.clear(event.currentTarget));
-      if (existing) state.editingSeizureId = "";
+      state.editingSeizureId = "";
+      state.seizurePrefill = null;
+      state.overlay = null;
       await hydrate();
       const savedRecord = state.events.find((item) => item.id === record.id) || record;
       const clusterDetected = isAutomaticCluster(savedRecord);
       state.activeTab = "today";
+      // Show the updated streak from the top rather than where the page was left.
+      state.renderedTab = "";
       render();
       showSaveToast(
         clusterDetected
@@ -3140,6 +3305,8 @@
       occurredAt: existing?.occurredAt || timestamp,
       title,
       body,
+      handover: form.get("handover") === "on",
+      recordedBy: existing?.recordedBy || String(state.settings?.carerName || "").trim().slice(0, 60),
       createdAt: existing?.createdAt || timestamp,
       updatedAt: timestamp,
       syncStatus: "local"
@@ -3149,10 +3316,10 @@
       record.syncBaseUpdatedAt = form.get("_baseUpdatedAt") || null;
       await persistEventMutation(record, () => drafts.clear(event.currentTarget));
       await hydrate();
-      if (existing) state.editingRecordId = "";
-      state.activeTab = "today";
+      state.editingRecordId = "";
+      state.overlay = null;
       render();
-      showSaveToast(existing ? "Note updated." : "Note saved.");
+      showSaveToast(existing ? "Note updated." : record.handover ? "Handover posted." : "Note saved.");
     } catch (error) {
       reportCloudSaveFailure(error);
     }
@@ -3188,8 +3355,8 @@
       record.syncBaseUpdatedAt = form.get("_baseUpdatedAt") || null;
       await persistEventMutation(record, () => drafts.clear(event.currentTarget));
       await hydrate();
-      if (existing) state.editingRecordId = "";
-      state.activeTab = "today";
+      state.editingRecordId = "";
+      state.overlay = null;
       render();
       showSaveToast(existing ? "Vet visit updated." : "Vet visit saved.");
     } catch (error) {
@@ -3232,8 +3399,8 @@
       record.syncBaseUpdatedAt = form.get("_baseUpdatedAt") || null;
       await persistEventMutation(record, () => drafts.clear(event.currentTarget));
       await hydrate();
-      if (existing) state.editingRecordId = "";
-      state.activeTab = "today";
+      state.editingRecordId = "";
+      state.overlay = null;
       render();
       showSaveToast(existing ? "Blood test updated." : "Blood test saved.");
     } catch (error) {
@@ -3438,6 +3605,8 @@
       ...state.profile,
       name: dogName,
       doseConfirmationMode: form.get("confirmDoses") === "on" ? "explicit" : "assumed",
+      emergencyPlan: String(form.get("emergencyPlan") || "").trim().slice(0, 300),
+      emergencyPlanMinutes: clamp(Math.round(Number(form.get("emergencyPlanMinutes")) || 5), 1, 30),
       syncBaseUpdatedAt: bases[state.profile.id] || null,
       updatedAt: timestamp,
       syncStatus: "local"
@@ -4105,23 +4274,8 @@
       .sort((a, b) => a.dueAt - b.dueAt || a.schedule.name.localeCompare(b.schedule.name));
   }
 
-  function getNextDueEntry(entries) {
-    const now = new Date();
-    return (
-      entries.find((entry) => !entry.log && entry.dueAt >= now) ||
-      null
-    );
-  }
 
-  function dayKeyToDate(dayKey) {
-    return localTimeToDate(dayKey || localDateKey(new Date()), "00:00");
-  }
 
-  function eventsForDay(dayKey) {
-    return state.events
-      .filter((event) => eventDayKey(event) === dayKey)
-      .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
-  }
 
   function eventDayKey(event) {
     if (event.dayKey) return event.dayKey;
@@ -4387,50 +4541,6 @@
     return insights;
   }
 
-  function buildHomeInsights(summary) {
-    const insights = buildInsights(summary).filter((insight) => insight.title !== "Vet wording");
-    const latestBlood = latestEventOfType("blood_test");
-    const clusterInsight = insights.find((insight) => insight.title === "Cluster pattern detected");
-    const ordered = [];
-
-    if (clusterInsight) ordered.push(clusterInsight);
-
-    if (latestBlood?.phenobarbitalLevel || latestBlood?.bromideLevel) {
-      const levels = [
-        latestBlood.phenobarbitalLevel ? `phenobarbital ${latestBlood.phenobarbitalLevel}` : "",
-        latestBlood.bromideLevel ? `bromide ${latestBlood.bromideLevel}` : ""
-      ].filter(Boolean);
-      ordered.push({
-        title: "Blood result saved",
-        body: `${latestBlood.panel || "Latest blood test"} includes ${levels.join(" and ")}. Compare this with future seizure spacing in Stats.`
-      });
-    }
-
-    insights.forEach((insight) => {
-      if (insight === clusterInsight) return;
-      if (
-        (latestBlood?.phenobarbitalLevel || latestBlood?.bromideLevel) &&
-        insight.title === "Latest blood test"
-      ) {
-        return;
-      }
-      ordered.push(insight);
-    });
-
-    if (!ordered.length) {
-      ordered.push({
-        title: "Start building a pattern",
-        body: `${state.profile?.name || "Sawyer"}'s medication plan is tracked automatically. Add seizure, vet, and blood-test records as they happen.`
-      });
-    }
-
-    return ordered
-      .filter(
-        (insight, index, all) =>
-          all.findIndex((candidate) => candidate.title === insight.title && candidate.body === insight.body) === index
-      )
-      .slice(0, 8);
-  }
 
   function latestEventOfType(type) {
     return state.events
@@ -4482,9 +4592,6 @@
     return winner.count ? winner : null;
   }
 
-  function getMonthlySeizureCounts() {
-    return getStatsMonthlyData("6");
-  }
 
   function getStatsMonthlyData(range = "6") {
     const now = new Date();
@@ -5164,9 +5271,6 @@
     return `${round1(value / (1024 * 1024))} MB`;
   }
 
-  function startOfDay(date) {
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  }
 
   function uid() {
     if (crypto.randomUUID) return crypto.randomUUID();
@@ -5224,6 +5328,7 @@
     toast.textContent = message;
     toast.classList.add("show");
     clearTimeout(state.toastTimer);
-    state.toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
+    toast.classList.remove("steady");
+    state.toastTimer = setTimeout(() => document.querySelector("#toast")?.classList.remove("show", "steady"), 2600);
   }
 })();
