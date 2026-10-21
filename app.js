@@ -928,12 +928,7 @@
     const fresh = state.overlayFresh;
     const sameTab = state.renderedTab === state.activeTab;
     const contentScroll = sameTab ? document.querySelector(".content")?.scrollTop || 0 : 0;
-    // Redrawing the same screen keeps every animation where it was, so a background refresh
-    // (like the sync that lands after the app opens) does not replay the screen's entrance.
-    const now = performance.now();
-    if (!sameTab) state.sceneStart = now;
-    document.documentElement.style.setProperty("--age", `${((state.sceneStart - now) / 1000).toFixed(3)}s`);
-    app.innerHTML = `
+    const markup = `
       <div class="screen${state.pullRefreshing ? " refreshing" : ""}">
         ${renderPullRefresh()}
         <main class="content">
@@ -972,6 +967,15 @@
       </div>
     `;
 
+    // Redrawing the same screen keeps every animation where it was, so a background refresh
+    // (like the sync that lands after the app opens) does not replay the screen's entrance.
+    // The clock is read after the markup is built, so the time spent building it is not lost
+    // from the animations that resume.
+    const now = performance.now();
+    if (!sameTab) state.sceneStart = now;
+    document.documentElement.style.setProperty("--age", `${((state.sceneStart - now) / 1000).toFixed(3)}s`);
+    app.innerHTML = markup;
+
     // Marks that are new on this redraw, such as a dose just ticked off, still animate in.
     const animated = new Set();
     app.querySelectorAll(REPLAY_WHEN_CHANGED).forEach((element, index) => {
@@ -981,6 +985,15 @@
       if (sameTab && !state.animatedMarkup.has(markup)) element.style.setProperty("--age", "0s");
     });
     state.animatedMarkup = animated;
+
+    // CSS would start these animations at the next frame, which can come well after the clock was read
+    // on a busy phone. Pinning their start to that reading keeps a redraw seamless however late the
+    // frame is. Scroll-driven animations run on their own timeline and are left alone.
+    app.getAnimations?.({ subtree: true }).forEach((animation) => {
+      if (animation.timeline === document.timeline && animation.startTime === null && animation.playState === "running") {
+        animation.startTime = now;
+      }
+    });
 
     bindUi();
     restoreToast(toastText);
