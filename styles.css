@@ -933,7 +933,6 @@ html.ios-browser .pull-refresh {
   min-width: 0;
   align-content: start;
   gap: 20px;
-  translate: 0 var(--py, 0px);
 }
 
 .notice {
@@ -1130,13 +1129,11 @@ html.ios-browser .pull-refresh {
     width: min(270px, 26vw);
     height: auto;
     aspect-ratio: 1;
-    translate: 0 calc(var(--py, 0px) * -0.4);
   }
 
   .hero-side {
     display: block;
     height: 440px;
-    translate: 0 calc(var(--py, 0px) * -0.6);
   }
 }
 

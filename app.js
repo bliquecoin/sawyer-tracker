@@ -2694,7 +2694,6 @@
       // Keep the timed values as a draft so closing the review does not lose them.
       document.querySelector("#seizure-form")?.dispatchEvent(new Event("change", { bubbles: true }));
     }
-    bindHeroParallax();
     bindPullRefresh();
   }
 
@@ -2746,25 +2745,6 @@
     });
   }
 
-  function bindHeroParallax() {
-    const hero = document.querySelector("#hero");
-    if (!hero || prefersReducedMotion()) return;
-    const scroller = isIosBrowser() ? window : document.querySelector(".content");
-    if (!scroller || scroller.__heroParallaxBound === hero) return;
-    scroller.__heroParallaxBound = hero;
-    let queued = false;
-    scroller.addEventListener("scroll", () => {
-      if (queued) return;
-      queued = true;
-      requestAnimationFrame(() => {
-        queued = false;
-        const current = document.querySelector("#hero");
-        if (!current) return;
-        const top = scroller === window ? window.scrollY : scroller.scrollTop;
-        current.style.setProperty("--py", `${Math.min(top, 700) * 0.22}px`);
-      });
-    }, { passive: true });
-  }
 
   function openOverlay(kind, extra = {}) {
     // A sheet opened during another sheet's closing animation must not be closed by it.
