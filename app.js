@@ -892,6 +892,15 @@
     return `<i class="leaf" style="${style}" aria-hidden="true"></i>`;
   }
 
+  function focusLeaves() {
+    // The leaves hang off the edges, so they sit in a clipped layer: otherwise they widen the scrolling
+    // focus screen and it can be dragged sideways and past the end of its content.
+    return `<div class="focus-bg" aria-hidden="true">
+          ${leaf("--s:420px;--r:-30deg;left:-140px;top:-120px;--d:30s")}
+          ${leaf("--s:300px;--r:50deg;right:-120px;bottom:-60px;--d:34s")}
+        </div>`;
+  }
+
   function prefersReducedMotion() {
     return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
   }
@@ -2532,8 +2541,7 @@
 
     return `
       <div class="focus seizure-focus${enter}" role="dialog" aria-modal="true" aria-labelledby="focus-title" style="${focusOrigin()}" data-overlay-scroll>
-        ${leaf("--s:420px;--r:-30deg;left:-140px;top:-120px;--d:30s")}
-        ${leaf("--s:300px;--r:50deg;right:-120px;bottom:-60px;--d:34s")}
+        ${focusLeaves()}
         <div class="focus-in on-color">
           <div class="fhead">
             <span class="tag glass">${editing ? "Update record" : prefill ? "From the timer" : "Quick record"}</span>
@@ -2621,8 +2629,7 @@
     const minutes = clamp(Number(state.profile?.emergencyPlanMinutes) || 5, 1, 30);
     return `
       <div class="focus timer-focus${enter}" role="dialog" aria-modal="true" aria-label="Seizure timer" style="${focusOrigin()}" data-overlay-scroll>
-        ${leaf("--s:420px;--r:-30deg;left:-140px;top:-120px;--d:30s")}
-        ${leaf("--s:300px;--r:50deg;right:-120px;bottom:-60px;--d:34s")}
+        ${focusLeaves()}
         <div class="focus-in on-color">
           <div class="fhead">
             <span class="tag live">Recording</span>

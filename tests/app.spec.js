@@ -313,7 +313,7 @@ test("the sign-in screen fills the screen and signs in with the household code",
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=98");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=99");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
@@ -645,6 +645,25 @@ test("drafts survive closing, foreground refresh and reload without truncating d
   expect(errors).toEqual([]);
 });
 
+test("the timer and seizure screens can't be dragged sideways or past their content", async ({ page }) => {
+  const errors = await openTracker(page);
+  const overflow = (selector) => page.locator(selector).evaluate((screen) => ({
+    sideways: screen.scrollWidth - screen.clientWidth,
+    pastContent: screen.scrollHeight - Math.max(screen.clientHeight, screen.querySelector(".focus-in").offsetHeight)
+  }));
+
+  await page.locator("#hero").getByRole("button", { name: "Record Seizure" }).click();
+  await expect(page.locator(".timer-focus")).toBeVisible();
+  expect(await overflow(".timer-focus")).toEqual({ sideways: 0, pastContent: 0 });
+  await page.getByRole("button", { name: "Hide the timer and keep recording" }).click();
+  await expect(page.locator(".timer-focus")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Log Past Seizure" }).first().click();
+  await expect(page.locator(".seizure-focus")).toBeVisible();
+  expect(await overflow(".seizure-focus")).toEqual({ sideways: 0, pastContent: 0 });
+  expect(errors).toEqual([]);
+});
+
 test("the seizure timer survives hiding and fills the review with its duration and symptoms", async ({ page }) => {
   const errors = await openTracker(page);
   await page.locator("#hero").getByRole("button", { name: "Record Seizure" }).click();
@@ -918,7 +937,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-99");
+      const cache = await caches.open("sawyer-tracker-shell-100");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);
