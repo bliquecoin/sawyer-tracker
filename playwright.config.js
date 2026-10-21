@@ -15,7 +15,12 @@ module.exports = defineConfig({
   },
   projects: [
     { name: "chromium", use: { browserName: "chromium" } },
-    { name: "iphone-webkit", use: { ...devices["iPhone 13"], browserName: "webkit" } }
+    // GitHub's runners draw WebKit without a GPU, so the hero's constant motion can keep buttons
+    // from ever settling for a click there. Chromium still runs every test with motion on.
+    {
+      name: "iphone-webkit",
+      use: { ...devices["iPhone 13"], browserName: "webkit", contextOptions: { reducedMotion: "reduce" } }
+    }
   ],
   webServer: {
     command: "python3 -m http.server 4191",
