@@ -571,7 +571,7 @@ html.ios-browser .pull-refresh {
   width: var(--s);
   height: var(--s);
   border-radius: 0 100% 0 100%;
-  background: var(--leaf, rgba(255, 255, 255, 0.08));
+  background: var(--leaf, rgba(255, 255, 255, 0.056));
   pointer-events: none;
   rotate: var(--r, 0deg);
   animation: drift var(--d, 24s) ease-in-out var(--age, 0s) infinite alternate;
@@ -592,7 +592,7 @@ html.ios-browser .pull-refresh {
 
 .orbit ellipse {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.14);
+  stroke: rgba(255, 255, 255, 0.098);
   stroke-width: 1;
 }
 
@@ -944,7 +944,7 @@ html.ios-browser .pull-refresh {
 
 /* The drifting leaves stay faint so they never pull the eye from the count. */
 .hero .leaf {
-  --leaf: rgba(255, 255, 255, 0.04);
+  --leaf: rgba(255, 255, 255, 0.028);
 }
 
 .hero.glow-berry {
@@ -961,11 +961,11 @@ html.ios-browser .pull-refresh {
 }
 
 .hero.glow-yellow .leaf {
-  --leaf: rgba(255, 255, 255, 0.09);
+  --leaf: rgba(255, 255, 255, 0.063);
 }
 
 .hero.glow-yellow .orbit ellipse {
-  stroke: rgba(255, 255, 255, 0.25);
+  stroke: rgba(255, 255, 255, 0.175);
 }
 
 @media (min-width: 960px) {
@@ -1153,7 +1153,7 @@ html.ios-browser .pull-refresh {
   height: 68px;
   margin: 0;
   overflow: hidden;
-  border-radius: 0 100% 0 100%;
+  border-radius: 32%;
   background: var(--hero-glass);
   box-shadow: inset 0 0 0 1px var(--hero-glass-line);
 }
@@ -1411,11 +1411,11 @@ html.ios-browser .pull-refresh {
 }
 
 .routine-card .leaf {
-  --leaf: rgba(255, 255, 255, 0.14);
+  --leaf: rgba(255, 255, 255, 0.098);
 }
 
 .routine-card.night .leaf {
-  --leaf: rgba(255, 255, 255, 0.08);
+  --leaf: rgba(255, 255, 255, 0.056);
 }
 
 .routine-card > *:not(.leaf) {
@@ -3738,11 +3738,11 @@ textarea:focus,
 }
 
 .sheet .leaf {
-  --leaf: rgba(255, 255, 255, 0.12);
+  --leaf: rgba(255, 255, 255, 0.084);
 }
 
 .tone-berry .leaf {
-  --leaf: rgba(255, 255, 255, 0.07);
+  --leaf: rgba(255, 255, 255, 0.049);
 }
 
 .grab {
@@ -3857,7 +3857,7 @@ textarea:focus,
 }
 
 .menu-tile.big .leaf {
-  --leaf: rgba(255, 255, 255, 0.05);
+  --leaf: rgba(255, 255, 255, 0.035);
 }
 
 .menu-tile.big > *:not(.leaf) {
@@ -4238,7 +4238,7 @@ textarea:focus,
 }
 
 .focus .leaf {
-  --leaf: rgba(255, 255, 255, 0.045);
+  --leaf: rgba(255, 255, 255, 0.032);
 }
 
 .focus-in {
@@ -4590,7 +4590,7 @@ html.ios-browser .login-screen {
   z-index: -1;
   width: var(--s);
   height: var(--s);
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.049);
   -webkit-mask: var(--paw) center / contain no-repeat;
   mask: var(--paw) center / contain no-repeat;
   pointer-events: none;
