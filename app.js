@@ -59,6 +59,7 @@
     startupSync: false,
     syncFlight: CORE.createSingleFlight(),
     syncMessage: "",
+    loginError: "",
     syncTimer: null,
     storageUnavailable: false,
     aiBusy: false,
@@ -910,6 +911,7 @@
     } catch { /* View recovery is optional. */ }
 
     if (shouldShowLoginScreen()) {
+      const typedCode = document.querySelector("#household-access-code")?.value || "";
       app.innerHTML = `
         <div class="screen login-screen">
           <main class="login-content">
@@ -920,6 +922,9 @@
       `;
       bindUi();
       restoreToast(toastText);
+      // A redraw, such as going offline or a failed sign-in, keeps the code that was typed.
+      const codeInput = document.querySelector("#household-access-code");
+      if (codeInput && typedCode) codeInput.value = typedCode;
       state.renderedTab = "";
       return;
     }
@@ -1335,31 +1340,38 @@
   }
 
   function renderLoginScreen() {
+    const name = escapeHtml(state.profile?.name || "Sawyer");
+    const message = state.loginError
+      ? `<p class="login-message error rise" style="--i:3" role="alert">${escapeHtml(state.loginError)}</p>`
+      : `<p class="login-message rise" style="--i:3">Use the same code on every phone in your household. If you don't have it, ask whoever set up ${name}'s tracker.</p>`;
     return `
-      <section class="login-card">
-        ${leaf("--s:300px;--r:30deg;right:-90px;top:-90px")}
-        ${leaf("--s:180px;--r:-20deg;left:-60px;bottom:-40px;--d:30s")}
-        <div class="login-copy">
-          <p class="eyebrow">${escapeHtml(formatWelcomeDate(new Date()))}</p>
-          <h1>Sawyer Tracker</h1>
-          <p>Enter the household access code once on this device. After that, Sawyer's records sync directly with Supabase without email sign-in.</p>
+      <span class="login-paw big" aria-hidden="true"></span>
+      <span class="login-paw small" aria-hidden="true"></span>
+      <section class="login-card" aria-labelledby="login-title">
+        <span class="login-mark rise" style="--i:0" aria-hidden="true"></span>
+        <div class="login-copy rise" style="--i:1">
+          <h1 id="login-title">Welcome back</h1>
+          <p>Sign in with your household code to see ${name}'s care records.</p>
         </div>
-
-        ${renderTrustedDeviceLogin(true)}
-
-        <p class="login-message">${escapeHtml(state.syncMessage || state.settings?.lastSyncMessage || "Use the same access code on both phones to keep one shared Supabase record.")}</p>
+        <div class="rise" style="--i:2">${renderTrustedDeviceLogin(true)}</div>
+        ${message}
       </section>
     `;
   }
 
   function renderTrustedDeviceLogin(configured) {
+    // The read-only username lets password managers save the code as a household login.
     return `
       <form id="access-form" class="form access-form">
+        <input class="sr-only" type="text" name="username" autocomplete="username" value="Sawyer household" tabindex="-1" aria-hidden="true" readonly />
         <div class="field">
-          <label for="household-access-code">Household access code</label>
-          <input id="household-access-code" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter Sawyer's code" required />
+          <label for="household-access-code">Household code</label>
+          <div class="code-input">
+            <input id="household-access-code" name="accessCode" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" minlength="10" placeholder="Enter your code" required />
+            <button class="reveal" data-reveal-code type="button" aria-controls="household-access-code" aria-pressed="false">Show</button>
+          </div>
         </div>
-        <button class="btn yellow big block" type="submit" ${configured ? "" : "disabled"}>Connect to Supabase</button>
+        <button class="btn yellow big block" type="submit" ${configured ? "" : "disabled"}>Sign in</button>
       </form>
     `;
   }
@@ -3022,6 +3034,15 @@
     bindSaveForm("#setup-form", saveSetup);
     document.querySelector("#sync-config-form")?.addEventListener("submit", saveSyncConfig);
     document.querySelector("#access-form")?.addEventListener("submit", saveAccessCode);
+    document.querySelector("[data-reveal-code]")?.addEventListener("click", (event) => {
+      const input = document.querySelector("#household-access-code");
+      if (!input) return;
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      event.currentTarget.textContent = show ? "Hide" : "Show";
+      event.currentTarget.setAttribute("aria-pressed", String(show));
+      input.focus({ preventScroll: true });
+    });
 
     document.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", () => handleAction(button.dataset.action));
@@ -4197,11 +4218,17 @@
 
   async function saveAccessCode(event) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const accessCode = String(form.get("accessCode") || "").trim();
     if (accessCode.length < 10) {
-      showToast("Enter Sawyer's household access code.");
+      showToast("Enter your household code.");
       return;
+    }
+    const submit = formElement.querySelector('button[type="submit"]');
+    if (submit) {
+      submit.disabled = true;
+      submit.textContent = "Signing in…";
     }
 
     try {
@@ -4216,14 +4243,19 @@
         emergencyLocalMode: false,
         lastSyncMessage: "Household access saved. Supabase is connected."
       });
+      state.loginError = "";
       render();
-      showToast("Supabase connected.");
+      showToast("Signed in.");
     } catch (error) {
       writeHouseholdAccessHash("");
       state.syncMessage = error.message || "That household access code did not work.";
+      // The sign-in screen shows a plain reason; Household keeps the technical one.
+      state.loginError = !navigator.onLine ? "You're offline. Connect to the internet to sign in."
+        : /does not match/i.test(state.syncMessage) ? "That code didn't work. Check it and try again."
+          : "Couldn't sign in just now. Try again in a moment.";
       await updateSettings({ lastSyncMessage: state.syncMessage });
       render();
-      showToast(state.syncMessage);
+      document.querySelector("#household-access-code")?.select();
     }
   }
 

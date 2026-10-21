@@ -2,6 +2,7 @@
    steady streak, yellow is care and every primary action, berry is night and the first day after a seizure,
    and a dark focus field is for recording one. Pill controls, 32 px panels, 24 px cards, low-contrast leaves. */
 :root {
+  --paw: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='4.6 4.4 14.8 15.4'%3E%3Ccircle cx='6.8' cy='10.2' r='1.7'/%3E%3Ccircle cx='10' cy='6.4' r='1.7'/%3E%3Ccircle cx='14' cy='6.4' r='1.7'/%3E%3Ccircle cx='17.2' cy='10.2' r='1.7'/%3E%3Cpath d='M12 11.5c-2.6 0-5 3.4-5 5.5 0 1.6 1.3 2.5 2.7 2.5 1 0 1.5-.6 2.3-.6s1.3.6 2.3.6c1.4 0 2.7-.9 2.7-2.5 0-2.1-2.4-5.5-5-5.5z'/%3E%3C/svg%3E");
   --blue: #4c84a4;
   --blue-light: #84acc4;
   --blue-deep: #3c7494;
@@ -404,7 +405,6 @@ html.ios-browser .pull-refresh {
 }
 
 .brand i {
-  --paw: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='4.6 4.4 14.8 15.4'%3E%3Ccircle cx='6.8' cy='10.2' r='1.7'/%3E%3Ccircle cx='10' cy='6.4' r='1.7'/%3E%3Ccircle cx='14' cy='6.4' r='1.7'/%3E%3Ccircle cx='17.2' cy='10.2' r='1.7'/%3E%3Cpath d='M12 11.5c-2.6 0-5 3.4-5 5.5 0 1.6 1.3 2.5 2.7 2.5 1 0 1.5-.6 2.3-.6s1.3.6 2.3.6c1.4 0 2.7-.9 2.7-2.5 0-2.1-2.4-5.5-5-5.5z'/%3E%3C/svg%3E");
   display: block;
   flex: none;
   width: 24px;
@@ -641,14 +641,12 @@ html.ios-browser .pull-refresh {
 }
 
 .on-color .eyebrow,
-.vet-hero .eyebrow,
-.login-card .eyebrow {
+.vet-hero .eyebrow {
   color: var(--on-color-muted);
 }
 
 .on-color .eyebrow::before,
-.vet-hero .eyebrow::before,
-.login-card .eyebrow::before {
+.vet-hero .eyebrow::before {
   background: var(--white);
 }
 
@@ -4548,38 +4546,82 @@ html.ios-browser .toast {
 /* Login */
 .login-screen {
   justify-content: center;
-  padding: 24px var(--gutter-right) 24px var(--gutter-left);
+  isolation: isolate;
+  padding: calc(32px + env(safe-area-inset-top, 0px)) var(--gutter-right) calc(32px + env(safe-area-inset-bottom, 0px)) var(--gutter-left);
+  background: var(--glow-blue);
+  color: var(--white);
+}
+
+html.ios-browser .login-screen {
+  overflow: hidden;
 }
 
 .login-content {
-  width: min(100%, 520px);
+  width: min(100%, 400px);
   margin: 0 auto;
 }
 
 .login-card {
-  position: relative;
   display: grid;
-  gap: 22px;
-  overflow: hidden;
-  padding: clamp(24px, 6vw, 44px);
-  border-radius: var(--r-panel);
-  background: var(--glow-blue);
-  color: var(--white);
-  isolation: isolate;
+  gap: 28px;
 }
 
-.login-card > *:not(.leaf) {
-  position: relative;
-  z-index: 1;
+.login-mark {
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  border-radius: 24px;
+  background: var(--white);
+  box-shadow: 0 18px 40px -18px rgba(10, 40, 60, 0.6);
+}
+
+.login-mark::before {
+  width: 38px;
+  height: 38px;
+  background: var(--glow-blue);
+  -webkit-mask: var(--paw) center / contain no-repeat;
+  mask: var(--paw) center / contain no-repeat;
+  content: "";
+}
+
+.login-paw {
+  position: absolute;
+  z-index: -1;
+  width: var(--s);
+  height: var(--s);
+  background: rgba(255, 255, 255, 0.07);
+  -webkit-mask: var(--paw) center / contain no-repeat;
+  mask: var(--paw) center / contain no-repeat;
+  pointer-events: none;
+  rotate: var(--r, 0deg);
+  animation: drift var(--d, 26s) ease-in-out var(--age, 0s) infinite alternate;
+}
+
+.login-paw.big {
+  --s: clamp(260px, 30vw, 420px);
+  --r: 22deg;
+  top: 4%;
+  right: -70px;
+}
+
+.login-paw.small {
+  --s: clamp(150px, 16vw, 240px);
+  --r: -20deg;
+  --d: 32s;
+  --dx: 14px;
+  --dy: -10px;
+  bottom: 5%;
+  left: -40px;
 }
 
 .login-copy {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .login-copy h1 {
-  font-size: clamp(40px, 10vw, 60px);
+  font-size: clamp(40px, 11vw, 56px);
   letter-spacing: -0.04em;
   line-height: 0.95;
 }
@@ -4588,6 +4630,14 @@ html.ios-browser .toast {
 .login-message {
   color: var(--on-color-muted);
   font-size: 15px;
+  line-height: 1.5;
+}
+
+.login-message.error {
+  padding: 12px 16px;
+  border-radius: 18px;
+  background: rgba(20, 20, 20, 0.24);
+  color: var(--white);
 }
 
 .login-card .field > label {
@@ -4600,8 +4650,40 @@ html.ios-browser .toast {
   color: var(--white);
 }
 
+.login-card input:focus {
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
 .login-card ::placeholder {
   color: rgba(255, 255, 255, 0.55);
+}
+
+.code-input {
+  position: relative;
+}
+
+.code-input input {
+  padding-right: 84px;
+}
+
+.code-input .reveal {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: 500 13px var(--f-sans);
+  translate: 0 -50%;
+}
+
+.login-card .code-input .reveal {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--white);
 }
 
 /* Motion */
