@@ -820,7 +820,7 @@
     ].filter(({ record }) => SYNC.pending(record));
   }
 
-  const VIEW_TABS = ["today", "timeline", "insights", "vet"];
+  const VIEW_TABS = ["today", "insights", "timeline", "vet"];
   const ROUTINES = {
     morning: { label: "Morning", icon: "sun", tone: "yellow" },
     night: { label: "Night", icon: "moon", tone: "berry" }
@@ -930,9 +930,9 @@
         <nav class="tabbar" aria-label="Main navigation">
           <div class="tabbar-in">
             ${navButton("today", "Today", "home")}
-            ${navButton("timeline", "Records", "list")}
-            <button class="record-btn" data-overlay="menu" type="button" aria-label="New record">${icon("plus")}</button>
             ${navButton("insights", "Patterns", "chart")}
+            <button class="record-btn" data-overlay="menu" type="button" aria-label="New record">${icon("plus")}</button>
+            ${navButton("timeline", "Records", "list")}
             ${navButton("vet", "Vet", "vet")}
           </div>
         </nav>
@@ -988,7 +988,7 @@
       : pending ? `${pending} waiting` : isSignedIn() ? "Synced" : "Not connected";
     const tone = state.syncBusy ? "busy" : !navigator.onLine || pending || !isSignedIn() ? "pending" : "ok";
     const initial = (state.settings?.carerName || name || "S").trim().charAt(0).toUpperCase() || "S";
-    const tabs = [["today", "Today"], ["timeline", "Records"], ["insights", "Patterns"], ["vet", "Vet"]];
+    const tabs = [["today", "Today"], ["insights", "Patterns"], ["timeline", "Records"], ["vet", "Vet"]];
     return `
       <header class="topbar">
         <div class="topbar-in">
@@ -1061,13 +1061,8 @@
     const last = getSeizuresAsc().at(-1);
     const entries = getTodayDoseEntries();
     const next = nextDoseInfo(entries);
-    const handover = latestHandover();
     const confirmedToday = entries.filter((entry) => entry.status === "given").length;
     const exceptionsToday = entries.filter((entry) => entry.status === "missed" || entry.status === "skipped").length;
-    const recent = state.events
-      .filter((event) => event.type !== "dose" && !(event.type === "note" && event.handover))
-      .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))
-      .slice(0, 4);
     const chip = { "recent-seizure": "Last 24 hours", "building-streak": "Building", "calm-streak": "Steady" }[tone] || "Ready";
     const toLongest = summary.completedLongestGap !== null && summary.currentStreakDays !== null
       ? summary.completedLongestGap - summary.currentStreakDays : null;
@@ -1106,7 +1101,6 @@
         </div>
         <div class="hero-side" aria-hidden="true">
           ${next ? `<div class="float-card fc-one"><span class="k">${icon("clock")}Next dose</span><b>${escapeHtml(nextLabel)}</b><small>${escapeHtml(next.names.join(", "))}</small></div>` : ""}
-          ${handover ? `<div class="float-card fc-two"><span class="k">${icon("note")}Handover · ${escapeHtml(relativeTime(new Date(handover.occurredAt)))}</span><p>“${escapeHtml(handover.body.length > 96 ? `${handover.body.slice(0, 95).trimEnd()}…` : handover.body)}”</p></div>` : ""}
         </div>
       </section>
 
@@ -1126,23 +1120,12 @@
             <p class="fine">${state.profile?.doseConfirmationMode === "explicit" ? "Confirm each dose after it is given." : "Doses count as given unless marked missed. You can also confirm each one."}</p>
           </div>
           <div class="stack">
-            <section class="card handover-card" aria-label="Handover">
-              <div class="section-head"><p class="eyebrow">Handover</p>${handover ? `<span class="fine">${escapeHtml(relativeTime(new Date(handover.occurredAt)))}</span>` : ""}</div>
-              ${handover
-                ? `<blockquote>“${escapeHtml(handover.body)}”</blockquote>${handover.recordedBy ? `<p class="fine">From ${escapeHtml(handover.recordedBy)}</p>` : ""}`
-                : `<p class="subtle">Leave a short note for whoever looks after ${escapeHtml(name)} next.</p>`}
-              <form id="handover-form" class="inline-form" autocomplete="off">
-                <input type="hidden" name="title" value="Handover" />
-                <input type="hidden" name="handover" value="on" />
-                <label class="pill-input"><span class="sr-only">Handover note</span><input id="handover-body" name="body" maxlength="300" placeholder="Leave a note for the next carer" required /></label>
-                <button class="btn ink" type="submit">Post</button>
-              </form>
-            </section>
-            <section class="card" aria-label="Recent records">
-              <div class="section-head"><h3>Recent</h3><button class="link" data-tab="timeline" type="button">All Records${icon("chev")}</button></div>
-              <div class="row-list">
-                ${recent.length ? recent.map(renderRecentRow).join("") : `<p class="subtle">Nothing recorded yet.</p>`}
-              </div>
+            <section class="chart-card today-gaps" aria-label="Days between episodes">
+              <header>
+                <div><h3>Days Between Episodes</h3><p class="sub">Seizures within 24 hours count as one episode.</p></div>
+                <button class="link" data-tab="insights" type="button">Patterns${icon("chev")}</button>
+              </header>
+              ${renderGapChart(summary, chartWidth(2))}
             </section>
             ${state.installPrompt ? `
               <section class="card install-card">
@@ -1197,13 +1180,22 @@
     `;
   }
 
-  function renderRecentRow(event) {
+  function renderHandoverCard() {
+    const name = state.profile?.name || "Sawyer";
+    const handover = latestHandover();
     return `
-      <button class="row" data-tab="timeline" type="button">
-        <span class="row-icon ${escapeHtml(event.type)}" aria-hidden="true">${icon(TYPE_ICONS[event.type] || "note")}</span>
-        <span class="row-text"><strong>${escapeHtml(eventTitle(event))}</strong><small>${escapeHtml(formatEventDateTime(event))}</small></span>
-        ${icon("chev", "i chev")}
-      </button>
+      <section class="card handover-card" aria-label="Handover">
+        <div class="section-head"><p class="eyebrow">Handover</p>${handover ? `<span class="fine">${escapeHtml(relativeTime(new Date(handover.occurredAt)))}</span>` : ""}</div>
+        ${handover
+          ? `<blockquote>“${escapeHtml(handover.body)}”</blockquote>${handover.recordedBy ? `<p class="fine">From ${escapeHtml(handover.recordedBy)}</p>` : ""}`
+          : `<p class="subtle">Leave a short note for whoever looks after ${escapeHtml(name)} next.</p>`}
+        <form id="handover-form" class="inline-form" autocomplete="off">
+          <input type="hidden" name="title" value="Handover" />
+          <input type="hidden" name="handover" value="on" />
+          <label class="pill-input"><span class="sr-only">Handover note</span><input id="handover-body" name="body" maxlength="300" placeholder="Leave a note for the next carer" required /></label>
+          <button class="btn ink" type="submit">Post</button>
+        </form>
+      </section>
     `;
   }
 
@@ -1464,6 +1456,8 @@
             <h2>Records</h2>
             <span class="tag plain">${totalRecords} total</span>
           </div>
+
+          ${renderHandoverCard()}
 
           <form id="history-search-form" class="search" role="search">
             ${icon("search")}
@@ -2062,7 +2056,7 @@
             <textarea id="note-body" name="body" required>${escapeHtml(editing?.body || "")}</textarea>
           </div>
           <label class="switch-row" for="note-handover">
-            <span>Show as handover on Today<small>The next carer sees it first when they open the app.</small></span>
+            <span>Show as handover<small>Pinned at the top of Records for the next carer.</small></span>
             <input id="note-handover" class="switch" name="handover" type="checkbox" ${editing?.handover ? "checked" : ""} />
           </label>
           <div class="btn-row">

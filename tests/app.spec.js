@@ -289,6 +289,8 @@ test("household login, navigation, records, and mobile layout work together", as
   await expect(hero.locator(".meta-average small")).toHaveText("between episodes");
   await expect(page.locator(".routine-card")).toHaveCount(2);
   await expect(hero.getByRole("button", { name: "Record Seizure" })).toBeVisible();
+  await expect(page.locator('[data-view="today"] .today-gaps h3')).toHaveText("Days Between Episodes");
+  await expect(page.locator(".tabbar .nav-btn span")).toHaveText(["Today", "Patterns", "Records", "Vet"]);
 
   const tabs = [
     ["Today", "today"],
@@ -622,8 +624,11 @@ test("conflicting edits preserve both versions and can be reviewed explicitly", 
   expect(errors).toEqual([]);
 });
 
-test("a handover note appears on Today for the next carer", async ({ page }) => {
+test("a handover note is pinned at the top of Records for the next carer", async ({ page }) => {
   const errors = await openTracker(page);
+  await expect(page.locator('[data-view="today"] .handover-card')).toHaveCount(0);
+  await tab(page, "Records").click();
+  await expect(page.locator('[data-view="timeline"] .records-head .handover-card')).toBeVisible();
   await page.locator("#handover-body").fill("Ate breakfast, a bit clingy after the walk.");
   await page.getByRole("button", { name: "Post", exact: true }).click();
   await expect(page.locator("#toast")).toContainText("Handover posted");
@@ -757,7 +762,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-88");
+      const cache = await caches.open("sawyer-tracker-shell-89");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);
