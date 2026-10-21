@@ -282,7 +282,7 @@ async function addNote(page, title, body) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=87");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=88");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
@@ -436,14 +436,20 @@ test("pulling down in the installed app shows a wordless spinner that spins whil
     petals.filter((petal) => getComputedStyle(petal).opacity === "1").length);
 
   const spinner = page.locator("#pull-refresh");
+  await expect(page.locator(".sync-pill")).toHaveText("Synced");
   await expect(spinner).toHaveCSS("opacity", "0");
-  await pull(100);
-  await expect(spinner).toHaveClass(/visible/);
-  await expect(spinner).not.toHaveClass(/ready/);
-  expect(await visiblePetals()).toBe(5);
-  await pull(200);
-  await expect(spinner).toHaveClass(/ready/);
-  expect(await visiblePetals()).toBe(8);
+  // A sync landing mid-gesture redraws the page and resets the spinner until the finger moves again, so repeat the pull.
+  await expect(async () => {
+    await pull(100);
+    await expect(spinner).toHaveClass(/visible/, { timeout: 250 });
+    await expect(spinner).not.toHaveClass(/ready/, { timeout: 250 });
+    expect(await visiblePetals()).toBe(5);
+  }).toPass();
+  await expect(async () => {
+    await pull(200);
+    await expect(spinner).toHaveClass(/ready/, { timeout: 250 });
+    expect(await visiblePetals()).toBe(8);
+  }).toPass();
   await expect(page.getByText(/to refresh/i)).toHaveCount(0);
 
   await pull(200, true);
@@ -751,7 +757,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-87");
+      const cache = await caches.open("sawyer-tracker-shell-88");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);

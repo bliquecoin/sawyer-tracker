@@ -572,7 +572,7 @@ html.ios-browser .pull-refresh {
 
 .orbit ellipse {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.28);
+  stroke: rgba(255, 255, 255, 0.14);
   stroke-width: 1;
 }
 
@@ -919,6 +919,11 @@ html.ios-browser .pull-refresh {
   isolation: isolate;
 }
 
+/* The drifting leaves stay faint so they never pull the eye from the count. */
+.hero .leaf {
+  --leaf: rgba(255, 255, 255, 0.04);
+}
+
 .hero.glow-berry {
   background: var(--glow-berry);
 }
@@ -933,11 +938,11 @@ html.ios-browser .pull-refresh {
 }
 
 .hero.glow-yellow .leaf {
-  --leaf: rgba(255, 255, 255, 0.18);
+  --leaf: rgba(255, 255, 255, 0.09);
 }
 
 .hero.glow-yellow .orbit ellipse {
-  stroke: rgba(255, 255, 255, 0.5);
+  stroke: rgba(255, 255, 255, 0.25);
 }
 
 @media (min-width: 960px) {
