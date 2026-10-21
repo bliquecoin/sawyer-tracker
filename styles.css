@@ -1978,72 +1978,6 @@ html.ios-browser .pull-refresh {
   font-size: 14px;
 }
 
-.month-chart {
-  display: flex;
-  gap: 6px;
-  padding-bottom: 4px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-
-.month-bar {
-  display: grid;
-  min-width: 42px;
-  flex: 1 0 42px;
-  justify-items: center;
-  gap: 6px;
-  padding: 8px 4px;
-  border: 0;
-  border-radius: 16px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font: 500 12px var(--f-sans);
-  transition: background 0.2s;
-}
-
-.month-bar:hover {
-  background: var(--surface-2);
-}
-
-.month-bar.active {
-  background: var(--bg);
-  box-shadow: inset 0 0 0 1px var(--line);
-  color: var(--fg);
-}
-
-.mb-count {
-  color: var(--fg);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-.mb-track {
-  position: relative;
-  display: block;
-  width: 26px;
-  height: 140px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--chart) 10%, transparent);
-}
-
-.mb-fill {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  border-radius: 8px 8px 4px 4px;
-  background: currentColor;
-  color: var(--sev, var(--chart));
-  transform-origin: 50% 100%;
-  animation: grow 0.8s var(--ease-out) calc(var(--i, 0) * 0.04s + var(--age, 0s)) both;
-}
-
-.month-bar.partial .mb-fill {
-  background: repeating-linear-gradient(45deg, currentColor 0 3px, color-mix(in srgb, currentColor 35%, transparent) 3px 7px);
-}
-
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -2453,25 +2387,25 @@ html.ios-browser .pull-refresh {
   min-width: 0.6em;
 }
 
-/* Chart deck: a full-bleed row of cards that snaps one at a time, with the next card's edge in view. */
+/* Decks: full-bleed rows of cards that snap to the centre. The card in view sits in the middle and
+   its neighbours show on both sides, flat, a little smaller and faded, so they stay readable. */
 .deck-wrap {
   display: grid;
   gap: 12px;
   min-width: 0;
 }
 
-/* The card in view sits in the middle with smaller neighbours peeking in on both sides. */
 .deck {
-  --deck-card: 76vw;
-  --deck-edge: calc((100vw - var(--deck-card)) / 2);
+  --deck-card: 72vw;
+  --deck-gap: 10px;
   position: relative;
   display: flex;
-  gap: 14px;
+  align-items: flex-start;
+  gap: var(--deck-gap);
   margin: 0 calc(-1 * var(--gutter-right)) 0 calc(-1 * var(--gutter-left));
-  padding: 14px var(--deck-edge) 26px;
+  padding: 10px calc((100vw - var(--deck-card)) / 2) 22px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  perspective: 1400px;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
 }
@@ -2480,21 +2414,26 @@ html.ios-browser .pull-refresh {
   display: none;
 }
 
+.hl-deck {
+  --deck-card: 64vw;
+  align-items: stretch;
+}
+
 .deck-card {
   position: relative;
   flex: 0 0 var(--deck-card);
   scroll-snap-align: center;
   scroll-snap-stop: always;
-  transform-origin: 50% 50%;
+  transform-origin: 50% 40%;
 }
 
-/* A soft lift under the card in focus; only its opacity moves, so the swipe stays smooth. */
+/* A soft lift under the card in focus; only its opacity changes, so the swipe stays smooth. */
 .deck-card::after {
   position: absolute;
   z-index: -1;
   inset: 0;
   border-radius: inherit;
-  box-shadow: 0 26px 46px -26px rgba(20, 40, 60, 0.42);
+  box-shadow: 0 24px 44px -26px rgba(20, 40, 60, 0.4);
   content: "";
   opacity: 0;
   pointer-events: none;
@@ -2508,7 +2447,7 @@ html.ios-browser .pull-refresh {
   display: flex;
   justify-content: center;
   gap: 6px;
-  margin-top: -10px;
+  margin-top: -8px;
 }
 
 .deck-dots i {
@@ -2524,9 +2463,9 @@ html.ios-browser .pull-refresh {
   background: var(--fg);
 }
 
-/* As a card slides toward the middle it grows from a smaller, slightly turned tile to full size,
-   easing in and out, while the card leaving shrinks and turns away. The scroll position drives
-   it directly, so it follows the finger exactly. */
+/* As a card slides toward the middle it grows from the smaller, faded size to full size with an
+   ease-in-out curve, and the card leaving eases back down. Neighbours are pulled slightly inward so
+   a good slice of each shows. The scroll position drives this, so it follows the finger exactly. */
 @supports (animation-timeline: view()) {
   @media (prefers-reduced-motion: no-preference) {
     .deck-card {
@@ -2543,8 +2482,8 @@ html.ios-browser .pull-refresh {
 
 @keyframes deck-focus {
   0% {
-    opacity: 0.5;
-    transform: translateX(-10%) scale(0.82) rotateY(-12deg);
+    opacity: 0.6;
+    transform: translateX(-5%) scale(0.9);
     animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
   }
 
@@ -2555,8 +2494,8 @@ html.ios-browser .pull-refresh {
   }
 
   100% {
-    opacity: 0.5;
-    transform: translateX(10%) scale(0.82) rotateY(12deg);
+    opacity: 0.6;
+    transform: translateX(5%) scale(0.9);
   }
 }
 
@@ -2584,8 +2523,8 @@ html.ios-browser .pull-refresh {
   }
 
   .deck-card:not(.is-active) {
-    opacity: 0.5;
-    transform: scale(0.86);
+    opacity: 0.6;
+    transform: scale(0.9);
   }
 }
 
@@ -2596,13 +2535,66 @@ html.ios-browser .pull-refresh {
   }
 }
 
+/* The chart switch: one segment per card, with a thumb that slides to the card in view. */
+.segmented {
+  position: relative;
+  display: grid;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--tint);
+  grid-template-columns: repeat(var(--segs), minmax(0, 1fr));
+}
+
+.segmented button {
+  position: relative;
+  z-index: 1;
+  height: 34px;
+  min-width: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--on-tint);
+  cursor: pointer;
+  font: 500 13px var(--f-sans);
+  text-overflow: ellipsis;
+  transition: color 0.35s var(--ease-in-out);
+  white-space: nowrap;
+}
+
+.segmented button[aria-pressed="true"] {
+  color: var(--bg);
+}
+
+.seg-thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--segs));
+  border-radius: 999px;
+  background: var(--fg);
+  transform: translateX(calc(var(--seg) * 100%));
+  transition: transform 0.5s var(--ease-in-out);
+}
+
 @media (min-width: 960px) {
   .deck {
     display: grid;
     margin: 0;
     padding: 0;
     overflow: visible;
+    grid-auto-flow: dense;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chart-cards .stats-month-panel {
+    grid-column: 1 / -1;
+  }
+
+  .hl-deck {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .deck-card {
@@ -2616,125 +2608,251 @@ html.ios-browser .pull-refresh {
     display: none;
   }
 
-  .deck-tabs,
+  .segmented,
   .deck-dots {
     display: none;
   }
 }
 
-/* Highlights */
+/* Month strips: a row per month with a block for every day, coloured by that day's seizures. */
+.month-strips {
+  display: grid;
+  gap: 4px;
+}
+
+.month-strip,
+.ms-axis {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
+}
+
+.month-strip {
+  padding: 6px 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: 500 12.5px var(--f-sans);
+  text-align: left;
+  transition: background 0.25s var(--ease-in-out);
+}
+
+.month-strip[aria-pressed="true"] {
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--fg);
+}
+
+.ms-axis {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.ms-ticks {
+  position: relative;
+  height: 12px;
+}
+
+.ms-ticks b {
+  position: absolute;
+  font-weight: 500;
+  translate: -50% 0;
+}
+
+.ms-ticks b:nth-child(1) { left: 1.6%; }
+.ms-ticks b:nth-child(2) { left: 30.6%; }
+.ms-ticks b:nth-child(3) { left: 62.9%; }
+.ms-ticks b:nth-child(4) { left: 98.4%; }
+
+.ms-days {
+  display: grid;
+  height: 20px;
+  gap: 2px;
+  grid-template-columns: repeat(31, minmax(0, 1fr));
+}
+
+.ms-days i {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--chart) 16%, transparent);
+  transform-origin: 50% 100%;
+  animation: grow 0.6s var(--ease-out) calc(var(--age, 0s) + 0.1s) both;
+}
+
+.ms-days i.s1 {
+  background: var(--sev-3);
+}
+
+.ms-days i.s2 {
+  background: var(--sev-4);
+}
+
+.ms-days i.s3 {
+  background: var(--sev-5);
+}
+
+.ms-days i.future {
+  background: color-mix(in srgb, var(--chart) 6%, transparent);
+}
+
+.ms-days i.today {
+  box-shadow: 0 0 0 1.5px var(--fg);
+}
+
+.ms-count {
+  justify-self: end;
+  min-width: 26px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sev, var(--line)) 24%, transparent);
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: center;
+}
+
+.legend i.day-one {
+  background: var(--sev-3);
+}
+
+.legend i.day-two {
+  background: var(--sev-4);
+}
+
+.legend i.day-today {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--fg);
+}
+
+/* Highlight cards */
 .highlights-wrap {
   display: grid;
   gap: 12px;
 }
 
-.highlights {
+.hl-card {
   display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-@media (min-width: 960px) {
-  .highlights {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-.hl {
-  display: grid;
-  min-width: 0;
+  min-height: 248px;
   align-content: start;
   gap: 12px;
-  padding: 18px;
+  padding: 20px;
   border-radius: var(--r-card);
   background: var(--surface);
-  animation: rise 0.6s var(--ease-out) var(--age, 0s) both;
+  grid-template-rows: auto 1fr auto;
 }
 
-.hl.full {
-  grid-column: 1 / -1;
-}
-
-@media (min-width: 960px) {
-  .hl.full {
-    grid-column: span 2;
-  }
-
-  .hl.alert {
-    grid-column: 1 / -1;
-  }
-}
-
-.hl-text {
+.hl-card .hl-visual {
   display: grid;
-  gap: 3px;
+  align-content: center;
+  min-height: 96px;
 }
 
-.hl-text strong {
-  font: 600 19px/1.2 var(--f-label);
+.hl-card .hl-text {
+  display: grid;
+  gap: 4px;
+}
+
+.hl-card .hl-text strong {
+  font: 600 21px/1.2 var(--f-label);
   letter-spacing: -0.01em;
 }
 
-.hl-text span {
+.hl-card .hl-text span {
   color: var(--muted);
   font-size: 13.5px;
   line-height: 1.4;
 }
 
-.hl.alert {
-  background: var(--glow-berry);
+.hl-card .link {
+  justify-self: start;
+}
+
+.hl-blue,
+.hl-berry {
   color: var(--white);
 }
 
-.hl.alert .eyebrow,
-.hl.alert .hl-text span {
-  color: rgba(255, 255, 255, 0.86);
+.hl-blue {
+  background: var(--glow-blue);
 }
 
-.hl.alert .hl-visual .i,
-.hl.doses .hl-visual .i {
-  width: 26px;
-  height: 26px;
+.hl-berry {
+  background: var(--glow-berry);
 }
 
-.hl.doses .hl-visual {
+.hl-yellow {
+  background: var(--glow-yellow);
+  color: var(--ink);
+}
+
+.hl-tint {
+  background: var(--tint);
+  color: var(--on-tint);
+}
+
+.hl-blue .eyebrow,
+.hl-berry .eyebrow,
+.hl-blue .hl-text span,
+.hl-berry .hl-text span {
+  color: rgba(255, 255, 255, 0.84);
+}
+
+.hl-yellow .eyebrow,
+.hl-yellow .hl-text span {
+  color: rgba(20, 20, 20, 0.72);
+}
+
+.hl-badge {
   display: grid;
-  width: 48px;
-  height: 48px;
+  width: 64px;
+  height: 64px;
   place-items: center;
   border-radius: 50%;
-  background: var(--ok-bg);
-  color: var(--ok);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
 }
 
-.hl.doses.warn .hl-visual {
-  background: var(--warn-bg);
-  color: var(--warn);
+.hl-berry .hl-badge {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--white);
 }
 
-.ring-tile svg {
+.hl-badge .i {
+  width: 30px;
+  height: 30px;
+}
+
+.milestone svg {
   display: block;
-  width: 72px;
-  height: 72px;
+  width: 104px;
+  height: 104px;
 }
 
-.ring-tile .ring-track {
+.milestone .ring-track {
   fill: none;
-  stroke: var(--chart-soft);
-  stroke-width: 8;
+  stroke: rgba(255, 255, 255, 0.24);
+  stroke-width: 9;
 }
 
-.ring-tile .ring-value {
+.milestone .ring-value {
   fill: none;
-  stroke: var(--sev-2);
+  stroke: var(--white);
   stroke-linecap: round;
-  stroke-width: 8;
-  animation: ring-fill 1.2s var(--ease-out) calc(0.2s + var(--age, 0s)) both;
+  stroke-width: 9;
+  animation: ring-fill 1.2s var(--ease-in-out) calc(0.2s + var(--age, 0s)) both;
 }
 
-.ring-tile svg text {
-  fill: var(--fg);
-  font: 600 20px var(--f-label);
+.milestone svg text {
+  fill: var(--white);
+  font: 600 26px var(--f-label);
+}
+
+.milestone svg text.ring-unit {
+  fill: rgba(255, 255, 255, 0.8);
+  font: 500 11px var(--f-sans);
 }
 
 @keyframes ring-fill {
@@ -2744,8 +2862,7 @@ html.ios-browser .pull-refresh {
 }
 
 .race .hl-visual {
-  display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .race-row {
@@ -2754,16 +2871,16 @@ html.ios-browser .pull-refresh {
   gap: 10px;
   color: var(--muted);
   font-size: 12.5px;
-  grid-template-columns: 84px minmax(0, 1fr) 44px;
+  grid-template-columns: 62px minmax(0, 1fr) 40px;
 }
 
 .race-row i {
-  height: 12px;
   width: var(--w);
+  height: 12px;
   border-radius: 999px;
   background: var(--chart-soft);
   transform-origin: 0 50%;
-  animation: grow-x 0.9s var(--ease-out) calc(0.15s + var(--age, 0s)) both;
+  animation: grow-x 0.9s var(--ease-in-out) calc(0.15s + var(--age, 0s)) both;
 }
 
 .race-row.now i {
@@ -2784,6 +2901,7 @@ html.ios-browser .pull-refresh {
 .episode-dots {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
@@ -2797,7 +2915,7 @@ html.ios-browser .pull-refresh {
   color: var(--white);
   font: 600 10px var(--f-sans);
   font-style: normal;
-  animation: dot-in 0.4s var(--ease-out) calc(var(--age, 0s) + 0.1s) both;
+  animation: dot-in 0.4s var(--ease-out) calc(var(--age, 0s) + var(--i, 0) * 0.03s + 0.1s) both;
 }
 
 .episode-dots i.cluster {
@@ -2809,8 +2927,8 @@ html.ios-browser .pull-refresh {
 
 .dumbbell {
   position: relative;
-  height: 54px;
-  margin: 0 18px;
+  height: 58px;
+  margin: 0 22px;
 }
 
 .dumbbell .track,
@@ -2824,7 +2942,7 @@ html.ios-browser .pull-refresh {
 .dumbbell .track {
   right: 0;
   left: 0;
-  background: var(--chart-soft);
+  background: color-mix(in srgb, var(--chart) 22%, transparent);
 }
 
 .dumbbell .span {
@@ -2846,9 +2964,9 @@ html.ios-browser .pull-refresh {
 .dumbbell .end::before {
   width: 20px;
   height: 20px;
-  border: 3px solid var(--surface);
+  border: 3px solid var(--tint);
   border-radius: 50%;
-  background: var(--chart-soft);
+  background: color-mix(in srgb, var(--chart) 35%, var(--tint));
   content: "";
 }
 
@@ -2868,19 +2986,19 @@ html.ios-browser .pull-refresh {
   font-size: 11px;
 }
 
-.hl.worse .dumbbell .end.after::before,
-.hl.worse .dumbbell .span {
+.worse .dumbbell .end.after::before,
+.worse .dumbbell .span {
   background: var(--sev-4);
 }
 
-.hl.levels .gauge {
+.levels .gauge {
   display: grid;
   gap: 6px;
   font-size: 12.5px;
 }
 
 .gauge + .gauge {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .gauge span {
@@ -2922,6 +3040,10 @@ html.ios-browser .pull-refresh {
 .gauge.above .mark,
 .gauge.below .mark {
   background: var(--sev-4);
+}
+
+.levels.warn .hl-text strong {
+  color: var(--bad);
 }
 
 .observations {

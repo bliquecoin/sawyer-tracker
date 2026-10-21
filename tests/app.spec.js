@@ -313,7 +313,7 @@ test("the sign-in screen fills the screen and signs in with the household code",
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=97");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=98");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
@@ -550,7 +550,19 @@ test("Patterns shows the 30-day trend and severity, and blood levels show their 
   const severity = page.locator(".severity-card");
   await expect(severity.locator("svg .dot.sev-2")).toHaveCount(6);
   await expect(severity.locator(".trend-now .tag")).toHaveText("About the same");
-  await expect(page.locator(".stats-month-panel .mb-fill.sev-2").first()).toBeVisible();
+  // Seizures By Month opens in the middle of the deck: a strip per month, a block per day.
+  await expect(page.locator(".chart-cards .stats-month-panel")).toHaveClass(/is-active/);
+  await expect(page.locator(".stats-month-panel .ms-count.sev-2").first()).toHaveText("2");
+  await expect(page.locator(".stats-month-panel .ms-days i.s1")).toHaveCount(6);
+  // The card in view is centred, with a readable slice of a card showing on each side.
+  const layout = await page.locator(".chart-cards").evaluate((deck) => {
+    const cards = [...deck.querySelectorAll("[data-deck-card]")].map((card) => card.getBoundingClientRect());
+    const view = deck.getBoundingClientRect();
+    return { offCentre: cards[1].left + cards[1].width / 2 - (view.left + view.width / 2), left: cards[0].right - view.left, right: view.right - cards[2].left };
+  });
+  expect(Math.abs(layout.offCentre)).toBeLessThan(2);
+  expect(layout.left).toBeGreaterThan(30);
+  expect(layout.right).toBeGreaterThan(30);
 
   // A chart label goes away with a tap anywhere else.
   await severity.locator(".hit").first().dispatchEvent("pointerover");
@@ -560,8 +572,9 @@ test("Patterns shows the 30-day trend and severity, and blood levels show their 
 
   await page.locator("[data-deck-to='3']").click();
   await expect(page.locator("[data-deck-to='3']")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".highlights .ring-tile")).toContainText("4 days to go");
-  await expect(page.locator(".highlights .episodes")).toContainText("0 of 6 episodes were clusters");
+  await expect(page.locator(".segmented")).toHaveAttribute("style", /--seg:\s*3/);
+  await expect(page.locator(".highlight-deck .milestone")).toContainText("4 days to go");
+  await expect(page.locator(".highlight-deck .episodes")).toContainText("0 of 6 were clusters");
 
   await tab(page, "Vet").click();
   await page.getByRole("button", { name: "Add Blood Test" }).click();
@@ -905,7 +918,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-98");
+      const cache = await caches.open("sawyer-tracker-shell-99");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);
