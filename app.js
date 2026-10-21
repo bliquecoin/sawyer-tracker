@@ -1599,6 +1599,10 @@
     const timed = inRange.filter((event) => event.timeKnown !== false);
     const durations = inRange.map((event) => Number(event.durationSeconds) || 0).filter(Boolean);
     const clock = renderClockChart(timed, Math.min(320, chartWidth(2)));
+    const trend = renderTrendChart(seizures, rangeStart, chartWidth(1));
+    const severity = renderSeverityChart(inRange, rangeStart, chartWidth(2));
+    const trendChange = trend.now === null ? null : trend.now - trend.before;
+    const severityChange = severity.recent === null ? null : severity.recent - severity.earlier;
     const nearMissed = countSeizuresNearMissedDose(seizures).total;
     const insights = buildInsights(summary).slice(0, 6);
 
@@ -1630,13 +1634,23 @@
                   data-stats-month="${escapeHtml(item.key)}" type="button" aria-pressed="${item.key === selectedMonth.key ? "true" : "false"}"
                   aria-label="${escapeHtml(`${item.fullLabel}: ${item.count} seizure${item.count === 1 ? "" : "s"}${index === monthly.length - 1 ? ", so far" : ""}`)}">
                   <span class="mb-count">${item.count}</span>
-                  <span class="mb-track" aria-hidden="true"><span class="mb-fill" style="height:${(item.count / max) * 100}%;--i:${index}"></span></span>
+                  <span class="mb-track" aria-hidden="true"><span class="mb-fill sev-${busyLevel(item.count)}" style="height:${(item.count / max) * 100}%;--i:${index}"></span></span>
                   <span class="mb-label">${escapeHtml(item.label)}</span>
                 </button>
               `).join("")}
             </div>
-            <div class="legend"><span><i></i>Seizures logged</span><span><i class="striped"></i>This month so far</span></div>
+            <div class="legend">${renderBusyScale("Colour")}<span><i class="striped"></i>This month so far</span></div>
             ${renderSelectedStatsMonth(selectedMonth)}
+          </section>
+
+          <section class="chart-card wide trend-card">
+            <header>
+              <div><h3>Seizures In The Last 30 Days</h3><p class="sub">Each point counts the 30 days before it, so lower is calmer. Tap the line for any day.</p></div>
+              ${trendChange === null ? "" : `<div class="trend-now"><strong>${trend.now}<small>now</small></strong><span class="tag ${trendChange < 0 ? "ok" : trendChange > 0 ? "bad" : "plain"}">${
+                trendChange === 0 ? "Same as the 30 days before" : `${Math.abs(trendChange)} ${trendChange < 0 ? "fewer" : "more"} than the 30 days before`}</span></div>`}
+            </header>
+            ${trend.html}
+            ${trend.now === null ? "" : `<div class="legend">${renderBusyScale("Line")}<span><i class="tick"></i>Each seizure, coloured by severity</span></div>`}
           </section>
 
           <section class="chart-card">
@@ -1644,10 +1658,20 @@
             ${renderGapChart(summary, chartWidth(2))}
           </section>
 
+          <section class="chart-card severity-card">
+            <header>
+              <div><h3>Severity Over Time</h3><p class="sub">Each dot is one seizure, larger when it lasted longer. The line averages the last three episodes.</p></div>
+              ${severityChange === null ? "" : `<div class="trend-now"><strong>${severity.recent.toFixed(1)}<small>recent average</small></strong><span class="tag ${severityChange < -0.2 ? "ok" : severityChange > 0.2 ? "bad" : "plain"}">${
+                severityChange < -0.2 ? `Milder, was ${severity.earlier.toFixed(1)}` : severityChange > 0.2 ? `Stronger, was ${severity.earlier.toFixed(1)}` : "About the same"}</span></div>`}
+            </header>
+            ${severity.html}
+            ${!severity.drawn ? "" : `<div class="legend">${renderSeverityScale("Severity")}<span><i class="ring"></i>Bigger dot, longer seizure</span></div>`}
+          </section>
+
           <section class="chart-card">
             <header><div><h3>Time Of Day</h3><p class="sub">${timed.length ? `${clock.night} of ${timed.length} with a recorded time started between 10 pm and 6 am.` : "No seizures with a recorded time in this range."}</p></div></header>
             ${clock.html}
-            <div class="legend"><span><i class="night"></i>10 pm to 6 am</span><span>Outer dots are more recent</span></div>
+            <div class="legend"><span><i class="night"></i>10 pm to 6 am</span>${renderSeverityScale("Severity")}<span>Outer dots are more recent</span></div>
           </section>
 
           <section class="chart-card">
@@ -1655,7 +1679,7 @@
             ${renderDurationChart(inRange, rangeStart, chartWidth(2))}
           </section>
 
-          <section class="chart-card">
+          <section class="chart-card wide">
             <header><div><h3>Observations</h3><p class="sub">From the records you have kept.</p></div></header>
             <ul class="observations">
               <li class="${nearMissed ? "flag" : ""}"><span><strong>Dose context.</strong> ${nearMissed
@@ -1713,14 +1737,192 @@
     rows.forEach((row, index) => {
       const cy = 6 + index * rowHeight + rowHeight / 2;
       marks += `<text x="${left - 12}" y="${cy + 4}" text-anchor="end" class="${row.open ? "strong" : ""}">${escapeHtml(row.label)}</text>`;
-      marks += `<rect class="gap-bar grow-x ${row.open ? "open" : ""}" style="--i:${index}" x="${left}" y="${cy - 8}" width="${Math.max(4, x(row.days) - left).toFixed(1)}" height="16" rx="8"/>`;
+      const depth = row.days < 5 ? " short" : row.days < 14 ? " g1" : row.days < 28 ? " g2" : " g3";
+      marks += `<rect class="gap-bar grow-x${row.open ? " open" : ""}${depth}" style="--i:${index}" x="${left}" y="${cy - 8}" width="${Math.max(4, x(row.days) - left).toFixed(1)}" height="16" rx="8"/>`;
       marks += `<text x="${(x(row.days) + 8).toFixed(1)}" y="${cy + 4}" class="strong">${Math.round(row.days)} d</text>`;
       marks += `<rect class="hit" tabindex="0" x="0" y="${cy - rowHeight / 2}" width="${width}" height="${rowHeight}" data-tip="${escapeHtml(row.tip)}"/>`;
     });
     const ax = x(average);
     marks += `<line class="ref" x1="${ax.toFixed(1)}" x2="${ax.toFixed(1)}" y1="6" y2="${height - 22}"/><text x="${ax.toFixed(1)}" y="${height - 6}" text-anchor="middle">Average ${round1(average)} d</text>`;
     return `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Days between seizure episodes">${marks}</svg></div>
-      <div class="legend"><span><i></i>Completed gaps</span><span><i class="open"></i>Current gap, still open</span><span><i class="dash"></i>Average of completed gaps</span></div>`;
+      <div class="legend"><span><i class="short"></i>Under 5 days</span><span class="sev-scale">5 days or more<i class="g1"></i><i class="g2"></i><i class="g3"></i>longer</span><span><i class="open"></i>Current gap, still open</span><span><i class="dash"></i>Average of completed gaps</span></div>`;
+  }
+
+  function severityLevel(value) {
+    const level = Math.round(Number(value));
+    return level >= 1 && level <= 5 ? level : 0;
+  }
+
+  // How busy a stretch was, on the same blue-to-berry scale: up to 2 seizures is calm, 8 or more is the busiest.
+  function busyLevel(count) {
+    return count <= 0 ? 0 : count <= 2 ? 2 : count <= 4 ? 3 : count <= 7 ? 4 : 5;
+  }
+
+  function renderBusyScale(label) {
+    return `<span class="sev-scale">${escapeHtml(label)}: calmer${[2, 3, 4, 5].map((level) => `<i class="sev-${level}"></i>`).join("")}busier</span>`;
+  }
+
+  function renderSeverityScale(label) {
+    return `<span class="sev-scale">${escapeHtml(label)}: mild${[1, 2, 3, 4, 5].map((level) => `<i class="sev-${level}"></i>`).join("")}severe</span>`;
+  }
+
+  function renderMonthLabels(start, x, y) {
+    const firstMonth = new Date(start);
+    const months = (new Date().getFullYear() - firstMonth.getFullYear()) * 12 + new Date().getMonth() - firstMonth.getMonth() + 1;
+    const every = Math.max(1, Math.ceil(months / 7));
+    let marks = "";
+    for (let index = 0; index < months; index += every) {
+      const date = new Date(firstMonth.getFullYear(), firstMonth.getMonth() + index, 1);
+      if (+date < start) continue;
+      marks += `<text x="${x(+date).toFixed(1)}" y="${y}" text-anchor="middle">${escapeHtml(date.toLocaleDateString(undefined, { month: "short" }))}</text>`;
+    }
+    return marks;
+  }
+
+  // A vertical gradient keyed to the y scale, so a line is blue where values are low and berry where they are high.
+  function renderValueGradient(id, y, stops) {
+    return `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="${y(stops[0][0]).toFixed(1)}" y2="${y(stops.at(-1)[0]).toFixed(1)}">${
+      stops.map(([value, level]) => `<stop offset="${((value - stops[0][0]) / (stops.at(-1)[0] - stops[0][0])).toFixed(3)}" style="stop-color:var(--sev-${level})"/>`).join("")
+    }</linearGradient></defs>`;
+  }
+
+  // Catmull-Rom through the points, with control points kept between neighbours so close points never loop back.
+  function smoothPath(points, yMin, yMax) {
+    const fixed = (value) => value.toFixed(1);
+    if (points.length < 3) return points.map(([px, py], index) => `${index ? "L" : "M"}${fixed(px)},${fixed(py)}`).join("");
+    let path = `M${fixed(points[0][0])},${fixed(points[0][1])}`;
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const [p0, p1, p2, p3] = [points[index - 1] || points[index], points[index], points[index + 1], points[index + 2] || points[index + 1]];
+      const c1 = [clamp(p1[0] + (p2[0] - p0[0]) / 6, p1[0], p2[0]), clamp(p1[1] + (p2[1] - p0[1]) / 6, yMin, yMax)];
+      const c2 = [clamp(p2[0] - (p3[0] - p1[0]) / 6, p1[0], p2[0]), clamp(p2[1] - (p3[1] - p1[1]) / 6, yMin, yMax)];
+      path += `C${fixed(c1[0])},${fixed(c1[1])} ${fixed(c2[0])},${fixed(c2[1])} ${fixed(p2[0])},${fixed(p2[1])}`;
+    }
+    return path;
+  }
+
+  function renderTrendChart(seizures, rangeStart, width) {
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    const start = new Date(rangeStart);
+    start.setHours(23, 59, 59, 999);
+    const days = Math.round((end - start) / DAY_MS);
+    if (!seizures.length || days < 30) return { html: `<p class="subtle">The trend appears once there is a month of records.</p>`, now: null, before: null };
+
+    // Each day counts the seizures in the 30 days up to it, so a hard week stays visible for a month
+    // rather than vanishing at a calendar boundary.
+    const times = seizures.map((event) => +new Date(event.occurredAt));
+    const windowCount = (until) => times.filter((time) => time <= until && time > until - 30 * DAY_MS).length;
+    const series = [];
+    let low = 0;
+    let high = 0;
+    for (let index = 0; index <= days; index += 1) {
+      const until = +start + index * DAY_MS;
+      while (high < times.length && times[high] <= until) high += 1;
+      while (low < high && times[low] <= until - 30 * DAY_MS) low += 1;
+      series.push({ until, count: high - low });
+    }
+
+    const height = 210;
+    const left = 30;
+    const right = 18;
+    const top = 26;
+    const bottom = 40;
+    const innerWidth = width - left - right;
+    const innerHeight = height - top - bottom;
+    const ceiling = Math.max(4, Math.ceil(Math.max(...series.map((point) => point.count)) / 2) * 2);
+    const x = (time) => left + ((time - +start) / (+end - +start)) * innerWidth;
+    const y = (count) => top + innerHeight - (count / ceiling) * innerHeight;
+    const base = y(0);
+
+    const stops = [[0, 2], [2, 2], [4, 3], [7, 4]].filter(([value]) => value < ceiling);
+    let marks = renderValueGradient("trend-ink", y, [...stops, [ceiling, busyLevel(ceiling)]]);
+    [0, ceiling / 2, ceiling].forEach((value) => {
+      marks += `<line class="grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text x="${left - 8}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${value}</text>`;
+    });
+    const line = series.map((point, index) => `${index ? "L" : "M"}${x(point.until).toFixed(1)},${y(point.count).toFixed(1)}`).join("");
+    marks += `<path class="trend-area" fill="url(#trend-ink)" d="${line}L${x(+end).toFixed(1)},${base.toFixed(1)}L${left},${base.toFixed(1)}Z"/>`;
+    marks += `<path class="trend-line" stroke="url(#trend-ink)" pathLength="1" d="${line}"/>`;
+    seizures.filter((event) => +new Date(event.occurredAt) > +start).forEach((event) => {
+      const tx = x(+new Date(event.occurredAt)).toFixed(1);
+      marks += `<line class="rug sev-${severityLevel(event.severity) || 3}" x1="${tx}" x2="${tx}" y1="${(base + 7).toFixed(1)}" y2="${(base + 15).toFixed(1)}"/>`;
+    });
+    marks += renderMonthLabels(+start, x, height - 6);
+
+    const latest = series.at(-1);
+    const lx = x(latest.until);
+    const ly = y(latest.count);
+    marks += `<circle class="dot pop sev-${busyLevel(latest.count) || 2}" cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="6"/>`;
+    marks += `<g class="cross" aria-hidden="true"><line x1="0" x2="0" y1="${top}" y2="${base.toFixed(1)}"/><circle r="5" cx="0" cy="0"/></g>`;
+
+    const step = Math.max(1, Math.ceil(series.length / 90));
+    for (let index = 0; index < series.length; index += step) {
+      const point = series[Math.min(index + Math.floor(step / 2), series.length - 1)];
+      const cx = x(point.until);
+      const date = new Date(point.until).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+      marks += `<rect class="hit" tabindex="-1" x="${(cx - (innerWidth / series.length) * step / 2).toFixed(1)}" y="${top}" width="${((innerWidth / series.length) * step).toFixed(1)}" height="${(innerHeight + 16).toFixed(1)}" data-x="${cx.toFixed(1)}" data-y="${y(point.count).toFixed(1)}" data-tip="${escapeHtml(`${date}: ${point.count} seizure${point.count === 1 ? "" : "s"} in the 30 days before`)}"/>`;
+    }
+    return {
+      html: `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="${escapeHtml(`Seizures in each 30-day window. ${latest.count} in the last 30 days.`)}">${marks}</svg></div>`,
+      now: latest.count,
+      before: windowCount(latest.until - 30 * DAY_MS)
+    };
+  }
+
+  function renderSeverityChart(seizures, rangeStart, width) {
+    const points = seizures.filter((event) => severityLevel(event.severity));
+    if (points.length < 2) return { html: `<p class="subtle">Severity appears once two seizures are logged.</p>`, drawn: false, recent: null, earlier: null };
+    const height = 220;
+    const left = 64;
+    const right = 16;
+    const top = 16;
+    const bottom = 30;
+    const innerWidth = width - left - right;
+    const innerHeight = height - top - bottom;
+    const end = Date.now();
+    const start = Math.min(+rangeStart, +new Date(points[0].occurredAt));
+    const x = (time) => left + ((time - start) / Math.max(1, end - start)) * innerWidth;
+    const y = (level) => top + innerHeight - ((level - 1) / 4) * innerHeight;
+    const longest = Math.max(60, ...points.map((event) => Number(event.durationSeconds) || 0));
+    const radius = (seconds) => (Number(seconds) > 0 ? 4 + 5.5 * Math.sqrt(Number(seconds) / longest) : 4.5);
+
+    let marks = renderValueGradient("severity-ink", y, [[1, 1], [2, 2], [3, 3], [4, 4], [5, 5]]);
+    [[5, "5 Severe"], [4, "4"], [3, "3"], [2, "2"], [1, "1 Mild"]].forEach(([level, label]) => {
+      marks += `<line class="grid" x1="${left}" x2="${width - right}" y1="${y(level).toFixed(1)}" y2="${y(level).toFixed(1)}"/><text x="${left - 10}" y="${(y(level) + 4).toFixed(1)}" text-anchor="end">${label}</text>`;
+    });
+    marks += renderMonthLabels(start, x, height - 6);
+
+    // The line follows whole episodes, so a cluster of seizures hours apart counts once and
+    // the line moves smoothly instead of jumping within a single day.
+    const episodes = [];
+    points.forEach((event) => {
+      const current = episodes.at(-1);
+      if (current && seizuresShareClusterWindow(current.at(-1), event)) current.push(event);
+      else episodes.push([event]);
+    });
+    const episodeMeans = episodes.map((episode) => [
+      mean(episode.map((event) => +new Date(event.occurredAt))),
+      mean(episode.map((event) => severityLevel(event.severity)))
+    ]);
+    const running = episodeMeans.map(([time], index) => [
+      x(time), y(mean(episodeMeans.slice(Math.max(0, index - 2), index + 1).map(([, level]) => level)))
+    ]);
+    marks += `<path class="avg-line" stroke="url(#severity-ink)" pathLength="1" d="${smoothPath(running, y(5), y(1))}"/>`;
+    points.forEach((event, index) => {
+      const level = severityLevel(event.severity);
+      const cx = x(+new Date(event.occurredAt)).toFixed(1);
+      const cy = y(level).toFixed(1);
+      const symptoms = Array.isArray(event.symptoms) && event.symptoms.length ? ` · ${event.symptoms.join(", ")}` : "";
+      marks += `<circle class="dot pop sev-${level}" style="--i:${index}" cx="${cx}" cy="${cy}" r="${radius(event.durationSeconds).toFixed(1)}"/>`;
+      marks += `<circle class="hit" tabindex="0" cx="${cx}" cy="${cy}" r="13" data-tip="${escapeHtml(`${formatEventDateTime(event)} · severity ${level}${Number(event.durationSeconds) > 0 ? ` · ${formatDurationWords(event.durationSeconds)}` : ""}${symptoms}`)}"/>`;
+    });
+    // The headline compares the same thing the line shows: the last three episodes against the three before.
+    const episodeLevels = episodeMeans.map(([, level]) => level);
+    return {
+      html: `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Severity of each seizure over time, with a running average">${marks}</svg></div>`,
+      drawn: true,
+      recent: episodeLevels.length >= 4 ? mean(episodeLevels.slice(-3)) : null,
+      earlier: episodeLevels.length >= 4 ? mean(episodeLevels.slice(-6, -3)) : null
+    };
   }
 
   function renderClockChart(seizures, size) {
@@ -1753,8 +1955,8 @@
       if (hours >= 22 || hours < 6) night += 1;
       const r = radius * 0.38 + (seizures.length > 1 ? (index / (seizures.length - 1)) * radius * 0.54 : radius * 0.54);
       const [x, y] = point(hours, r);
-      marks += `<circle class="dot pop" style="--i:${index}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6.5"/>`;
-      marks += `<circle class="hit" tabindex="0" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="13" data-tip="${escapeHtml(`${formatEventDateTime(seizure)} · ${formatDurationWords(seizure.durationSeconds)}`)}"/>`;
+      marks += `<circle class="dot pop sev-${severityLevel(seizure.severity)}" style="--i:${index}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6.5"/>`;
+      marks += `<circle class="hit" tabindex="0" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="13" data-tip="${escapeHtml(`${formatEventDateTime(seizure)} · ${formatDurationWords(seizure.durationSeconds)}${severityLevel(seizure.severity) ? ` · severity ${severityLevel(seizure.severity)}` : ""}`)}"/>`;
     });
     return {
       night,
@@ -1783,57 +1985,112 @@
       const label = value === 0 ? "0" : value % 60 === 0 ? `${value / 60} min` : `${value}s`;
       marks += `<line class="grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text x="${left - 8}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${label}</text>`;
     }
-    const firstMonth = new Date(start);
-    const months = (new Date().getFullYear() - firstMonth.getFullYear()) * 12 + new Date().getMonth() - firstMonth.getMonth() + 1;
-    const every = Math.max(1, Math.ceil(months / 7));
-    for (let index = 0; index < months; index += every) {
-      const date = new Date(firstMonth.getFullYear(), firstMonth.getMonth() + index, 1);
-      if (+date < start) continue;
-      marks += `<text x="${x(+date).toFixed(1)}" y="${height - 8}" text-anchor="middle">${escapeHtml(date.toLocaleDateString(undefined, { month: "short" }))}</text>`;
-    }
+    marks += renderMonthLabels(start, x, height - 8);
     const average = mean(points.map((event) => event.durationSeconds));
-    marks += `<line class="ref" x1="${left}" x2="${width - right}" y1="${y(average).toFixed(1)}" y2="${y(average).toFixed(1)}"/><text x="${width - right}" y="${(y(average) - 7).toFixed(1)}" text-anchor="end">Average ${formatDurationWords(average)}</text>`;
+    marks += `<line class="ref" x1="${left}" x2="${width - right}" y1="${y(average).toFixed(1)}" y2="${y(average).toFixed(1)}"/>`;
     points.forEach((event, index) => {
       const cx = x(+new Date(event.occurredAt)).toFixed(1);
       const cy = y(event.durationSeconds).toFixed(1);
-      marks += `<circle class="dot pop" style="--i:${index}" cx="${cx}" cy="${cy}" r="6"/><circle class="hit" tabindex="0" cx="${cx}" cy="${cy}" r="13" data-tip="${escapeHtml(`${formatEventDateTime(event)} · ${formatDurationWords(event.durationSeconds)} · severity ${event.severity || "--"}`)}"/>`;
+      marks += `<circle class="dot pop sev-${severityLevel(event.severity)}" style="--i:${index}" cx="${cx}" cy="${cy}" r="6"/><circle class="hit" tabindex="0" cx="${cx}" cy="${cy}" r="13" data-tip="${escapeHtml(`${formatEventDateTime(event)} · ${formatDurationWords(event.durationSeconds)} · severity ${event.severity || "--"}`)}"/>`;
     });
-    return `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Seizure durations over time">${marks}</svg></div>`;
+    return `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Seizure durations over time">${marks}</svg></div>
+      <div class="legend">${renderSeverityScale("Severity")}<span><i class="dash"></i>Average ${escapeHtml(formatDurationWords(average))}</span></div>`;
   }
 
-  function renderLineChart(points, width, unit) {
+  function parseLabRange(text) {
+    const match = String(text || "").match(/(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)/i);
+    const low = Number(match?.[1]);
+    const high = Number(match?.[2]);
+    return match && high > low ? { low, high } : null;
+  }
+
+  function levelStatus(value, range) {
+    if (!range) return "";
+    return value < range.low ? "below" : value > range.high ? "above" : "in";
+  }
+
+  function niceStep(raw) {
+    const power = 10 ** Math.floor(Math.log10(raw));
+    const unit = raw / power;
+    return (unit <= 1 ? 1 : unit <= 2 ? 2 : unit <= 2.5 ? 2.5 : unit <= 5 ? 5 : 10) * power;
+  }
+
+  function renderBloodMeasure(name, points, width) {
+    const latest = points.at(-1);
+    // The newest test that gave a range sets the band, since a vet can change the target.
+    const range = [...points].reverse().find((point) => point.range)?.range || null;
+    const status = latest ? levelStatus(latest.value, range) : "";
+    const tag = status
+      ? `<span class="tag ${status === "in" ? "ok" : "bad"}">${status === "in" ? "In range" : status === "above" ? "Above range" : "Below range"}</span>`
+      : "";
+    return `
+      <div class="blood">
+        <div class="blood-head"><h4>${escapeHtml(name)}</h4>${tag}</div>
+        <p class="blood-now">${latest ? escapeHtml(latest.value) : "--"}<small>${escapeHtml(latest?.unit || "")}</small></p>
+        ${renderLevelChart(points, width, latest?.unit || "", range)}
+      </div>
+    `;
+  }
+
+  function renderLevelChart(points, width, unit, range) {
     if (!points.length) return `<p class="fine">No values recorded yet.</p>`;
-    const height = 130;
-    const left = 36;
+    const height = 150;
+    const left = 40;
     const right = 14;
-    const top = 16;
-    const bottom = 24;
+    const top = 14;
+    const bottom = 26;
     const innerWidth = width - left - right;
     const innerHeight = height - top - bottom;
     const t0 = +new Date(points[0].at);
     const t1 = +new Date(points.at(-1).at);
     const values = points.map((point) => point.value);
-    const low = Math.min(...values);
-    const high = Math.max(...values);
-    const padding = (high - low) * 0.25 || Math.max(1, high * 0.1);
-    const v0 = Math.max(0, low - padding);
-    const v1 = high + padding;
+    const low = Math.min(...values, range ? range.low : Infinity);
+    const high = Math.max(...values, range ? range.high : -Infinity);
+    let step = niceStep((high - low || Math.max(1, high)) / 2);
+    let v0 = Math.max(0, Math.floor((low - step * 0.25) / step) * step);
+    let v1 = Math.ceil((high + step * 0.25) / step) * step;
+    if ((v1 - v0) / step > 4) {
+      step *= 2;
+      v0 = Math.max(0, Math.floor(v0 / step) * step);
+      v1 = Math.ceil(v1 / step) * step;
+    }
     const x = (time) => left + (t1 === t0 ? innerWidth / 2 : ((time - t0) / (t1 - t0)) * innerWidth);
     const y = (value) => top + innerHeight - ((value - v0) / (v1 - v0)) * innerHeight;
+    const number = (value) => String(Number(value.toFixed(2)));
     let marks = "";
-    [v0, (v0 + v1) / 2, v1].forEach((value) => {
-      marks += `<line class="grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text x="${left - 6}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${round1(value)}</text>`;
-    });
+    if (range) {
+      const bandTop = y(range.high);
+      const bandHeight = y(range.low) - bandTop;
+      marks += `<rect class="band" x="${left}" y="${bandTop.toFixed(1)}" width="${innerWidth}" height="${bandHeight.toFixed(1)}" rx="6"/>`;
+      [range.high, range.low].forEach((value) => {
+        marks += `<line class="band-edge" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/>`;
+      });
+      marks += `<text class="band-label halo" x="${left + 8}" y="${(bandHeight >= 22 ? bandTop + 14 : bandTop - 6).toFixed(1)}">Target ${number(range.low)}–${number(range.high)}</text>`;
+    }
+    for (let value = v0; value <= v1 + step / 2; value += step) {
+      marks += `<line class="grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text x="${left - 6}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${number(value)}</text>`;
+    }
     const path = points.map((point, index) => `${index ? "L" : "M"}${x(+new Date(point.at)).toFixed(1)},${y(point.value).toFixed(1)}`).join("");
     if (points.length > 1) marks += `<path class="area" d="${path}L${x(t1).toFixed(1)},${top + innerHeight}L${x(t0).toFixed(1)},${top + innerHeight}Z"/><path class="line" d="${path}"/>`;
+    // Dates are labelled only where they have room, always keeping the first and the latest.
+    const labelled = [];
+    [0, points.length - 1, ...points.keys()].forEach((index) => {
+      const px = x(+new Date(points[index].at));
+      if (labelled.every(([, other]) => Math.abs(other - px) >= 58)) labelled.push([index, px]);
+    });
+    labelled.forEach(([index, px]) => {
+      const anchor = points.length === 1 ? "middle" : index === 0 ? "start" : index === points.length - 1 ? "end" : "middle";
+      marks += `<text x="${px.toFixed(1)}" y="${height - 6}" text-anchor="${anchor}">${escapeHtml(new Date(points[index].at).toLocaleDateString(undefined, { day: "numeric", month: "short" }))}</text>`;
+    });
     points.forEach((point, index) => {
       const cx = x(+new Date(point.at)).toFixed(1);
       const cy = y(point.value).toFixed(1);
-      const anchor = points.length === 1 ? "middle" : index === 0 ? "start" : index === points.length - 1 ? "end" : "middle";
-      marks += `<circle class="dot pop" style="--i:${index}" cx="${cx}" cy="${cy}" r="5"/><text x="${cx}" y="${height - 6}" text-anchor="${anchor}">${escapeHtml(new Date(point.at).toLocaleDateString(undefined, { day: "numeric", month: "short" }))}</text>`;
-      marks += `<circle class="hit" tabindex="0" cx="${cx}" cy="${cy}" r="12" data-tip="${escapeHtml(`${formatDateShort(new Date(point.at))} · ${point.value} ${unit}`.trim())}"/>`;
+      const status = levelStatus(point.value, range);
+      const note = status === "in" ? " · in range" : status === "above" ? " · above range" : status === "below" ? " · below range" : "";
+      marks += `<circle class="dot pop${status && status !== "in" ? " off-target" : ""}" style="--i:${index}" cx="${cx}" cy="${cy}" r="5"/>`;
+      marks += `<circle class="hit" tabindex="0" cx="${cx}" cy="${cy}" r="12" data-tip="${escapeHtml(`${formatDateShort(new Date(point.at))} · ${point.value} ${unit}`.trim() + note)}"/>`;
     });
-    return `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Level over time">${marks}</svg></div>`;
+    return `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Level over time${range ? `, target ${number(range.low)} to ${number(range.high)}` : ""}">${marks}</svg></div>`;
   }
 
   function getSelectedStatsMonth(months) {
@@ -1926,7 +2183,9 @@
     const columns = window.innerWidth >= 620 ? 2 : 1;
     const inner = chartWidth(2);
     const lineWidth = Math.max(220, Math.floor((inner - (columns - 1) * 12) / columns - 28));
-    const series = (key) => tests.filter((test) => Number.isFinite(test[key]?.value)).map((test) => ({ at: test.occurredAt, value: test[key].value, unit: test[key].unit || "" }));
+    const series = (key) => tests.filter((test) => Number.isFinite(test[key]?.value)).map((test) => ({
+      at: test.occurredAt, value: test[key].value, unit: test[key].unit || "", range: parseLabRange(test[key].referenceRange)
+    }));
     const pheno = series("phenobarbital");
     const bromide = series("bromide");
     const doseRate = (() => {
@@ -1988,10 +2247,12 @@
         <section class="card" aria-label="Blood levels">
           <div class="section-head"><h3>Blood Levels</h3><span class="fine">${tests.length} test${tests.length === 1 ? "" : "s"}</span></div>
           <div class="bloods">
-            <div class="blood"><h4>Phenobarbital</h4><p class="blood-now">${pheno.length ? escapeHtml(pheno.at(-1).value) : "--"}<small>${escapeHtml(pheno.at(-1)?.unit || "")}</small></p>${renderLineChart(pheno, lineWidth, pheno.at(-1)?.unit || "")}</div>
-            <div class="blood"><h4>Bromide</h4><p class="blood-now">${bromide.length ? escapeHtml(bromide.at(-1).value) : "--"}<small>${escapeHtml(bromide.at(-1)?.unit || "")}</small></p>${renderLineChart(bromide, lineWidth, bromide.at(-1)?.unit || "")}</div>
+            ${renderBloodMeasure("Phenobarbital", pheno, lineWidth)}
+            ${renderBloodMeasure("Bromide", bromide, lineWidth)}
           </div>
-          <p class="fine">Values as entered from lab reports. Two measures, two charts.</p>
+          ${[...pheno, ...bromide].some((point) => point.range)
+            ? `<div class="legend"><span><i class="band"></i>Target range from the latest test</span><span><i class="dot-off"></i>Outside the range</span></div>`
+            : `<p class="fine">Values as entered from lab reports. Add the lab's reference range to a test to see the target band.</p>`}
         </section>
 
         <section class="card document-library-panel">
@@ -2925,10 +3186,19 @@
     tip.style.left = `${clamp(rect.left + rect.width / 2, 120, window.innerWidth - 120)}px`;
     tip.style.top = `${rect.top + Math.min(rect.height / 2, 14)}px`;
     tip.classList.add("show");
+    // Charts with a guide move it to the point the label describes.
+    const cross = target.ownerSVGElement?.querySelector(".cross");
+    if (cross && target.dataset.x) {
+      cross.querySelector("line").setAttribute("transform", `translate(${target.dataset.x} 0)`);
+      cross.querySelector("circle").setAttribute("cx", target.dataset.x);
+      cross.querySelector("circle").setAttribute("cy", target.dataset.y);
+      cross.classList.add("on");
+    }
   }
 
   function hideChartTip() {
     document.querySelector("#chart-tip")?.classList.remove("show");
+    document.querySelectorAll(".chart .cross.on").forEach((cross) => cross.classList.remove("on"));
   }
 
   function renderPreservingContentScroll() {
@@ -4659,6 +4929,7 @@
         fullLabel: date.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
         count: monthSeizures.length,
         delta: 0,
+        averageSeverity: severityValues.length ? mean(severityValues) : null,
         averageSeverityText: severityValues.length ? round1(mean(severityValues)).toString() : "--",
         averageDurationText: durationValues.length ? formatDuration(Math.round(mean(durationValues))) : "--",
         clusterCount: monthSeizures.filter((event) => isAutomaticCluster(event)).length,

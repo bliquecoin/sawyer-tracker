@@ -287,7 +287,7 @@ async function addNote(page, title, body) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=90");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=91");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
@@ -502,6 +502,37 @@ test.describe("with motion on", () => {
     expect((await progress('[data-view="today"] .chart .grow-x', "grow-x")).state).toBe("finished");
     expect(pageErrors).toEqual([]);
   });
+});
+
+test("Patterns shows the 30-day trend and severity, and blood levels show their target range", async ({ page }) => {
+  const pageErrors = await openTracker(page, { seedSeizureDaysAgoList: [3, 10, 40, 41.2, 80, 120] });
+  await tab(page, "Patterns").click();
+
+  const trend = page.locator(".trend-card");
+  await expect(trend.locator(".trend-now strong")).toContainText("2");
+  await expect(trend.locator(".trend-now .tag")).toHaveText("Same as the 30 days before");
+  await expect(trend.locator("svg .trend-line")).toHaveCount(1);
+  await trend.locator(".hit").last().focus();
+  await expect(page.locator("#chart-tip")).toContainText("in the 30 days before");
+  await expect(trend.locator(".cross")).toHaveClass(/on/);
+
+  const severity = page.locator(".severity-card");
+  await expect(severity.locator("svg .dot.sev-2")).toHaveCount(6);
+  await expect(severity.locator(".trend-now .tag")).toHaveText("About the same");
+  await expect(page.locator(".stats-month-panel .mb-fill.sev-2").first()).toBeVisible();
+
+  await tab(page, "Vet").click();
+  await page.getByRole("button", { name: "Add Blood Test" }).click();
+  await page.locator("#blood-panel").fill("Phenobarbital level");
+  await page.locator("#blood-phenobarbital-value").fill("50");
+  await page.locator("#blood-phenobarbital-unit").fill("mg/L");
+  await page.locator("#blood-phenobarbital-range").fill("15–45");
+  await page.getByRole("button", { name: "Save Blood Test" }).click();
+  const pheno = page.locator('[aria-label="Blood levels"] .blood').first();
+  await expect(pheno.locator(".tag")).toHaveText("Above range");
+  await expect(pheno.locator("svg .band")).toHaveCount(1);
+  await expect(pheno.locator("svg .dot.off-target")).toHaveCount(1);
+  expect(pageErrors).toEqual([]);
 });
 
 test("reset page waits for explicit confirmation", async ({ page }) => {
@@ -802,7 +833,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-90");
+      const cache = await caches.open("sawyer-tracker-shell-91");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);

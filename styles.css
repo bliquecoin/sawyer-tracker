@@ -47,6 +47,16 @@
   --warn-bg: #fdf1d3;
   --bad: #b42318;
   --bad-bg: #fbe6e3;
+  /* Severity runs blue (mild) through yellow to berry (severe), the same order as the streak field. */
+  --sev-1: #84acc4;
+  --sev-2: #4c84a4;
+  --sev-3: #f4b414;
+  --sev-4: #d43454;
+  --sev-5: #8c1230;
+  --night-band: rgba(60, 116, 148, 0.16);
+  --gap-1: #9cc0d6;
+  --gap-2: #4c84a4;
+  --gap-3: #2b5874;
 
   --f-sans: "Inter Tight", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --f-label: "Avenir Next", "Raleway", "Segoe UI", sans-serif;
@@ -80,6 +90,15 @@
     --warn-bg: #33270c;
     --bad: #ff8b7e;
     --bad-bg: #3a1b18;
+    --sev-1: #a9cbe0;
+    --sev-2: #6fa6c6;
+    --sev-3: #fccc24;
+    --sev-4: #ff6b86;
+    --sev-5: #ff3d64;
+    --night-band: rgba(132, 172, 196, 0.14);
+    --gap-1: #3d6680;
+    --gap-2: #6fa6c6;
+    --gap-3: #b9dcf0;
     color-scheme: dark;
   }
 }
@@ -686,6 +705,11 @@ html.ios-browser .pull-refresh {
 .tag.warn {
   background: var(--warn-bg);
   color: var(--warn);
+}
+
+.tag.bad {
+  background: var(--bad-bg);
+  color: var(--bad);
 }
 
 .tag.glass {
@@ -1970,17 +1994,14 @@ html.ios-browser .pull-refresh {
   bottom: 0;
   left: 0;
   border-radius: 8px 8px 4px 4px;
-  background: var(--chart);
+  background: currentColor;
+  color: var(--sev, var(--chart));
   transform-origin: 50% 100%;
   animation: grow 0.8s var(--ease-out) calc(var(--i, 0) * 0.04s + var(--age, 0s)) both;
 }
 
 .month-bar.partial .mb-fill {
-  background: repeating-linear-gradient(45deg, var(--chart) 0 3px, var(--chart-soft) 3px 7px);
-}
-
-.month-bar.active .mb-fill {
-  background-color: var(--accent);
+  background: repeating-linear-gradient(45deg, currentColor 0 3px, color-mix(in srgb, currentColor 35%, transparent) 3px 7px);
 }
 
 .legend {
@@ -2015,7 +2036,63 @@ html.ios-browser .pull-refresh {
 }
 
 .legend i.night {
-  background: var(--chart-soft);
+  background: var(--night-band);
+}
+
+.legend i.short {
+  background: var(--sev-3);
+}
+
+.legend i.open.short {
+  background: color-mix(in srgb, var(--sev-3) 22%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--sev-3);
+}
+
+.legend i.tick {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--sev-3);
+}
+
+.legend i.band {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 55%, transparent);
+}
+
+.legend i.dot-off {
+  border-radius: 50%;
+  background: var(--sev-4);
+}
+
+.legend i.ring {
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--muted);
+  border-radius: 50%;
+}
+
+.sev-1 { --sev: var(--sev-1); }
+.sev-2 { --sev: var(--sev-2); }
+.sev-3 { --sev: var(--sev-3); }
+.sev-4 { --sev: var(--sev-4); }
+.sev-5 { --sev: var(--sev-5); }
+.g1 { --sev: var(--gap-1); }
+.g2 { --sev: var(--gap-2); }
+.g3 { --sev: var(--gap-3); }
+
+.legend .sev-scale {
+  gap: 3px;
+}
+
+.sev-scale i {
+  background: var(--sev);
+}
+
+.sev-scale i:first-of-type {
+  margin-left: 4px;
+}
+
+.sev-scale i:last-of-type {
+  margin-right: 4px;
 }
 
 .legend i.dash {
@@ -2113,7 +2190,11 @@ html.ios-browser .pull-refresh {
 }
 
 .chart .gap-bar {
-  fill: var(--chart);
+  fill: var(--sev, var(--chart));
+}
+
+.chart .gap-bar.short {
+  fill: var(--sev-3);
 }
 
 .chart .gap-bar.open {
@@ -2123,10 +2204,117 @@ html.ios-browser .pull-refresh {
   stroke-width: 1.5;
 }
 
+.chart .gap-bar.open.short {
+  fill: color-mix(in srgb, var(--sev-3) 22%, transparent);
+  stroke: var(--sev-3);
+}
+
 .chart .dot {
-  fill: var(--chart);
+  fill: var(--sev, var(--chart));
   stroke: var(--surface);
   stroke-width: 2;
+}
+
+.chart .dot.off-target {
+  fill: var(--sev-4);
+}
+
+.chart text.halo {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-linejoin: round;
+  stroke-width: 4px;
+}
+
+.blood .chart text.halo {
+  stroke: var(--bg);
+}
+
+.chart .trend-line,
+.chart .avg-line {
+  fill: none;
+  stroke-dasharray: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: trace 1.3s var(--ease-out) calc(0.1s + var(--age, 0s)) both;
+}
+
+.chart .trend-line {
+  stroke-width: 2.5;
+}
+
+.chart .avg-line {
+  stroke-width: 3;
+}
+
+.chart .trend-area {
+  fill-opacity: 0.16;
+  animation: fade-in 0.9s var(--ease-out) calc(0.4s + var(--age, 0s)) both;
+}
+
+.chart .rug {
+  stroke: var(--sev, var(--chart));
+  stroke-linecap: round;
+  stroke-width: 2.5;
+}
+
+.chart .band {
+  fill: var(--ok);
+  fill-opacity: 0.1;
+}
+
+.chart .band-edge {
+  stroke: var(--ok);
+  stroke-dasharray: 3 4;
+  stroke-opacity: 0.55;
+}
+
+.chart text.band-label {
+  fill: var(--ok);
+  font-weight: 500;
+}
+
+.chart .cross {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.chart .cross.on {
+  opacity: 1;
+}
+
+.chart .cross line {
+  stroke: var(--fg);
+  stroke-opacity: 0.3;
+  stroke-width: 1;
+}
+
+.chart .cross circle {
+  fill: var(--surface);
+  stroke: var(--fg);
+  stroke-width: 2;
+}
+
+.trend-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.trend-now strong {
+  font: 600 34px/1 var(--f-label);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.trend-now strong small {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .blood .chart .dot {
@@ -2147,8 +2335,7 @@ html.ios-browser .pull-refresh {
 }
 
 .chart .night {
-  fill: var(--chart-soft);
-  opacity: 0.7;
+  fill: var(--night-band);
 }
 
 .chart .hit {
@@ -2409,6 +2596,13 @@ html.ios-browser .pull-refresh {
 .blood h4 {
   font-size: 14px;
   font-weight: 500;
+}
+
+.blood-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .blood-now {
@@ -4056,6 +4250,16 @@ html.ios-browser .toast {
 @keyframes dot-in {
   from {
     transform: scale(0);
+  }
+}
+
+@keyframes trace {
+  from {
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    stroke-dashoffset: 0;
   }
 }
 
