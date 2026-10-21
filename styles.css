@@ -4344,6 +4344,7 @@ textarea:focus,
   position: fixed;
   inset: 0;
   z-index: 80;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--glow-focus);
@@ -4361,6 +4362,13 @@ textarea:focus,
 
 .focus .leaf {
   --leaf: rgba(255, 255, 255, 0.032);
+}
+
+.focus-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .focus-in {
