@@ -928,12 +928,7 @@
     const fresh = state.overlayFresh;
     const sameTab = state.renderedTab === state.activeTab;
     const contentScroll = sameTab ? document.querySelector(".content")?.scrollTop || 0 : 0;
-    // Redrawing the same screen keeps every animation where it was, so a background refresh
-    // (like the sync that lands after the app opens) does not replay the screen's entrance.
-    const now = performance.now();
-    if (!sameTab) state.sceneStart = now;
-    document.documentElement.style.setProperty("--age", `${((state.sceneStart - now) / 1000).toFixed(3)}s`);
-    app.innerHTML = `
+    const markup = `
       <div class="screen${state.pullRefreshing ? " refreshing" : ""}">
         ${renderPullRefresh()}
         <main class="content">
@@ -971,6 +966,15 @@
         <div id="toast" class="toast" role="status"></div>
       </div>
     `;
+
+    // Redrawing the same screen keeps every animation where it was, so a background refresh
+    // (like the sync that lands after the app opens) does not replay the screen's entrance.
+    // The clock is read after the markup is built, so the time spent building it is not lost
+    // from the animations that resume.
+    const now = performance.now();
+    if (!sameTab) state.sceneStart = now;
+    document.documentElement.style.setProperty("--age", `${((state.sceneStart - now) / 1000).toFixed(3)}s`);
+    app.innerHTML = markup;
 
     // Marks that are new on this redraw, such as a dose just ticked off, still animate in.
     const animated = new Set();
