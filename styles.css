@@ -1188,6 +1188,47 @@ html.ios-browser .pull-refresh {
   }
 }
 
+/* As the page scrolls, the hero's text sinks at a fifth of the scroll speed so the panel below slowly
+   slides over it. The browser drives this from the scroll position itself, so it cannot lag behind the
+   finger the way a scroll listener does on iPhone. Browsers without scroll timelines keep a still hero. */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* clip, unlike hidden, does not make the hero a scroll container, so scroll(nearest) finds the page. */
+    .hero {
+      overflow: clip;
+    }
+
+    .hero-main,
+    .hero-portrait,
+    .hero-side {
+      animation: hero-scroll linear both;
+      animation-timeline: scroll(nearest block);
+      animation-range: 0px 700px;
+    }
+
+    .hero-main {
+      --hero-scroll: 154px;
+    }
+
+    /* In Safari's browser tab the window scrolls rather than the page panel. */
+    html.ios-browser .hero-main,
+    html.ios-browser .hero-portrait,
+    html.ios-browser .hero-side {
+      animation-timeline: scroll(root block);
+    }
+  }
+}
+
+@media (min-width: 960px) {
+  .hero-portrait {
+    --hero-scroll: -61.6px;
+  }
+
+  .hero-side {
+    --hero-scroll: -92.4px;
+  }
+}
+
 .float-card {
   position: absolute;
   display: grid;
@@ -4491,6 +4532,12 @@ html.ios-browser .toast {
 }
 
 /* Motion */
+@keyframes hero-scroll {
+  to {
+    translate: 0 var(--hero-scroll, 0px);
+  }
+}
+
 @keyframes drift {
   from {
     scale: 1;
