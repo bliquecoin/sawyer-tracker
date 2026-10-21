@@ -2380,6 +2380,438 @@ html.ios-browser .pull-refresh {
   opacity: 1;
 }
 
+/* Scrubbing the 30-day chart: the chart keeps vertical swipes for the page and takes horizontal drags. */
+.scrub-chart svg {
+  cursor: crosshair;
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scrub-chart svg:focus-visible {
+  border-radius: 12px;
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
+}
+
+.chart .cross text.cross-label {
+  fill: var(--fg);
+  stroke-width: 5px;
+}
+
+.trend-card .trend-now .tag {
+  transition: opacity 0.2s;
+}
+
+.trend-card.scrubbing .trend-now .tag {
+  opacity: 0.3;
+}
+
+[data-readout-value] {
+  display: inline-block;
+  min-width: 0.6em;
+}
+
+/* Chart deck: a full-bleed row of cards that snaps one at a time, with the next card's edge in view. */
+.deck-wrap {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.deck {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  margin: 0 calc(-1 * var(--gutter-right)) 0 calc(-1 * var(--gutter-left));
+  padding: 2px var(--gutter-right) 6px var(--gutter-left);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: var(--gutter-left) var(--gutter-right);
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.deck::-webkit-scrollbar {
+  display: none;
+}
+
+.deck-card {
+  flex: 0 0 86%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  transform-origin: 50% 60%;
+}
+
+.deck-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.deck-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  transition: width 0.3s var(--ease-out), background 0.3s;
+}
+
+.deck-dots i.on {
+  width: 22px;
+  background: var(--fg);
+}
+
+/* Cards ease into focus as they slide to the front, driven by the scroll itself rather than script. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .deck-card {
+      animation: deck-focus linear both;
+      animation-timeline: view(inline);
+    }
+  }
+}
+
+@keyframes deck-focus {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.9) rotate(2deg);
+  }
+
+  42%,
+  58% {
+    opacity: 1;
+    transform: none;
+  }
+
+  100% {
+    opacity: 0.55;
+    transform: scale(0.9) rotate(-2deg);
+  }
+}
+
+@media (min-width: 960px) {
+  .deck {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .deck-card {
+    animation: none;
+  }
+
+  .deck-tabs,
+  .deck-dots {
+    display: none;
+  }
+}
+
+/* Highlights */
+.highlights-wrap {
+  display: grid;
+  gap: 12px;
+}
+
+.highlights {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 960px) {
+  .highlights {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.hl {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+  animation: rise 0.6s var(--ease-out) var(--age, 0s) both;
+}
+
+.hl.full {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 960px) {
+  .hl.full {
+    grid-column: span 2;
+  }
+
+  .hl.alert {
+    grid-column: 1 / -1;
+  }
+}
+
+.hl-text {
+  display: grid;
+  gap: 3px;
+}
+
+.hl-text strong {
+  font: 600 19px/1.2 var(--f-label);
+  letter-spacing: -0.01em;
+}
+
+.hl-text span {
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.hl.alert {
+  background: var(--glow-berry);
+  color: var(--white);
+}
+
+.hl.alert .eyebrow,
+.hl.alert .hl-text span {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.hl.alert .hl-visual .i,
+.hl.doses .hl-visual .i {
+  width: 26px;
+  height: 26px;
+}
+
+.hl.doses .hl-visual {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.hl.doses.warn .hl-visual {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.ring-tile svg {
+  display: block;
+  width: 72px;
+  height: 72px;
+}
+
+.ring-tile .ring-track {
+  fill: none;
+  stroke: var(--chart-soft);
+  stroke-width: 8;
+}
+
+.ring-tile .ring-value {
+  fill: none;
+  stroke: var(--sev-2);
+  stroke-linecap: round;
+  stroke-width: 8;
+  animation: ring-fill 1.2s var(--ease-out) calc(0.2s + var(--age, 0s)) both;
+}
+
+.ring-tile svg text {
+  fill: var(--fg);
+  font: 600 20px var(--f-label);
+}
+
+@keyframes ring-fill {
+  from {
+    stroke-dasharray: 0 100;
+  }
+}
+
+.race .hl-visual {
+  display: grid;
+  gap: 8px;
+}
+
+.race-row {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+  grid-template-columns: 84px minmax(0, 1fr) 44px;
+}
+
+.race-row i {
+  height: 12px;
+  width: var(--w);
+  border-radius: 999px;
+  background: var(--chart-soft);
+  transform-origin: 0 50%;
+  animation: grow-x 0.9s var(--ease-out) calc(0.15s + var(--age, 0s)) both;
+}
+
+.race-row.now i {
+  background: var(--sev-2);
+}
+
+.race-row.record i {
+  background: var(--gap-3);
+}
+
+.race-row b {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-align: right;
+}
+
+.episode-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.episode-dots i {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--sev-2);
+  color: var(--white);
+  font: 600 10px var(--f-sans);
+  font-style: normal;
+  animation: dot-in 0.4s var(--ease-out) calc(var(--age, 0s) + 0.1s) both;
+}
+
+.episode-dots i.cluster {
+  width: 26px;
+  height: 26px;
+  background: var(--sev-4);
+  font-size: 11px;
+}
+
+.dumbbell {
+  position: relative;
+  height: 54px;
+  margin: 0 18px;
+}
+
+.dumbbell .track,
+.dumbbell .span {
+  position: absolute;
+  top: 12px;
+  height: 6px;
+  border-radius: 999px;
+}
+
+.dumbbell .track {
+  right: 0;
+  left: 0;
+  background: var(--chart-soft);
+}
+
+.dumbbell .span {
+  left: var(--a);
+  width: calc(var(--b) - var(--a));
+  background: var(--sev-2);
+}
+
+.dumbbell .end {
+  position: absolute;
+  top: 5px;
+  left: var(--x);
+  display: grid;
+  justify-items: center;
+  width: 0;
+  font-style: normal;
+}
+
+.dumbbell .end::before {
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+  background: var(--chart-soft);
+  content: "";
+}
+
+.dumbbell .end.after::before {
+  background: var(--sev-2);
+}
+
+.dumbbell .end b {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dumbbell .end small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.hl.worse .dumbbell .end.after::before,
+.hl.worse .dumbbell .span {
+  background: var(--sev-4);
+}
+
+.hl.levels .gauge {
+  display: grid;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.gauge + .gauge {
+  margin-top: 10px;
+}
+
+.gauge span {
+  color: var(--muted);
+}
+
+.gauge span b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.gauge-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--chart-soft);
+}
+
+.gauge-bar .band {
+  position: absolute;
+  inset: 0 auto 0 var(--a);
+  width: calc(var(--b) - var(--a));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ok) 45%, transparent);
+}
+
+.gauge-bar .mark {
+  position: absolute;
+  top: 50%;
+  left: var(--x);
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+  background: var(--sev-2);
+  translate: -50% -50%;
+}
+
+.gauge.above .mark,
+.gauge.below .mark {
+  background: var(--sev-4);
+}
+
 .observations {
   display: grid;
   gap: 12px;
@@ -3903,8 +4335,10 @@ html.ios-browser .toast {
 
 .nav-btn {
   display: grid;
+  width: calc(100% - 10px);
   height: 54px;
   min-width: 0;
+  justify-self: center;
   align-content: center;
   justify-items: center;
   gap: 2px;

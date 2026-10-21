@@ -63,6 +63,8 @@
     storageUnavailable: false,
     aiBusy: false,
     aiInsight: null,
+    deckIndex: 0,
+    deckObserver: null,
     aiError: "",
     statsSelectedMonthKey: "",
     statsRange: "6",
@@ -366,6 +368,11 @@
     document.addEventListener("pointerout", (event) => {
       if (event.target.closest?.(".hit")) hideChartTip();
     });
+    // A tap shows a label without a pointerout on iPhone, so a tap anywhere else, or a scroll, puts it away.
+    document.addEventListener("pointerdown", (event) => {
+      if (!event.target.closest?.(".hit")) hideChartTip();
+    });
+    document.addEventListener("scroll", hideChartTip, { capture: true, passive: true });
     document.addEventListener("focusin", (event) => {
       if (event.target.classList?.contains("hit")) showChartTip(event.target);
     });
@@ -1578,6 +1585,13 @@
     `;
   }
 
+  // Deck cards are 86% of the screen on a phone, so the next card's edge shows; on wide screens they sit two across.
+  function deckChartWidth() {
+    const viewport = Math.min(window.innerWidth || 390, 1264);
+    if (viewport >= 960) return chartWidth(2);
+    return Math.max(230, Math.floor((viewport - (viewport >= 760 ? 64 : 32)) * 0.86 - 40));
+  }
+
   function chartWidth(columns = 1) {
     const viewport = Math.min(window.innerWidth || 390, 1264);
     const content = Math.min(viewport - (viewport >= 760 ? 64 : 32), 1200);
@@ -1598,13 +1612,11 @@
     const inRange = seizures.filter((event) => new Date(event.occurredAt) >= rangeStart);
     const timed = inRange.filter((event) => event.timeKnown !== false);
     const durations = inRange.map((event) => Number(event.durationSeconds) || 0).filter(Boolean);
-    const clock = renderClockChart(timed, Math.min(320, chartWidth(2)));
+    const clock = renderClockChart(timed, Math.min(320, deckChartWidth()));
     const trend = renderTrendChart(seizures, rangeStart, chartWidth(1));
-    const severity = renderSeverityChart(inRange, rangeStart, chartWidth(2));
+    const severity = renderSeverityChart(inRange, rangeStart, deckChartWidth());
     const trendChange = trend.now === null ? null : trend.now - trend.before;
     const severityChange = severity.recent === null ? null : severity.recent - severity.earlier;
-    const nearMissed = countSeizuresNearMissedDose(seizures).total;
-    const insights = buildInsights(summary).slice(0, 6);
 
     return `
       <div class="stack patterns">
@@ -1625,70 +1637,68 @@
           <button class="tile cta" data-tab="vet" data-scroll="visit-summary" type="button">${icon("arrow")}Vet Summary</button>
         </div>
 
-        <div class="charts">
-          <section class="chart-card wide stats-month-panel">
-            <header><div><h3>Seizures By Month</h3><p class="sub">${inRange.length} logged in this range. Tap a month for detail.</p></div></header>
-            <div class="month-chart" aria-label="Monthly seizure counts">
-              ${monthly.map((item, index) => `
-                <button class="month-bar ${item.key === selectedMonth.key ? "active" : ""} ${index === monthly.length - 1 ? "partial" : ""}"
-                  data-stats-month="${escapeHtml(item.key)}" type="button" aria-pressed="${item.key === selectedMonth.key ? "true" : "false"}"
-                  aria-label="${escapeHtml(`${item.fullLabel}: ${item.count} seizure${item.count === 1 ? "" : "s"}${index === monthly.length - 1 ? ", so far" : ""}`)}">
-                  <span class="mb-count">${item.count}</span>
-                  <span class="mb-track" aria-hidden="true"><span class="mb-fill sev-${busyLevel(item.count)}" style="height:${(item.count / max) * 100}%;--i:${index}"></span></span>
-                  <span class="mb-label">${escapeHtml(item.label)}</span>
-                </button>
-              `).join("")}
-            </div>
-            <div class="legend">${renderBusyScale("Colour")}<span><i class="striped"></i>This month so far</span></div>
-            ${renderSelectedStatsMonth(selectedMonth)}
-          </section>
+        <section class="chart-card trend-card">
+          <header>
+            <div><h3>Seizures In The Last 30 Days</h3><p class="sub">Each point counts the 30 days before it, so lower is calmer. Drag across the chart to read any day.</p></div>
+            ${trendChange === null ? "" : `<div class="trend-now"><strong><span data-readout-value>${trend.now}</span><small data-readout-label>now</small></strong><span class="tag ${trendChange < 0 ? "ok" : trendChange > 0 ? "bad" : "plain"}">${
+              trendChange === 0 ? "Same as the 30 days before" : `${Math.abs(trendChange)} ${trendChange < 0 ? "fewer" : "more"} than the 30 days before`}</span></div>`}
+          </header>
+          ${trend.html}
+          ${trend.now === null ? "" : `<div class="legend">${renderBusyScale("Line")}<span><i class="tick"></i>Each seizure, coloured by severity</span></div>`}
+        </section>
 
-          <section class="chart-card wide trend-card">
-            <header>
-              <div><h3>Seizures In The Last 30 Days</h3><p class="sub">Each point counts the 30 days before it, so lower is calmer. Tap the line for any day.</p></div>
-              ${trendChange === null ? "" : `<div class="trend-now"><strong>${trend.now}<small>now</small></strong><span class="tag ${trendChange < 0 ? "ok" : trendChange > 0 ? "bad" : "plain"}">${
-                trendChange === 0 ? "Same as the 30 days before" : `${Math.abs(trendChange)} ${trendChange < 0 ? "fewer" : "more"} than the 30 days before`}</span></div>`}
-            </header>
-            ${trend.html}
-            ${trend.now === null ? "" : `<div class="legend">${renderBusyScale("Line")}<span><i class="tick"></i>Each seizure, coloured by severity</span></div>`}
-          </section>
+        <section class="deck-wrap" aria-label="More charts">
+          <div class="chips deck-tabs" role="group" aria-label="Choose a chart">
+            ${["Gaps", "Severity", "Time of day", "Duration"].map((label, index) => `<button class="chip" data-deck-to="${index}" type="button" aria-pressed="${index === (state.deckIndex || 0)}">${label}</button>`).join("")}
+          </div>
+          <div class="deck">
+            <section class="chart-card deck-card" data-deck-card="0">
+              <header><div><h3>Days Between Episodes</h3><p class="sub">Seizures within 24 hours count as one episode.</p></div></header>
+              ${renderGapChart(summary, deckChartWidth())}
+            </section>
 
-          <section class="chart-card">
-            <header><div><h3>Days Between Episodes</h3><p class="sub">Seizures within 24 hours count as one episode.</p></div></header>
-            ${renderGapChart(summary, chartWidth(2))}
-          </section>
+            <section class="chart-card deck-card severity-card" data-deck-card="1">
+              <header>
+                <div><h3>Severity Over Time</h3><p class="sub">Each dot is one seizure, larger when it lasted longer. The line is a smoothed average across episodes.</p></div>
+                ${severityChange === null ? "" : `<div class="trend-now"><strong>${severity.recent.toFixed(1)}<small>recent average</small></strong><span class="tag ${severityChange < -0.2 ? "ok" : severityChange > 0.2 ? "bad" : "plain"}">${
+                  severityChange < -0.2 ? `Milder, was ${severity.earlier.toFixed(1)}` : severityChange > 0.2 ? `Stronger, was ${severity.earlier.toFixed(1)}` : "About the same"}</span></div>`}
+              </header>
+              ${severity.html}
+              ${!severity.drawn ? "" : `<div class="legend">${renderSeverityScale("Severity")}<span><i class="ring"></i>Bigger dot, longer seizure</span></div>`}
+            </section>
 
-          <section class="chart-card severity-card">
-            <header>
-              <div><h3>Severity Over Time</h3><p class="sub">Each dot is one seizure, larger when it lasted longer. The line averages the last three episodes.</p></div>
-              ${severityChange === null ? "" : `<div class="trend-now"><strong>${severity.recent.toFixed(1)}<small>recent average</small></strong><span class="tag ${severityChange < -0.2 ? "ok" : severityChange > 0.2 ? "bad" : "plain"}">${
-                severityChange < -0.2 ? `Milder, was ${severity.earlier.toFixed(1)}` : severityChange > 0.2 ? `Stronger, was ${severity.earlier.toFixed(1)}` : "About the same"}</span></div>`}
-            </header>
-            ${severity.html}
-            ${!severity.drawn ? "" : `<div class="legend">${renderSeverityScale("Severity")}<span><i class="ring"></i>Bigger dot, longer seizure</span></div>`}
-          </section>
+            <section class="chart-card deck-card" data-deck-card="2">
+              <header><div><h3>Time Of Day</h3><p class="sub">${timed.length ? `${clock.night} of ${timed.length} with a recorded time started between 10 pm and 6 am.` : "No seizures with a recorded time in this range."}</p></div></header>
+              ${clock.html}
+              <div class="legend"><span><i class="night"></i>10 pm to 6 am</span>${renderSeverityScale("Severity")}<span>Outer dots are more recent</span></div>
+            </section>
 
-          <section class="chart-card">
-            <header><div><h3>Time Of Day</h3><p class="sub">${timed.length ? `${clock.night} of ${timed.length} with a recorded time started between 10 pm and 6 am.` : "No seizures with a recorded time in this range."}</p></div></header>
-            ${clock.html}
-            <div class="legend"><span><i class="night"></i>10 pm to 6 am</span>${renderSeverityScale("Severity")}<span>Outer dots are more recent</span></div>
-          </section>
+            <section class="chart-card deck-card" data-deck-card="3">
+              <header><div><h3>Duration</h3><p class="sub">${durations.length ? `From ${formatDurationWords(Math.min(...durations))} to ${formatDurationWords(Math.max(...durations))}, average ${formatDurationWords(mean(durations))}.` : "No durations recorded in this range."}</p></div></header>
+              ${renderDurationChart(inRange, rangeStart, deckChartWidth())}
+            </section>
+          </div>
+          <div class="deck-dots" aria-hidden="true">${[0, 1, 2, 3].map((index) => `<i class="${index === (state.deckIndex || 0) ? "on" : ""}"></i>`).join("")}</div>
+        </section>
 
-          <section class="chart-card">
-            <header><div><h3>Duration</h3><p class="sub">${durations.length ? `From ${formatDurationWords(Math.min(...durations))} to ${formatDurationWords(Math.max(...durations))}, average ${formatDurationWords(mean(durations))}.` : "No durations recorded in this range."}</p></div></header>
-            ${renderDurationChart(inRange, rangeStart, chartWidth(2))}
-          </section>
+        <section class="chart-card stats-month-panel">
+          <header><div><h3>Seizures By Month</h3><p class="sub">${inRange.length} logged in this range. Tap a month for detail.</p></div></header>
+          <div class="month-chart" aria-label="Monthly seizure counts">
+            ${monthly.map((item, index) => `
+              <button class="month-bar ${item.key === selectedMonth.key ? "active" : ""} ${index === monthly.length - 1 ? "partial" : ""}"
+                data-stats-month="${escapeHtml(item.key)}" type="button" aria-pressed="${item.key === selectedMonth.key ? "true" : "false"}"
+                aria-label="${escapeHtml(`${item.fullLabel}: ${item.count} seizure${item.count === 1 ? "" : "s"}${index === monthly.length - 1 ? ", so far" : ""}`)}">
+                <span class="mb-count">${item.count}</span>
+                <span class="mb-track" aria-hidden="true"><span class="mb-fill sev-${busyLevel(item.count)}" style="height:${(item.count / max) * 100}%;--i:${index}"></span></span>
+                <span class="mb-label">${escapeHtml(item.label)}</span>
+              </button>
+            `).join("")}
+          </div>
+          <div class="legend">${renderBusyScale("Colour")}<span><i class="striped"></i>This month so far</span></div>
+          ${renderSelectedStatsMonth(selectedMonth)}
+        </section>
 
-          <section class="chart-card wide">
-            <header><div><h3>Observations</h3><p class="sub">From the records you have kept.</p></div></header>
-            <ul class="observations">
-              <li class="${nearMissed ? "flag" : ""}"><span><strong>Dose context.</strong> ${nearMissed
-                ? `${nearMissed} logged seizure${nearMissed === 1 ? "" : "s"} occurred within 24 hours after a missed or late dose record.`
-                : "No logged seizures are near a missed or late dose record."}</span></li>
-              ${insights.map((insight) => `<li><span><strong>${escapeHtml(insight.title)}.</strong> ${escapeHtml(insight.body)}</span></li>`).join("")}
-            </ul>
-          </section>
-        </div>
+        ${renderHighlights(summary)}
 
         ${renderAiInsightPanel()}
         <p class="disclaim">${icon("info")}<span>These are patterns in what has been recorded. They don't predict the next seizure or show a cause. Share them with your vet.</span></p>
@@ -1786,16 +1796,24 @@
     }</linearGradient></defs>`;
   }
 
-  // Catmull-Rom through the points, with control points kept between neighbours so close points never loop back.
-  function smoothPath(points, yMin, yMax) {
+  // A monotone cubic through the points (Fritsch-Carlson): smooth like the brand's curves, but it never
+  // swings above a peak or below a trough, so the line cannot suggest values that were not there.
+  function smoothPath(points) {
     const fixed = (value) => value.toFixed(1);
     if (points.length < 3) return points.map(([px, py], index) => `${index ? "L" : "M"}${fixed(px)},${fixed(py)}`).join("");
+    const slopes = points.slice(0, -1).map(([px, py], index) => (points[index + 1][1] - py) / Math.max(1e-6, points[index + 1][0] - px));
+    const tangents = points.map((_, index) => {
+      if (index === 0) return slopes[0];
+      if (index === points.length - 1) return slopes.at(-1);
+      const [before, after] = [slopes[index - 1], slopes[index]];
+      return before * after <= 0 ? 0 : (2 * before * after) / (before + after);
+    });
     let path = `M${fixed(points[0][0])},${fixed(points[0][1])}`;
     for (let index = 0; index < points.length - 1; index += 1) {
-      const [p0, p1, p2, p3] = [points[index - 1] || points[index], points[index], points[index + 1], points[index + 2] || points[index + 1]];
-      const c1 = [clamp(p1[0] + (p2[0] - p0[0]) / 6, p1[0], p2[0]), clamp(p1[1] + (p2[1] - p0[1]) / 6, yMin, yMax)];
-      const c2 = [clamp(p2[0] - (p3[0] - p1[0]) / 6, p1[0], p2[0]), clamp(p2[1] - (p3[1] - p1[1]) / 6, yMin, yMax)];
-      path += `C${fixed(c1[0])},${fixed(c1[1])} ${fixed(c2[0])},${fixed(c2[1])} ${fixed(p2[0])},${fixed(p2[1])}`;
+      const [x0, y0] = points[index];
+      const [x1, y1] = points[index + 1];
+      const third = (x1 - x0) / 3;
+      path += `C${fixed(x0 + third)},${fixed(y0 + tangents[index] * third)} ${fixed(x1 - third)},${fixed(y1 - tangents[index + 1] * third)} ${fixed(x1)},${fixed(y1)}`;
     }
     return path;
   }
@@ -1812,59 +1830,65 @@
     // rather than vanishing at a calendar boundary.
     const times = seizures.map((event) => +new Date(event.occurredAt));
     const windowCount = (until) => times.filter((time) => time <= until && time > until - 30 * DAY_MS).length;
-    const series = [];
+    const counts = [];
     let low = 0;
     let high = 0;
     for (let index = 0; index <= days; index += 1) {
       const until = +start + index * DAY_MS;
       while (high < times.length && times[high] <= until) high += 1;
       while (low < high && times[low] <= until - 30 * DAY_MS) low += 1;
-      series.push({ until, count: high - low });
+      counts.push(high - low);
     }
+    // The drawn line eases the daily steps with a week-long average; the readout keeps the exact count.
+    const eased = counts.map((_, index) => mean(counts.slice(Math.max(0, index - 3), index + 4)));
 
-    const height = 210;
+    const height = 220;
     const left = 30;
     const right = 18;
-    const top = 26;
+    const top = 30;
     const bottom = 40;
     const innerWidth = width - left - right;
     const innerHeight = height - top - bottom;
-    const ceiling = Math.max(4, Math.ceil(Math.max(...series.map((point) => point.count)) / 2) * 2);
-    const x = (time) => left + ((time - +start) / (+end - +start)) * innerWidth;
+    const ceiling = Math.max(4, Math.ceil(Math.max(...counts) / 2) * 2);
+    const x = (index) => left + (index / days) * innerWidth;
     const y = (count) => top + innerHeight - (count / ceiling) * innerHeight;
     const base = y(0);
 
     const stops = [[0, 2], [2, 2], [4, 3], [7, 4]].filter(([value]) => value < ceiling);
     let marks = renderValueGradient("trend-ink", y, [...stops, [ceiling, busyLevel(ceiling)]]);
+    marks += `<defs><linearGradient id="trend-fade" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="${base.toFixed(1)}" y2="${top}"><stop offset="0" style="stop-color:#fff;stop-opacity:0"/><stop offset="1" style="stop-color:#fff;stop-opacity:1"/></linearGradient><mask id="trend-mask"><rect x="0" y="0" width="${width}" height="${height}" fill="url(#trend-fade)"/></mask></defs>`;
     [0, ceiling / 2, ceiling].forEach((value) => {
       marks += `<line class="grid" x1="${left}" x2="${width - right}" y1="${y(value).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text x="${left - 8}" y="${(y(value) + 4).toFixed(1)}" text-anchor="end">${value}</text>`;
     });
-    const line = series.map((point, index) => `${index ? "L" : "M"}${x(point.until).toFixed(1)},${y(point.count).toFixed(1)}`).join("");
-    marks += `<path class="trend-area" fill="url(#trend-ink)" d="${line}L${x(+end).toFixed(1)},${base.toFixed(1)}L${left},${base.toFixed(1)}Z"/>`;
+    const step = Math.max(1, Math.round(days / 70));
+    const samples = [];
+    for (let index = 0; index < days; index += step) samples.push([x(index), y(eased[index])]);
+    samples.push([x(days), y(eased[days])]);
+    const line = smoothPath(samples);
+    marks += `<path class="trend-area" fill="url(#trend-ink)" mask="url(#trend-mask)" d="${line}L${x(days).toFixed(1)},${base.toFixed(1)}L${left},${base.toFixed(1)}Z"/>`;
     marks += `<path class="trend-line" stroke="url(#trend-ink)" pathLength="1" d="${line}"/>`;
     seizures.filter((event) => +new Date(event.occurredAt) > +start).forEach((event) => {
-      const tx = x(+new Date(event.occurredAt)).toFixed(1);
+      const tx = (left + ((+new Date(event.occurredAt) - +start) / (+end - +start)) * innerWidth).toFixed(1);
       marks += `<line class="rug sev-${severityLevel(event.severity) || 3}" x1="${tx}" x2="${tx}" y1="${(base + 7).toFixed(1)}" y2="${(base + 15).toFixed(1)}"/>`;
     });
-    marks += renderMonthLabels(+start, x, height - 6);
+    marks += renderMonthLabels(+start, (time) => left + ((time - +start) / (+end - +start)) * innerWidth, height - 6);
+    marks += `<circle class="dot pop sev-${busyLevel(counts[days]) || 2}" cx="${x(days).toFixed(1)}" cy="${y(eased[days]).toFixed(1)}" r="6"/>`;
+    marks += `<g class="cross" aria-hidden="true"><line x1="0" x2="0" y1="${top - 6}" y2="${base.toFixed(1)}"/><circle r="6" cx="0" cy="0"/><text class="cross-label strong halo" x="0" y="${top - 12}" text-anchor="middle"></text></g>`;
 
-    const latest = series.at(-1);
-    const lx = x(latest.until);
-    const ly = y(latest.count);
-    marks += `<circle class="dot pop sev-${busyLevel(latest.count) || 2}" cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="6"/>`;
-    marks += `<g class="cross" aria-hidden="true"><line x1="0" x2="0" y1="${top}" y2="${base.toFixed(1)}"/><circle r="5" cx="0" cy="0"/></g>`;
-
-    const step = Math.max(1, Math.ceil(series.length / 90));
-    for (let index = 0; index < series.length; index += step) {
-      const point = series[Math.min(index + Math.floor(step / 2), series.length - 1)];
-      const cx = x(point.until);
-      const date = new Date(point.until).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-      marks += `<rect class="hit" tabindex="-1" x="${(cx - (innerWidth / series.length) * step / 2).toFixed(1)}" y="${top}" width="${((innerWidth / series.length) * step).toFixed(1)}" height="${(innerHeight + 16).toFixed(1)}" data-x="${cx.toFixed(1)}" data-y="${y(point.count).toFixed(1)}" data-tip="${escapeHtml(`${date}: ${point.count} seizure${point.count === 1 ? "" : "s"} in the 30 days before`)}"/>`;
-    }
+    const scrub = {
+      start: +start,
+      days,
+      left,
+      width: innerWidth,
+      view: width,
+      counts: counts.join(","),
+      ys: eased.map((value) => y(value).toFixed(1)).join(",")
+    };
     return {
-      html: `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="${escapeHtml(`Seizures in each 30-day window. ${latest.count} in the last 30 days.`)}">${marks}</svg></div>`,
-      now: latest.count,
-      before: windowCount(latest.until - 30 * DAY_MS)
+      html: `<div class="chart scrub-chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" tabindex="0" role="img" aria-label="${escapeHtml(`Seizures in each 30-day window. ${counts[days]} in the last 30 days. Drag across the chart, or use the arrow keys, to read any day.`)}" ${
+        Object.entries(scrub).map(([key, value]) => `data-${key}="${value}"`).join(" ")}>${marks}</svg></div>`,
+      now: counts[days],
+      before: windowCount(+start + days * DAY_MS - 30 * DAY_MS)
     };
   }
 
@@ -1891,8 +1915,8 @@
     });
     marks += renderMonthLabels(start, x, height - 6);
 
-    // The line follows whole episodes, so a cluster of seizures hours apart counts once and
-    // the line moves smoothly instead of jumping within a single day.
+    // Clusters count once: each episode contributes its average severity, so seizures hours apart
+    // cannot make the line jump within a single day.
     const episodes = [];
     points.forEach((event) => {
       const current = episodes.at(-1);
@@ -1903,10 +1927,25 @@
       mean(episode.map((event) => +new Date(event.occurredAt))),
       mean(episode.map((event) => severityLevel(event.severity)))
     ]);
-    const running = episodeMeans.map(([time], index) => [
-      x(time), y(mean(episodeMeans.slice(Math.max(0, index - 2), index + 1).map(([, level]) => level)))
-    ]);
-    marks += `<path class="avg-line" stroke="url(#severity-ink)" pathLength="1" d="${smoothPath(running, y(5), y(1))}"/>`;
+    // The line is a weighted average where nearby episodes count most (a three-week Gaussian),
+    // read at even steps so it flows instead of zigzagging from one episode to the next.
+    const first = episodeMeans[0][0];
+    const last = episodeMeans.at(-1)[0];
+    const spread = Math.max(21 * DAY_MS, (last - first) / 8);
+    const steps = 48;
+    const curve = [];
+    for (let index = 0; index <= steps; index += 1) {
+      const time = first + ((last - first) * index) / steps;
+      let weighted = 0;
+      let total = 0;
+      episodeMeans.forEach(([episodeTime, level]) => {
+        const weight = Math.exp(-0.5 * ((time - episodeTime) / spread) ** 2);
+        weighted += weight * level;
+        total += weight;
+      });
+      curve.push([x(time), y(weighted / total)]);
+    }
+    if (last > first) marks += `<path class="avg-line" stroke="url(#severity-ink)" pathLength="1" d="${smoothPath(curve)}"/>`;
     points.forEach((event, index) => {
       const level = severityLevel(event.severity);
       const cx = x(+new Date(event.occurredAt)).toFixed(1);
@@ -1915,10 +1954,10 @@
       marks += `<circle class="dot pop sev-${level}" style="--i:${index}" cx="${cx}" cy="${cy}" r="${radius(event.durationSeconds).toFixed(1)}"/>`;
       marks += `<circle class="hit" tabindex="0" cx="${cx}" cy="${cy}" r="13" data-tip="${escapeHtml(`${formatEventDateTime(event)} · severity ${level}${Number(event.durationSeconds) > 0 ? ` · ${formatDurationWords(event.durationSeconds)}` : ""}${symptoms}`)}"/>`;
     });
-    // The headline compares the same thing the line shows: the last three episodes against the three before.
+    // The headline compares the last three episodes against the three before.
     const episodeLevels = episodeMeans.map(([, level]) => level);
     return {
-      html: `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Severity of each seizure over time, with a running average">${marks}</svg></div>`,
+      html: `<div class="chart"><svg viewBox="0 0 ${width} ${height}" width="${width}" role="img" aria-label="Severity of each seizure over time, with a smoothed average">${marks}</svg></div>`,
       drawn: true,
       recent: episodeLevels.length >= 4 ? mean(episodeLevels.slice(-3)) : null,
       earlier: episodeLevels.length >= 4 ? mean(episodeLevels.slice(-6, -3)) : null
@@ -2983,6 +3022,109 @@
       document.querySelector("#seizure-form")?.dispatchEvent(new Event("change", { bubbles: true }));
     }
     bindPullRefresh();
+    bindTrendScrub();
+    bindChartDeck();
+  }
+
+  // Dragging across the 30-day chart reads any day: a guide follows the finger and the headline
+  // shows that day's count, then settles back on today when the finger lifts. Vertical swipes
+  // still scroll the page, because the chart only claims horizontal movement.
+  function bindTrendScrub() {
+    const svg = document.querySelector(".scrub-chart svg");
+    if (!svg || svg.__scrubBound) return;
+    svg.__scrubBound = true;
+    const card = svg.closest(".trend-card");
+    const value = card?.querySelector("[data-readout-value]");
+    const label = card?.querySelector("[data-readout-label]");
+    const cross = svg.querySelector(".cross");
+    const counts = svg.dataset.counts.split(",").map(Number);
+    const ys = svg.dataset.ys.split(",").map(Number);
+    const [days, left, inner, view, start] = ["days", "left", "width", "view", "start"].map((key) => Number(svg.dataset[key]));
+    const resting = { value: value?.textContent, label: label?.textContent };
+    let index = days;
+    let frame = 0;
+
+    const show = (next) => {
+      index = clamp(next, 0, days);
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const px = left + (index / days) * inner;
+        const text = index === days ? "Today" : new Date(start + index * DAY_MS).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+        cross.querySelector("line").setAttribute("transform", `translate(${px.toFixed(1)} 0)`);
+        cross.querySelector("circle").setAttribute("cx", px.toFixed(1));
+        cross.querySelector("circle").setAttribute("cy", ys[index]);
+        const tag = cross.querySelector("text");
+        tag.textContent = text;
+        tag.setAttribute("x", clamp(px, left + 24, left + inner - 24).toFixed(1));
+        cross.classList.add("on");
+        card?.classList.add("scrubbing");
+        if (value) value.textContent = counts[index];
+        if (label) label.textContent = index === days ? "now" : `on ${text}`;
+      });
+    };
+    const rest = () => {
+      cancelAnimationFrame(frame);
+      cross.classList.remove("on");
+      card?.classList.remove("scrubbing");
+      if (value) value.textContent = resting.value;
+      if (label) label.textContent = resting.label;
+    };
+    const fromPointer = (event) => {
+      const rect = svg.getBoundingClientRect();
+      return Math.round(((((event.clientX - rect.left) / rect.width) * view - left) / inner) * days);
+    };
+
+    svg.addEventListener("pointerdown", (event) => {
+      svg.setPointerCapture?.(event.pointerId);
+      show(fromPointer(event));
+    });
+    svg.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "mouse" || svg.hasPointerCapture?.(event.pointerId)) show(fromPointer(event));
+    });
+    svg.addEventListener("pointerup", rest);
+    svg.addEventListener("pointercancel", rest);
+    svg.addEventListener("pointerleave", (event) => {
+      if (event.pointerType === "mouse") rest();
+    });
+    svg.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      show(index + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 7 : 1));
+    });
+    svg.addEventListener("blur", rest);
+  }
+
+  // The chart deck is a native horizontal scroller with snap points; this only keeps the labels and dots
+  // in step with the card in view and remembers that card when the page redraws.
+  function bindChartDeck() {
+    const deck = document.querySelector(".deck");
+    if (!deck || deck.__deckBound) return;
+    deck.__deckBound = true;
+    const cards = [...deck.querySelectorAll("[data-deck-card]")];
+    const tabs = [...document.querySelectorAll("[data-deck-to]")];
+    const dots = [...document.querySelectorAll(".deck-dots i")];
+    const offsetOf = (card) => card.offsetLeft - cards[0].offsetLeft;
+    const mark = (index) => {
+      if (index < 0) return;
+      state.deckIndex = index;
+      tabs.forEach((tab, position) => tab.setAttribute("aria-pressed", String(position === index)));
+      dots.forEach((dot, position) => dot.classList.toggle("on", position === index));
+    };
+    if (state.deckIndex && cards[state.deckIndex]) deck.scrollLeft = offsetOf(cards[state.deckIndex]);
+    state.deckObserver?.disconnect();
+    if ("IntersectionObserver" in window && getComputedStyle(deck).overflowX !== "visible") {
+      state.deckObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) mark(cards.indexOf(entry.target));
+        });
+      }, { root: deck, threshold: 0.6 });
+      cards.forEach((card) => state.deckObserver.observe(card));
+    }
+    tabs.forEach((tab) => tab.addEventListener("click", () => {
+      const index = Number(tab.dataset.deckTo);
+      deck.scrollTo({ left: offsetOf(cards[index]), behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      mark(index);
+    }));
   }
 
   function bindDoseButtons(root) {
@@ -4683,167 +4825,111 @@
     return gaps;
   }
 
-  function buildInsights(summary) {
+  // Highlights turn what the charts cannot show into small visual tiles: a ring for the next
+  // milestone, a race between this stretch and the record, a dot per episode, and so on.
+  function renderHighlights(summary) {
+    const name = state.profile?.name || "Sawyer";
     const seizures = getSeizuresAsc();
-    const gaps = getSeizureGaps(seizures);
-    const episodeGaps = CORE.seizureEpisodeGaps(seizures, CLUSTER_WINDOW_MS);
-    const latestVet = latestEventOfType("vet_visit");
-    const latestBlood = latestEventOfType("blood_test");
-    const insights = [];
+    const tiles = [];
+    const tile = (classes, visual, eyebrow, headline, detail) => `
+      <article class="hl ${classes}">
+        ${visual ? `<div class="hl-visual" aria-hidden="true">${visual}</div>` : ""}
+        <div class="hl-text"><p class="eyebrow">${escapeHtml(eyebrow)}</p><strong>${headline}</strong>${detail ? `<span>${detail}</span>` : ""}</div>
+      </article>`;
 
     if (!seizures.length) {
-      insights.push({
-        title: "Baseline",
-        body: "Once seizures are logged, patterns will appear here as observations over time."
-      });
-      if (latestVet) {
-        insights.push({
-          title: "Latest vet visit",
-          body: `${eventTitle(latestVet)} was logged on ${formatDateShort(new Date(latestVet.occurredAt))}.`
-        });
-      }
-      if (latestBlood) {
-        insights.push({
-          title: "Latest blood test",
-          body: `${eventTitle(latestBlood)} was logged on ${formatDateShort(new Date(latestBlood.occurredAt))}.`
-        });
-      }
-      return insights;
+      return `
+        <section class="highlights-wrap" aria-label="Highlights">
+          <div class="section-head"><h3>Highlights</h3></div>
+          <p class="subtle">Highlights appear here once seizures are logged.</p>
+        </section>`;
     }
 
-    const latestSeizure = seizures.at(-1);
-    const latestCluster = seizures.filter(
-      (seizure) =>
-        seizure.id === latestSeizure.id ||
-        seizuresShareClusterWindow(latestSeizure, seizure)
-    );
-    if (latestCluster.length > 1) {
-      const clusterIsCurrent =
-        latestSeizure.timeKnown === false
-          ? eventDayKey(latestSeizure) === localDateKey(new Date())
-          : Date.now() - new Date(latestSeizure.occurredAt).getTime() < CLUSTER_WINDOW_MS;
-      insights.push({
-        title: clusterIsCurrent ? "Cluster pattern detected" : "Last cluster pattern",
-        body: clusterIsCurrent
-          ? `${latestCluster.length} seizures were logged within the same 24-hour window. Follow Sawyer's emergency plan and contact his veterinary team.`
-          : `${latestCluster.length} seizures were logged within 24 hours of each other, ending ${formatDateShort(new Date(latestSeizure.occurredAt))}.`
-      });
+    // A cluster still within its 24 hours comes first, as an alert rather than a statistic.
+    const latest = seizures.at(-1);
+    const latestCluster = seizures.filter((event) => event.id === latest.id || seizuresShareClusterWindow(latest, event));
+    const clusterIsCurrent = latestCluster.length > 1 && (latest.timeKnown === false
+      ? eventDayKey(latest) === localDateKey(new Date())
+      : Date.now() - new Date(latest.occurredAt).getTime() < CLUSTER_WINDOW_MS);
+    if (clusterIsCurrent) {
+      tiles.push(tile("full alert", icon("info"), "Cluster in progress", `${latestCluster.length} seizures in 24 hours`,
+        `Follow ${escapeHtml(name)}'s emergency plan and contact his veterinary team.`));
     }
 
-    const milestone = nextMilestone(summary.daysSinceLast || 0);
-    insights.push({
-      title: milestone.reached ? "Milestone reached" : "Next milestone",
-      body: milestone.reached
-        ? `${state.profile?.name || "Sawyer"} has reached ${milestone.value} days since the last logged seizure.`
-        : `${milestone.value - (summary.daysSinceLast || 0)} days until the next ${milestone.value}-day seizure-free milestone.`
-    });
+    const days = summary.daysSinceLast || 0;
+    const upcoming = [7, 14, 30, 60, 90, 120, 180, 365].find((value) => days < value);
+    const ring = (fraction) => `<svg viewBox="0 0 72 72"><circle class="ring-track" cx="36" cy="36" r="30"/><circle class="ring-value" cx="36" cy="36" r="30" transform="rotate(-90 36 36)" pathLength="100" stroke-dasharray="${(fraction * 100).toFixed(1)} 100"/><text x="36" y="41" text-anchor="middle">${days}</text></svg>`;
+    tiles.push(upcoming
+      ? tile("ring-tile", ring(days / upcoming), "Next milestone", `${upcoming - days} day${upcoming - days === 1 ? "" : "s"} to go`, `until ${upcoming} seizure-free days`)
+      : tile("ring-tile", ring(1), "Milestone", "A full year", "seizure-free"));
 
+    const nearMissed = countSeizuresNearMissedDose(seizures).total;
+    tiles.push(tile(nearMissed ? "doses warn" : "doses ok", icon(nearMissed ? "info" : "check"), "Missed doses",
+      nearMissed ? `${nearMissed} seizure${nearMissed === 1 ? "" : "s"} after one` : "None before a seizure",
+      nearMissed ? "Within 24 hours of a missed or late dose." : "No seizure came within 24 hours of a missed or late dose."));
+
+    const episodeGaps = CORE.seizureEpisodeGaps(seizures, CLUSTER_WINDOW_MS);
     if (episodeGaps.length && summary.currentStreakDays !== null) {
-      const completedAverage = mean(episodeGaps.map((gap) => gap.days));
-      const completedLongest = summary.completedLongestGap;
-      const currentInterval = summary.currentStreakDays;
-      if (currentInterval > completedLongest) {
-        insights.push({
-          title: "Longest current interval",
-          body: `${round1(currentInterval)} days have passed since the last logged seizure episode. That is ${round1(currentInterval - completedLongest)} days beyond Sawyer's longest completed gap in this record.`
-        });
-      } else if (Math.abs(currentInterval - completedAverage) >= 1) {
-        const difference = Math.abs(currentInterval - completedAverage);
-        insights.push({
-          title: "Current interval",
-          body: `${round1(currentInterval)} days have passed since the last logged seizure episode, ${round1(difference)} days ${currentInterval >= completedAverage ? "longer" : "shorter"} than the historical average gap of ${round1(completedAverage)} days.`
-        });
-      }
+      const now = summary.currentStreakDays;
+      const record = Math.max(...episodeGaps.map((gap) => gap.days));
+      const average = mean(episodeGaps.map((gap) => gap.days));
+      const top = Math.max(now, record, average);
+      const bar = (label, value, classes) => `<div class="race-row ${classes}"><span>${label}</span><i style="--w:${((value / top) * 100).toFixed(1)}%"></i><b>${Math.round(value)} d</b></div>`;
+      tiles.push(tile("full race", `${bar("Now", now, "now")}${bar("Record", record, "record")}${bar("Average", average, "")}`,
+        "This stretch", now > record ? "The longest stretch on record" : `${Math.ceil(record - now)} days to beat the record`,
+        now > record ? `${Math.round(now - record)} days past the previous best of ${Math.round(record)}.` : `Seizure-free stretches average ${Math.round(average)} days.`));
     }
 
-    if (gaps.length >= 2) {
-      const recent = gaps.at(-1).days;
-      const previousAverage = mean(gaps.slice(0, -1).map((gap) => gap.days));
-      const direction = recent >= previousAverage ? "farther apart" : "closer together";
-      insights.push({
-        title: "Recent spacing",
-        body: `The latest seizure gap was ${round1(recent)} days. Previous gaps averaged ${round1(previousAverage)} days, so the latest logged gap is ${direction}.`
-      });
-    }
-
-    if (seizures.length >= 3) {
-      const now = Date.now();
-      const thirtyDays = 30 * 86400000;
-      const recentCount = seizures.filter((event) => {
-        const time = new Date(event.occurredAt).getTime();
-        return time <= now && time > now - thirtyDays;
-      }).length;
-      const previousCount = seizures.filter((event) => {
-        const time = new Date(event.occurredAt).getTime();
-        return time <= now - thirtyDays && time > now - 2 * thirtyDays;
-      }).length;
-      if (recentCount !== previousCount && recentCount + previousCount > 0) {
-        insights.push({
-          title: "30-day frequency",
-          body: `${recentCount} seizure${recentCount === 1 ? "" : "s"} were logged in the most recent 30 days, compared with ${previousCount} in the preceding 30 days.`
-        });
-      }
-    }
-
-    const missedNearSeizures = countSeizuresNearMissedDose(seizures);
-    if (missedNearSeizures.total > 0) {
-      insights.push({
-        title: "Dose timing context",
-        body: `${missedNearSeizures.total} logged seizure${missedNearSeizures.total === 1 ? "" : "s"} occurred within 24 hours after a missed or late dose record.`
-      });
-    }
-
-    const mctInsight = buildMctInsight(seizures, gaps);
-    if (mctInsight) insights.push(mctInsight);
-
-    const timeBucket = mostCommonSeizureTime(seizures);
-    if (timeBucket) {
-      insights.push({
-        title: "Time of day",
-        body: `${timeBucket.label} is the most common logged window so far, with ${timeBucket.count} seizure${timeBucket.count === 1 ? "" : "s"}.`
-      });
-    }
-
-    const severityValues = seizures
-      .map((event) => Number(event.severity))
-      .filter((value) => Number.isFinite(value) && value > 0);
-    if (severityValues.length >= 5) {
-      const recentSeverity = mean(severityValues.slice(-3));
-      const earlierSeverity = mean(severityValues.slice(0, -3));
-      if (Math.abs(recentSeverity - earlierSeverity) >= 0.4) {
-        insights.push({
-          title: "Logged severity trend",
-          body: `The latest three seizures average severity ${round1(recentSeverity)}, compared with ${round1(earlierSeverity)} across earlier records.`
-        });
-      }
-    }
-
-    if (latestBlood) {
-      const levels = [
-        latestBlood.phenobarbitalLevel ? `phenobarbital ${latestBlood.phenobarbitalLevel}` : "",
-        latestBlood.bromideLevel ? `bromide ${latestBlood.bromideLevel}` : ""
-      ].filter(Boolean);
-      insights.push({
-        title: "Latest blood test",
-        body: `${latestBlood.panel || "Blood test"} was logged on ${formatDateShort(new Date(latestBlood.occurredAt))}${levels.length ? ` with ${levels.join(" and ")}.` : "."}`
-      });
-    }
-
-    if (latestVet) {
-      insights.push({
-        title: "Latest vet visit",
-        body: `${latestVet.reason || "Vet visit"} was logged on ${formatDateShort(new Date(latestVet.occurredAt))}${latestVet.plan ? ` with plan notes saved.` : "."}`
-      });
-    }
-
-    insights.push({
-      title: "Vet wording",
-      body: "These are tracking observations only. Use them as notes for your vet, not as medical conclusions."
+    const episodes = [];
+    seizures.forEach((event) => {
+      const current = episodes.at(-1);
+      if (current && seizuresShareClusterWindow(current.at(-1), event)) current.push(event);
+      else episodes.push([event]);
     });
+    const clusters = episodes.filter((episode) => episode.length > 1).length;
+    if (episodes.length >= 2) {
+      const shown = episodes.slice(-14);
+      const dots = shown.map((episode) => `<i class="${episode.length > 1 ? "cluster" : ""}" title="${episode.length} seizure${episode.length === 1 ? "" : "s"}">${episode.length > 1 ? episode.length : ""}</i>`).join("");
+      tiles.push(tile("full episodes", `<div class="episode-dots">${dots}</div>`, "Episodes",
+        `${clusters} of ${episodes.length} episodes were clusters`,
+        clusters ? `A cluster is two or more seizures within 24 hours. ${shown.length < episodes.length ? `Showing the latest ${shown.length}, newest last.` : "Newest last."}` : "Every episode so far has been a single seizure."));
+    }
 
-    return insights;
+    const mct = CORE.mctInsightMetrics(state.events, state.schedules, episodeGaps);
+    if (mct) {
+      const longer = mct.afterAverage >= mct.beforeAverage;
+      const top = Math.max(mct.beforeAverage, mct.afterAverage) * 1.1;
+      const position = (value) => ((value / top) * 100).toFixed(1);
+      tiles.push(tile(`full dumbbell ${longer ? "better" : "worse"}`,
+        `<div class="dumbbell"><i class="track"></i><i class="span" style="--a:${position(Math.min(mct.beforeAverage, mct.afterAverage))}%;--b:${position(Math.max(mct.beforeAverage, mct.afterAverage))}%"></i><i class="end before" style="--x:${position(mct.beforeAverage)}%"><b>${round1(mct.beforeAverage)} d</b><small>before</small></i><i class="end after" style="--x:${position(mct.afterAverage)}%"><b>${round1(mct.afterAverage)} d</b><small>after</small></i></div>`,
+        "MCT oil", `Gaps are ${longer ? "longer" : "shorter"} since starting`,
+        `Average gap between episodes before and after ${escapeHtml(formatDateShort(new Date(`${mct.firstDate}T00:00:00`)))}.`));
+    }
+
+    const latestBlood = latestEventOfType("blood_test");
+    const levels = latestBlood ? [["Phenobarbital", latestBlood.phenobarbital], ["Bromide", latestBlood.bromide]].filter(([, level]) => Number.isFinite(level?.value)) : [];
+    if (levels.length) {
+      const gauges = levels.map(([label, level]) => {
+        const range = parseLabRange(level.referenceRange);
+        const status = levelStatus(level.value, range);
+        if (!range) return `<div class="gauge"><span>${escapeHtml(label)} <b>${escapeHtml(level.value)}</b></span></div>`;
+        const lowEdge = Math.min(range.low, level.value) * 0.8;
+        const highEdge = Math.max(range.high, level.value) * 1.1;
+        const at = (value) => (((value - lowEdge) / (highEdge - lowEdge)) * 100).toFixed(1);
+        return `<div class="gauge ${status}"><span>${escapeHtml(label)} <b>${escapeHtml(level.value)}</b></span><div class="gauge-bar"><i class="band" style="--a:${at(range.low)}%;--b:${at(range.high)}%"></i><i class="mark" style="--x:${at(level.value)}%"></i></div></div>`;
+      }).join("");
+      const off = levels.some(([, level]) => ["above", "below"].includes(levelStatus(level.value, parseLabRange(level.referenceRange))));
+      tiles.push(tile(`full levels${off ? " warn" : ""}`, gauges, "Latest blood test",
+        off ? "Outside the target" : "Within the target", escapeHtml(formatDateShort(new Date(latestBlood.occurredAt)))));
+    }
+
+    return `
+      <section class="highlights-wrap" aria-label="Highlights">
+        <div class="section-head"><h3>Highlights</h3><span class="fine">From the records you have kept</span></div>
+        <div class="highlights">${tiles.join("")}</div>
+      </section>
+    `;
   }
-
 
   function latestEventOfType(type) {
     return state.events
@@ -4851,29 +4937,9 @@
       .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0] || null;
   }
 
-  function nextMilestone(days) {
-    const milestones = [7, 14, 30, 60, 90, 120, 180, 365];
-    const reached = milestones.filter((value) => days >= value).at(-1);
-    if (reached) return { value: reached, reached: true };
-    return { value: milestones.find((value) => days < value) || 365, reached: false };
-  }
-
   function countSeizuresNearMissedDose(seizures) {
     return {
       total: CORE.countSeizuresNearDoseException(state.events, seizures, OVERDUE_MINUTES)
-    };
-  }
-
-  function buildMctInsight(seizures, gaps) {
-    const metrics = CORE.mctInsightMetrics(state.events, state.schedules, gaps);
-    if (!metrics) return null;
-    const beforeAvg = metrics.beforeAverage;
-    const afterAvg = metrics.afterAverage;
-    const direction = afterAvg >= beforeAvg ? "longer" : "shorter";
-
-    return {
-      title: "MCT oil context",
-      body: `Logged seizure gaps average ${round1(beforeAvg)} days before the recorded MCT regimen start and ${round1(afterAvg)} days after. The after-MCT logged gaps are ${direction} so far.`
     };
   }
 
