@@ -56,6 +56,7 @@
     householdAccessHash: readHouseholdAccessHash(),
     accessVerified: false,
     syncBusy: false,
+    startupSync: false,
     syncFlight: CORE.createSingleFlight(),
     syncMessage: "",
     syncTimer: null,
@@ -87,7 +88,9 @@
     timerConfirmDiscard: false,
     wakeLock: null,
     lastPointer: null,
-    renderedTab: ""
+    renderedTab: "",
+    sceneStart: 0,
+    animatedMarkup: new Set()
   };
   const startedFromAuthRedirect = isAuthRedirectUrl();
   const memoryStores = {
@@ -259,14 +262,22 @@
     requestPersistentStorage();
     attachGlobalListeners();
     await safeHydrate();
+    // The first sync shows as under way rather than "Not connected" while it runs.
+    state.startupSync = Boolean(hasSupabaseConfig() && state.settings?.syncEnabled && hasStoredAccess() && navigator.onLine);
     render();
-    await initSupabase();
-    if (state.settings?.syncEnabled && hasStoredAccess() && navigator.onLine) {
-      await syncWithSupabase({ silent: true }).catch(() => {});
-      if (isSignedIn()) await loadVetDocuments({ silent: true });
+    try {
+      await initSupabase();
+      if (state.settings?.syncEnabled && hasStoredAccess() && navigator.onLine) {
+        await syncWithSupabase({ silent: true }).catch(() => {});
+        if (isSignedIn()) await loadVetDocuments({ silent: true });
+      }
+    } finally {
+      state.startupSync = false;
+      render();
     }
+    const pushWasOn = state.settings?.pushNotificationsEnabled;
     await reconcilePushSubscription({ silent: true });
-    render();
+    if (state.settings?.pushNotificationsEnabled !== pushWasOn) render();
   }
 
   async function resetStaleBrowserCache() {
@@ -533,7 +544,10 @@
       }
 
       if (!state.supabaseClient.__sawyerAuthBound) {
-        state.supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+        state.supabaseClient.auth.onAuthStateChange(async (event, session) => {
+          // getSession() above already applied the stored session; redrawing for it again
+          // would also briefly mark a household-code device as not verified.
+          if (event === "INITIAL_SESSION") return;
           state.supabaseSession = session;
           state.accessVerified = Boolean(session?.user);
           if (session?.user?.email) {
@@ -821,6 +835,8 @@
   }
 
   const VIEW_TABS = ["today", "insights", "timeline", "vet"];
+  // Pieces whose entrance animation should play again when a redraw changes them.
+  const REPLAY_WHEN_CHANGED = ".chart, .mb-fill, .dstatus";
   const ROUTINES = {
     morning: { label: "Morning", icon: "sun", tone: "yellow" },
     night: { label: "Night", icon: "moon", tone: "berry" }
@@ -897,6 +913,7 @@
       `;
       bindUi();
       restoreToast(toastText);
+      state.renderedTab = "";
       return;
     }
 
@@ -904,6 +921,11 @@
     const fresh = state.overlayFresh;
     const sameTab = state.renderedTab === state.activeTab;
     const contentScroll = sameTab ? document.querySelector(".content")?.scrollTop || 0 : 0;
+    // Redrawing the same screen keeps every animation where it was, so a background refresh
+    // (like the sync that lands after the app opens) does not replay the screen's entrance.
+    const now = performance.now();
+    if (!sameTab) state.sceneStart = now;
+    document.documentElement.style.setProperty("--age", `${((state.sceneStart - now) / 1000).toFixed(3)}s`);
     app.innerHTML = `
       <div class="screen${state.pullRefreshing ? " refreshing" : ""}">
         ${renderPullRefresh()}
@@ -942,6 +964,16 @@
         <div id="toast" class="toast" role="status"></div>
       </div>
     `;
+
+    // Marks that are new on this redraw, such as a dose just ticked off, still animate in.
+    const animated = new Set();
+    app.querySelectorAll(REPLAY_WHEN_CHANGED).forEach((element, index) => {
+      // The position tells apart marks that read the same, like two doses given in the same minute.
+      const markup = `${index}:${element.outerHTML}`;
+      animated.add(markup);
+      if (sameTab && !state.animatedMarkup.has(markup)) element.style.setProperty("--age", "0s");
+    });
+    state.animatedMarkup = animated;
 
     bindUi();
     restoreToast(toastText);
@@ -984,9 +1016,10 @@
     const name = state.profile?.name || "Sawyer";
     const pending = state.pendingRecords.length;
     const conflicts = state.pendingRecords.filter(({ record }) => record.syncStatus === "conflict").length;
-    const label = state.syncBusy ? "Syncing" : !navigator.onLine ? "Offline" : conflicts ? "Review changes"
+    const syncing = state.syncBusy || state.startupSync;
+    const label = syncing ? "Syncing" : !navigator.onLine ? "Offline" : conflicts ? "Review changes"
       : pending ? `${pending} waiting` : isSignedIn() ? "Synced" : "Not connected";
-    const tone = state.syncBusy ? "busy" : !navigator.onLine || pending || !isSignedIn() ? "pending" : "ok";
+    const tone = syncing ? "busy" : !navigator.onLine || pending || !isSignedIn() ? "pending" : "ok";
     const initial = (state.settings?.carerName || name || "S").trim().charAt(0).toUpperCase() || "S";
     const tabs = [["today", "Today"], ["insights", "Patterns"], ["timeline", "Records"], ["vet", "Vet"]];
     return `
