@@ -1,5 +1,5 @@
 const DEFAULT_APP_URL = "./?tab=today";
-const CACHE_NAME = "sawyer-tracker-shell-93";
+const CACHE_NAME = "sawyer-tracker-shell-94";
 const SHELL = ["./", "./index.html", "./styles.css", "./config.js", "./app.js", "./lib/tracker-core.js",
   "./lib/tracker-storage.js", "./lib/tracker-sync.js", "./lib/tracker-drafts.js", "./manifest.webmanifest",
   "./assets/icons/icon-192.png", "./assets/icons/icon-512.png", "./assets/icons/favicon-64.png",
