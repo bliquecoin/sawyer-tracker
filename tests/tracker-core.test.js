@@ -83,6 +83,26 @@ test("cluster logic handles known and unknown seizure times conservatively", () 
   );
 });
 
+test("a seizure without a recorded time clusters with the same or the next calendar day only", () => {
+  const known = { occurredAt: "2026-08-22T07:00:00Z", dayKey: "2026-08-22", timeKnown: true };
+  const nextDay = { occurredAt: "2026-08-23T00:00:00Z", dayKey: "2026-08-23", timeKnown: false };
+  const twoDaysLater = { occurredAt: "2026-08-24T00:00:00Z", dayKey: "2026-08-24", timeKnown: false };
+  const newMonth = { occurredAt: "2026-09-01T00:00:00Z", dayKey: "2026-09-01", timeKnown: false };
+  assert.equal(core.seizuresShareClusterWindow(known, nextDay), true);
+  assert.equal(core.seizuresShareClusterWindow(known, twoDaysLater), false);
+  assert.equal(
+    core.seizuresShareClusterWindow({ ...known, occurredAt: "2026-08-31T07:00:00Z", dayKey: "2026-08-31" }, newMonth),
+    true
+  );
+
+  const gaps = core.seizureEpisodeGaps([
+    { id: "a", type: "seizure", ...known },
+    { id: "b", type: "seizure", ...nextDay },
+    { id: "c", type: "seizure", occurredAt: "2026-09-12T08:00:00Z", dayKey: "2026-09-12", timeKnown: true }
+  ]);
+  assert.deepEqual(gaps.map((gap) => [gap.from.id, gap.to.id]), [["b", "c"]]);
+});
+
 test("episode gaps start after the last seizure in each cluster", () => {
   const seizures = [
     { id: "a", type: "seizure", occurredAt: "2026-01-01T00:00:00Z", timeKnown: true },

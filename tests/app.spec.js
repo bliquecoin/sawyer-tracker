@@ -282,13 +282,15 @@ async function addNote(page, title, body) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=87");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=88");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
   await expect(hero.locator(".meta-average small")).toHaveText("between episodes");
   await expect(page.locator(".routine-card")).toHaveCount(2);
   await expect(hero.getByRole("button", { name: "Record Seizure" })).toBeVisible();
+  await expect(page.locator('[data-view="today"] .today-gaps h3')).toHaveText("Days Between Episodes");
+  await expect(page.locator(".tabbar .nav-btn span")).toHaveText(["Today", "Patterns", "Records", "Vet"]);
 
   const tabs = [
     ["Today", "today"],
@@ -436,14 +438,20 @@ test("pulling down in the installed app shows a wordless spinner that spins whil
     petals.filter((petal) => getComputedStyle(petal).opacity === "1").length);
 
   const spinner = page.locator("#pull-refresh");
+  await expect(page.locator(".sync-pill")).toHaveText("Synced");
   await expect(spinner).toHaveCSS("opacity", "0");
-  await pull(100);
-  await expect(spinner).toHaveClass(/visible/);
-  await expect(spinner).not.toHaveClass(/ready/);
-  expect(await visiblePetals()).toBe(5);
-  await pull(200);
-  await expect(spinner).toHaveClass(/ready/);
-  expect(await visiblePetals()).toBe(8);
+  // A sync landing mid-gesture redraws the page and resets the spinner until the finger moves again, so repeat the pull.
+  await expect(async () => {
+    await pull(100);
+    await expect(spinner).toHaveClass(/visible/, { timeout: 250 });
+    await expect(spinner).not.toHaveClass(/ready/, { timeout: 250 });
+    expect(await visiblePetals()).toBe(5);
+  }).toPass();
+  await expect(async () => {
+    await pull(200);
+    await expect(spinner).toHaveClass(/ready/, { timeout: 250 });
+    expect(await visiblePetals()).toBe(8);
+  }).toPass();
   await expect(page.getByText(/to refresh/i)).toHaveCount(0);
 
   await pull(200, true);
@@ -616,8 +624,11 @@ test("conflicting edits preserve both versions and can be reviewed explicitly", 
   expect(errors).toEqual([]);
 });
 
-test("a handover note appears on Today for the next carer", async ({ page }) => {
+test("a handover note is pinned at the top of Records for the next carer", async ({ page }) => {
   const errors = await openTracker(page);
+  await expect(page.locator('[data-view="today"] .handover-card')).toHaveCount(0);
+  await tab(page, "Records").click();
+  await expect(page.locator('[data-view="timeline"] .records-head .handover-card')).toBeVisible();
   await page.locator("#handover-body").fill("Ate breakfast, a bit clingy after the walk.");
   await page.getByRole("button", { name: "Post", exact: true }).click();
   await expect(page.locator("#toast")).toContainText("Handover posted");
@@ -751,7 +762,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-87");
+      const cache = await caches.open("sawyer-tracker-shell-89");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);
