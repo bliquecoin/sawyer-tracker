@@ -469,34 +469,39 @@ test("pulling down in the installed app shows a wordless spinner that spins whil
   expect(pageErrors).toEqual([]);
 });
 
-test("reopening the app keeps the screen moving smoothly when the background sync lands", async ({ page }) => {
-  const pageErrors = await openTracker(page, { seedSeizureDaysAgoList: [40, 25, 12], queryDelayMs: 300 });
-  await expect(page.locator(".sync-pill")).toHaveText("Synced", { timeout: 15000 });
+test.describe("with motion on", () => {
+  // This test measures animations, so it keeps them running even where the project reduces motion.
+  test.use({ contextOptions: { reducedMotion: "no-preference" } });
 
-  // Reopen like a returning carer: the screen is drawn from this phone's copy while the sync runs.
-  await page.reload();
-  await expect(page.locator(".sync-pill")).toHaveText("Syncing");
-  await page.locator("#app .screen").evaluate((screen) => {
-    screen.dataset.firstDraw = "true";
-    window.__firstDrawSeenAt = performance.now();
+  test("reopening the app keeps the screen moving smoothly when the background sync lands", async ({ page }) => {
+    const pageErrors = await openTracker(page, { seedSeizureDaysAgoList: [40, 25, 12], queryDelayMs: 300 });
+    await expect(page.locator(".sync-pill")).toHaveText("Synced", { timeout: 15000 });
+
+    // Reopen like a returning carer: the screen is drawn from this phone's copy while the sync runs.
+    await page.reload();
+    await expect(page.locator(".sync-pill")).toHaveText("Syncing");
+    await page.locator("#app .screen").evaluate((screen) => {
+      screen.dataset.firstDraw = "true";
+      window.__firstDrawSeenAt = performance.now();
+    });
+    await expect(page.locator(".sync-pill")).toHaveText("Synced", { timeout: 15000 });
+    await expect(page.locator("#app .screen[data-first-draw]")).toHaveCount(0);
+
+    // The redraw picks up where the first draw was rather than replaying its entrance.
+    const progress = (selector, name) => page.locator(selector).first().evaluate((element, name) => {
+      const animation = element.getAnimations().find((item) => item.animationName === name);
+      return {
+        elapsed: animation.currentTime - animation.effect.getTiming().delay,
+        sinceFirstDraw: performance.now() - window.__firstDrawSeenAt,
+        state: animation.playState
+      };
+    }, name);
+    const orbit = await progress("#hero .orbit g", "spin");
+    expect(orbit.sinceFirstDraw).toBeGreaterThan(500);
+    expect(orbit.elapsed).toBeGreaterThanOrEqual(orbit.sinceFirstDraw);
+    expect((await progress('[data-view="today"] .chart .grow-x', "grow-x")).state).toBe("finished");
+    expect(pageErrors).toEqual([]);
   });
-  await expect(page.locator(".sync-pill")).toHaveText("Synced", { timeout: 15000 });
-  await expect(page.locator("#app .screen[data-first-draw]")).toHaveCount(0);
-
-  // The redraw picks up where the first draw was rather than replaying its entrance.
-  const progress = (selector, name) => page.locator(selector).first().evaluate((element, name) => {
-    const animation = element.getAnimations().find((item) => item.animationName === name);
-    return {
-      elapsed: animation.currentTime - animation.effect.getTiming().delay,
-      sinceFirstDraw: performance.now() - window.__firstDrawSeenAt,
-      state: animation.playState
-    };
-  }, name);
-  const orbit = await progress("#hero .orbit g", "spin");
-  expect(orbit.sinceFirstDraw).toBeGreaterThan(500);
-  expect(orbit.elapsed).toBeGreaterThanOrEqual(orbit.sinceFirstDraw);
-  expect((await progress('[data-view="today"] .chart .grow-x', "grow-x")).state).toBe("finished");
-  expect(pageErrors).toEqual([]);
 });
 
 test("reset page waits for explicit confirmation", async ({ page }) => {
