@@ -287,7 +287,7 @@ async function addNote(page, title, body) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=94");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=95");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
@@ -685,6 +685,36 @@ test("dose confirmation records the carer and timestamp and prevents rapid dupli
   expect(errors).toEqual([]);
 });
 
+test("doses whose time has passed count as given unless each dose needs confirming", async ({ page }) => {
+  // 5 pm: the morning doses are past, the night doses are still to come.
+  const fivePm = new Date();
+  fivePm.setHours(17, 0, 0, 0);
+  await page.clock.setFixedTime(fivePm);
+  const errors = await openTracker(page);
+  const ring = (routine) => page.locator(`.routine-card.${routine} .ring`).innerText().then((text) => {
+    const [given, total] = text.replace(/\s/g, "").split("/").map(Number);
+    return { given, total };
+  });
+
+  const morning = await ring("morning");
+  expect(morning.total).toBeGreaterThan(0);
+  expect(morning.given).toBe(morning.total);
+  expect((await ring("night")).given).toBe(0);
+  await page.locator(".routine-card.morning").click();
+  await expect(page.locator(".medication-row").first()).toContainText("Assumed");
+  await page.locator("[data-routine-switch='night']").click();
+  await expect(page.locator(".medication-row").first()).toContainText("Upcoming");
+  await closeSheet(page);
+
+  await openHousehold(page);
+  await page.getByLabel("Require confirmation for each dose").check();
+  await page.getByRole("button", { name: "Save Setup", exact: true }).click();
+  await expect(page.locator("#toast")).toContainText("Setup saved");
+  await closeSheet(page);
+  await expect.poll(async () => (await ring("morning")).given).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 test("conflicting edits preserve both versions and can be reviewed explicitly", async ({ page }) => {
   const errors = await openTracker(page);
   await addNote(page, "Shared note", "Original");
@@ -849,7 +879,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-94");
+      const cache = await caches.open("sawyer-tracker-shell-96");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);

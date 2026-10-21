@@ -1065,6 +1065,10 @@
     return date.getHours() < 14 ? "morning" : "night";
   }
 
+  function countGiven(entries) {
+    return entries.filter((entry) => entry.status === "given" || entry.status === "assumed").length;
+  }
+
   function routineEntries(entries, routine) {
     return entries.filter((entry) => routineOf(entry.dueAt) === routine);
   }
@@ -1114,7 +1118,7 @@
     const last = getSeizuresAsc().at(-1);
     const entries = getTodayDoseEntries();
     const next = nextDoseInfo(entries);
-    const confirmedToday = entries.filter((entry) => entry.status === "given").length;
+    const givenToday = countGiven(entries);
     const exceptionsToday = entries.filter((entry) => entry.status === "missed" || entry.status === "skipped").length;
     const chip = { "recent-seizure": "Last 24 hours", "building-streak": "Building", "calm-streak": "Steady" }[tone] || "Ready";
     const toLongest = summary.completedLongestGap !== null && summary.currentStreakDays !== null
@@ -1163,12 +1167,12 @@
             <span class="k">${icon("clock")}Next dose</span><b>${escapeHtml(nextLabel)}</b><small>${escapeHtml(next ? next.names.join(", ") : "No doses scheduled")}</small>
           </button>
           <button class="mini ${exceptionsToday ? "attention" : ""}" data-overlay="routine" data-routine="${routineOf(new Date())}" type="button">
-            <span class="k">${icon("pill")}Today's doses</span><b>${confirmedToday}/${entries.length}</b><small>${exceptionsToday ? `${exceptionsToday} missed or skipped` : "confirmed"}</small>
+            <span class="k">${icon("pill")}Today's doses</span><b>${givenToday}/${entries.length}</b><small>${exceptionsToday ? `${exceptionsToday} missed or skipped` : "given"}</small>
           </button>
         </div>
         <div class="today-grid">
           <div class="stack">
-            <div class="section-head"><h2>Today's Care</h2><span class="tag ${exceptionsToday ? "warn" : confirmedToday === entries.length && entries.length ? "ok" : "plain"}">${confirmedToday} of ${entries.length} confirmed</span></div>
+            <div class="section-head"><h2>Today's Care</h2><span class="tag ${exceptionsToday ? "warn" : givenToday === entries.length && entries.length ? "ok" : "plain"}">${givenToday} of ${entries.length} given</span></div>
             <div class="routines">${["morning", "night"].map((routine) => renderRoutineCard(routine, entries)).join("")}</div>
             <p class="fine">${state.profile?.doseConfirmationMode === "explicit" ? "Confirm each dose after it is given." : "Doses count as given unless marked missed. You can also confirm each one."}</p>
           </div>
@@ -1214,19 +1218,19 @@
     const list = routineEntries(entries, routine);
     if (!list.length) return "";
     const meta = ROUTINES[routine];
-    const confirmed = list.filter((entry) => entry.status === "given").length;
+    const given = countGiven(list);
     const exceptions = list.filter((entry) => entry.status === "missed" || entry.status === "skipped").length;
     const circumference = 276.46;
     const names = [...new Set(list.map((entry) => entry.schedule.name))];
     return `
       <button class="routine-card ${routine}" data-overlay="routine" data-routine="${routine}" type="button"
-        aria-label="${meta.label} routine, ${confirmed} of ${list.length} confirmed${exceptions ? `, ${exceptions} missed or skipped` : ""}">
+        aria-label="${meta.label} routine, ${given} of ${list.length} given${exceptions ? `, ${exceptions} missed or skipped` : ""}">
         ${leaf("--s:170px;--r:-20deg;left:-56px;bottom:16%;--d:26s")}
         ${leaf("--s:120px;--r:70deg;right:-34px;top:20%;--d:30s;--dx:-12px")}
         <header><span><b>${meta.label}</b><small>From ${escapeHtml(formatTime(list[0].dueAt))}</small></span><span class="count-badge">${list.length}</span></header>
         <span class="ring">
-          <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="trk" cx="50" cy="50" r="44"/><circle class="val" cx="50" cy="50" r="44" stroke-dasharray="${circumference}" stroke-dashoffset="${(circumference * (1 - confirmed / list.length)).toFixed(1)}"/></svg>
-          <span>${confirmed}<small>/${list.length}</small></span>
+          <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="trk" cx="50" cy="50" r="44"/><circle class="val" cx="50" cy="50" r="44" stroke-dasharray="${circumference}" stroke-dashoffset="${(circumference * (1 - given / list.length)).toFixed(1)}"/></svg>
+          <span>${given}<small>/${list.length}</small></span>
         </span>
         <footer><p>${escapeHtml(names.join(", "))}</p><span class="details">${exceptions ? `${exceptions} missed` : "Open"}</span></footer>
       </button>
@@ -1381,11 +1385,11 @@
 
   function renderRoutineBody(routine, entries = getTodayDoseEntries()) {
     const list = routineEntries(entries, routine);
-    const confirmed = list.filter((entry) => entry.status === "given").length;
+    const given = countGiven(list);
     return `
       <div>
         <h2 class="routine-title" id="sheet-title">${ROUTINES[routine].label} Routine</h2>
-        <p class="routine-sub">${list.length ? `From ${escapeHtml(formatTime(list[0].dueAt))} · ${list.length} dose${list.length === 1 ? "" : "s"} · ${confirmed} confirmed` : "No doses at this time of day."}</p>
+        <p class="routine-sub">${list.length ? `From ${escapeHtml(formatTime(list[0].dueAt))} · ${list.length} dose${list.length === 1 ? "" : "s"} · ${given} given` : "No doses at this time of day."}</p>
       </div>
       <div class="field carer-field"><label for="carer-name">Recording as</label>
         <input id="carer-name" maxlength="60" autocomplete="given-name" placeholder="Your name" value="${escapeHtml(state.settings.carerName || "")}" /></div>
@@ -4700,6 +4704,7 @@
 
   function getTodayDoseEntries(date = new Date()) {
     const dayKey = localDateKey(date);
+    const now = new Date();
     return state.schedules
       .filter((schedule) => schedule.active)
       .flatMap((schedule) =>
@@ -4708,7 +4713,9 @@
           const key = `${dayKey}:${schedule.id}:${time.id}`;
           const matches = state.events.filter((event) => event.type === "dose" && event.doseKey === key);
           const log = matches.find(SYNC.pending) || matches.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
-          const status = log?.status || (state.profile?.doseConfirmationMode === "explicit" ? "unconfirmed" : "assumed");
+          // Without per-dose confirmation, a dose whose time has passed counts as given unless marked otherwise.
+          const status = log?.status || (state.profile?.doseConfirmationMode === "explicit" ? "unconfirmed"
+            : dueAt <= now ? "assumed" : "upcoming");
           const pillClass =
             status === "given"
               ? "given"
@@ -4724,7 +4731,7 @@
                 ? "Missed"
                 : status === "skipped"
                   ? "Skipped"
-                  : status === "unconfirmed" ? "Unconfirmed" : "Assumed";
+                  : status === "unconfirmed" ? "Unconfirmed" : status === "upcoming" ? "Upcoming" : "Assumed";
           const doseText = [schedule.dose, schedule.unit].filter(Boolean).join(" ");
 
           return {
