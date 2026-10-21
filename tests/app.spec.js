@@ -282,7 +282,7 @@ async function addNote(page, title, body) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=86");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=87");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
@@ -412,6 +412,47 @@ test("the streak field turns yellow after 24 hours and stays yellow through day 
   await expect(hero).toHaveClass(/glow-yellow/);
   await expect(hero.locator(".hero-count")).toHaveText("1");
   expect(await heroBackground(page)).toContain("rgb(244, 180, 20)");
+  expect(pageErrors).toEqual([]);
+});
+
+test("pulling down in the installed app shows a wordless spinner that spins while refreshing", async ({ page }) => {
+  // iPhone only offers pull to refresh in the Home Screen app, so present the page as installed.
+  await page.addInitScript(() => Object.defineProperty(navigator, "standalone", { get: () => true }));
+  const pageErrors = await openTracker(page);
+
+  // WebKit cannot construct Touch objects, so send plain events carrying the finger position the handler reads.
+  const pull = (distance, release = false) => page.evaluate(({ distance, release }) => {
+    const content = document.querySelector(".content");
+    const send = (type, touches) => {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, "touches", { value: touches });
+      content.dispatchEvent(event);
+    };
+    send("touchstart", [{ clientX: 180, clientY: 120 }]);
+    send("touchmove", [{ clientX: 180, clientY: 120 + distance }]);
+    if (release) send("touchend", []);
+  }, { distance, release });
+  const visiblePetals = () => page.locator("#pull-refresh line").evaluateAll((petals) =>
+    petals.filter((petal) => getComputedStyle(petal).opacity === "1").length);
+
+  const spinner = page.locator("#pull-refresh");
+  await expect(spinner).toHaveCSS("opacity", "0");
+  await pull(100);
+  await expect(spinner).toHaveClass(/visible/);
+  await expect(spinner).not.toHaveClass(/ready/);
+  expect(await visiblePetals()).toBe(5);
+  await pull(200);
+  await expect(spinner).toHaveClass(/ready/);
+  expect(await visiblePetals()).toBe(8);
+  await expect(page.getByText(/to refresh/i)).toHaveCount(0);
+
+  await pull(200, true);
+  await expect(page.locator(".screen")).toHaveClass(/refreshing/);
+  await expect(spinner).toHaveClass(/refreshing/);
+  await expect(spinner).toHaveText("Refreshing");
+  await expect(page.locator(".screen")).not.toHaveClass(/refreshing/);
+  await expect(spinner).toHaveCSS("opacity", "0");
+  await expect(spinner).toHaveText("");
   expect(pageErrors).toEqual([]);
 });
 
@@ -710,7 +751,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-86");
+      const cache = await caches.open("sawyer-tracker-shell-87");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);

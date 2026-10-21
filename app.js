@@ -905,10 +905,10 @@
     const sameTab = state.renderedTab === state.activeTab;
     const contentScroll = sameTab ? document.querySelector(".content")?.scrollTop || 0 : 0;
     app.innerHTML = `
-      <div class="screen">
+      <div class="screen${state.pullRefreshing ? " refreshing" : ""}">
+        ${renderPullRefresh()}
         <main class="content">
           ${renderTopBar()}
-          <div id="pull-refresh" class="pull-refresh" aria-live="polite">Pull to refresh</div>
           <div class="page">
             ${renderEmergencySyncBanner()}
             ${renderPendingBanner()}
@@ -2934,23 +2934,45 @@
     });
   }
 
+  function renderPullRefresh() {
+    // An iPhone-style spinner sits behind the page: pulling down uncovers it, and it spins in a gap while refreshing.
+    const petals = Array.from({ length: 8 }, (_, index) =>
+      `<line x1="12" y1="2.5" x2="12" y2="7" transform="rotate(${index * 45} 12 12)" style="--i:${index}" />`
+    ).join("");
+    return `
+      <div id="pull-refresh" class="pull-refresh${state.pullRefreshing ? " refreshing" : ""}" role="status">
+        <svg viewBox="0 0 24 24" aria-hidden="true">${petals}</svg>
+        <span class="sr-only">${state.pullRefreshing ? "Refreshing" : ""}</span>
+      </div>
+    `;
+  }
+
+  function setPullRefreshing(refreshing) {
+    state.pullRefreshing = refreshing;
+    document.querySelector(".screen")?.classList.toggle("refreshing", refreshing);
+    const indicator = document.querySelector("#pull-refresh");
+    if (!indicator) return;
+    indicator.classList.toggle("refreshing", refreshing);
+    indicator.querySelector(".sr-only").textContent = refreshing ? "Refreshing" : "";
+  }
+
   function bindPullRefresh() {
     if (isIosBrowser()) return;
 
     const content = document.querySelector(".content");
-    const indicator = document.querySelector("#pull-refresh");
-    if (!content || !indicator || content.__pullRefreshBound) return;
+    if (!content || content.__pullRefreshBound) return;
     content.__pullRefreshBound = true;
 
     let startY = 0;
     let pull = 0;
     let pulling = false;
+    // render() replaces the spinner, so always use the current one.
+    const indicator = () => document.querySelector("#pull-refresh");
 
     const resetPull = () => {
       pull = 0;
-      indicator.style.setProperty("--pull-distance", "0px");
-      indicator.classList.remove("visible", "ready", "refreshing");
-      indicator.textContent = "Pull to refresh";
+      indicator()?.style.setProperty("--pull", "0");
+      indicator()?.classList.remove("visible", "ready");
     };
 
     content.addEventListener(
@@ -2973,10 +2995,12 @@
           return;
         }
         pull = Math.min(110, distance * 0.45);
-        indicator.style.setProperty("--pull-distance", `${pull}px`);
-        indicator.textContent = pull > 72 ? "Release to refresh" : "Pull to refresh";
-        indicator.classList.toggle("ready", pull > 72);
-        indicator.classList.add("visible");
+        // Only the petals' opacity follows the finger; the page moves with iOS's own bounce.
+        const spinner = indicator();
+        if (!spinner) return;
+        spinner.style.setProperty("--pull", Math.min(1, pull / 72).toFixed(3));
+        spinner.classList.toggle("ready", pull > 72);
+        spinner.classList.add("visible");
       },
       { passive: true }
     );
@@ -2990,12 +3014,14 @@
           resetPull();
           return;
         }
-        state.pullRefreshing = true;
-        indicator.classList.add("refreshing");
-        indicator.textContent = "Refreshing...";
-        await refreshApp();
-        state.pullRefreshing = false;
+        setPullRefreshing(true);
         resetPull();
+        try {
+          // Keep the spinner up long enough to read as a refresh, even when the sync is instant.
+          await Promise.all([refreshApp(), new Promise((resolve) => setTimeout(resolve, 700))]);
+        } finally {
+          setPullRefreshing(false);
+        }
       },
       { passive: true }
     );
