@@ -45,6 +45,20 @@ test("clustered seizures form one episode before calculating gaps", () => {
   );
 });
 
+test("a seizure without a recorded time joins a seizure on the next calendar day", () => {
+  const events = [
+    seizure("s1", "2026-08-22T07:00:00.000Z"),
+    seizure("s2", "2026-08-23T00:00:00.000Z", { timeKnown: false }),
+    seizure("s3", "2026-09-12T08:00:00.000Z"),
+    seizure("s4", "2026-09-14T00:00:00.000Z", { timeKnown: false })
+  ];
+
+  assert.deepEqual(
+    seizureEpisodeGaps(events).map((gap) => [gap.from.id, gap.to.id]),
+    [["s2", "s3"], ["s3", "s4"]]
+  );
+});
+
 test("average-gap alert requires at least two completed episode gaps", () => {
   const events = [
     seizure("s1", "2026-01-01T00:00:00.000Z"),

@@ -96,8 +96,9 @@ function activeSeizures(events) {
 }
 
 function seizuresShareClusterWindow(first, second) {
+  // Without a recorded time, seizures on the same or the next calendar day may have been within 24 hours.
   if (first.timeKnown === false || second.timeKnown === false) {
-    return eventDayKey(first) === eventDayKey(second);
+    return calendarDaysApart(eventDayKey(first), eventDayKey(second)) <= 1;
   }
   return Math.abs(new Date(second.occurredAt) - new Date(first.occurredAt)) < CLUSTER_WINDOW_MS;
 }
@@ -118,6 +119,11 @@ function seizureCounterReferenceMs(event, timezone) {
 
 function eventDayKey(event) {
   return String(event.dayKey || event.occurredAt || "").slice(0, 10);
+}
+
+function calendarDaysApart(firstKey, secondKey) {
+  const dayNumber = (key) => Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10))) / DAY_MS;
+  return Math.abs(dayNumber(secondKey) - dayNumber(firstKey));
 }
 
 function dateKeyInTimezone(date, timezone) {
