@@ -284,10 +284,36 @@ async function addNote(page, title, body) {
   await page.getByRole("button", { name: "Save Note" }).click();
 }
 
+test("the sign-in screen fills the screen and signs in with the household code", async ({ page }) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.route("**/config.js*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/javascript", body: fakeSupabaseConfig() })
+  );
+  await page.goto("/");
+
+  const screen = page.locator(".login-screen");
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await expect(screen.locator(".login-mark")).toBeVisible();
+  await expect(screen).not.toContainText("Supabase");
+  const box = await screen.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box.width).toBeGreaterThanOrEqual(viewport.width - 1);
+  expect(box.height).toBeGreaterThanOrEqual(viewport.height - 1);
+
+  const code = page.getByLabel("Household code");
+  await code.fill("test-household-code");
+  await page.getByRole("button", { name: "Show", exact: true }).click();
+  await expect(code).toHaveAttribute("type", "text");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+  expect(pageErrors).toEqual([]);
+});
+
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=95");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=96");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
@@ -879,7 +905,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-96");
+      const cache = await caches.open("sawyer-tracker-shell-97");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);
