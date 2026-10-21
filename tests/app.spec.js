@@ -287,7 +287,7 @@ async function addNote(page, title, body) {
 test("household login, navigation, records, and mobile layout work together", async ({ page }) => {
   const pageErrors = await openTracker(page);
 
-  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=91");
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("href", "./styles.css?v=92");
   const hero = page.locator("#hero");
   await expect(hero.locator(".hero-meta > div")).toHaveCount(3);
   await expect(hero.locator(".meta-longest")).toContainText("Longest streak");
@@ -512,14 +512,30 @@ test("Patterns shows the 30-day trend and severity, and blood levels show their 
   await expect(trend.locator(".trend-now strong")).toContainText("2");
   await expect(trend.locator(".trend-now .tag")).toHaveText("Same as the 30 days before");
   await expect(trend.locator("svg .trend-line")).toHaveCount(1);
-  await trend.locator(".hit").last().focus();
-  await expect(page.locator("#chart-tip")).toContainText("in the 30 days before");
+  // Reading another day moves the guide and the headline, then both settle back on today.
+  await trend.locator("svg").focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(trend.locator("[data-readout-label]")).toContainText("on ");
   await expect(trend.locator(".cross")).toHaveClass(/on/);
+  await trend.locator("svg").blur();
+  await expect(trend.locator("[data-readout-label]")).toHaveText("now");
+  await expect(trend.locator("[data-readout-value]")).toHaveText("2");
 
   const severity = page.locator(".severity-card");
   await expect(severity.locator("svg .dot.sev-2")).toHaveCount(6);
   await expect(severity.locator(".trend-now .tag")).toHaveText("About the same");
   await expect(page.locator(".stats-month-panel .mb-fill.sev-2").first()).toBeVisible();
+
+  // A chart label goes away with a tap anywhere else.
+  await severity.locator(".hit").first().dispatchEvent("pointerover");
+  await expect(page.locator("#chart-tip")).toHaveClass(/show/);
+  await page.locator(".patterns h2").click();
+  await expect(page.locator("#chart-tip")).not.toHaveClass(/show/);
+
+  await page.locator("[data-deck-to='3']").click();
+  await expect(page.locator("[data-deck-to='3']")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".highlights .ring-tile")).toContainText("4 days to go");
+  await expect(page.locator(".highlights .episodes")).toContainText("0 of 6 episodes were clusters");
 
   await tab(page, "Vet").click();
   await page.getByRole("button", { name: "Add Blood Test" }).click();
@@ -833,7 +849,7 @@ test.describe("offline app shell", () => {
     await openTracker(page);
     await page.evaluate(async (config) => {
       await navigator.serviceWorker.ready;
-      const cache = await caches.open("sawyer-tracker-shell-91");
+      const cache = await caches.open("sawyer-tracker-shell-92");
       await cache.put(new URL("./config.js", location.href), new Response(config, { headers: { "Content-Type": "application/javascript" } }));
     }, fakeSupabaseConfig());
     await context.setOffline(true);
